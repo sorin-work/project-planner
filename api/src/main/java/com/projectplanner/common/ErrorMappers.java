@@ -1,0 +1,69 @@
+package com.projectplanner.common;
+
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
+import org.jboss.resteasy.reactive.server.ServerExceptionMapper;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+
+import java.util.Comparator;
+import java.util.List;
+
+/** Turns exceptions into consistent {@link ApiError} JSON responses. */
+public class ErrorMappers {
+
+    private static final Logger LOG = Logger.getLogger(ErrorMappers.class);
+
+    @ServerExceptionMapper
+    public Response api(ApiException e) {
+        return respond(new ApiError(e.status(), e.code(), e.getMessage()));
+    }
+
+    @ServerExceptionMapper
+    public Response validation(ConstraintViolationException e) {
+        List<ApiError.FieldError> errors = e.getConstraintViolations().stream()
+                .map(v -> new ApiError.FieldError(fieldName(v), v.getMessage()))
+                .sorted(Comparator.comparing(ApiError.FieldError::field))
+                .toList();
+        return respond(new ApiError(400, "validation_failed", "Some fields are invalid", errors));
+    }
+
+    @ServerExceptionMapper
+    public Response badJson(JsonProcessingException e) {
+        return respond(new ApiError(400, "malformed_json", "The request body is not valid JSON"));
+    }
+
+    @ServerExceptionMapper
+    public Response web(WebApplicationException e) {
+        int status = e.getResponse().getStatus();
+        String code = switch (status) {
+            case 404 -> "not_found";
+            case 405 -> "method_not_allowed";
+            case 415 -> "unsupported_media_type";
+            default -> "http_" + status;
+        };
+        String message = status == 404 ? "Not found" : e.getMessage();
+        return respond(new ApiError(status, code, message));
+    }
+
+    @ServerExceptionMapper
+    public Response unexpected(RuntimeException e) {
+        LOG.error("Unhandled error", e);
+        return respond(new ApiError(500, "internal_error", "Something went wrong on our side"));
+    }
+
+    private static String fieldName(ConstraintViolation<?> violation) {
+        // Paths look like "create.request.email"; the client only cares about the last part.
+        String path = violation.getPropertyPath().toString();
+        int dot = path.lastIndexOf('.');
+        return dot >= 0 ? path.substring(dot + 1) : path;
+    }
+
+    private static Response respond(ApiError error) {
+        return Response.status(error.status()).type(MediaType.APPLICATION_JSON).entity(error).build();
+    }
+}
