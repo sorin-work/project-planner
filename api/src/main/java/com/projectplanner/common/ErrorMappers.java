@@ -5,6 +5,9 @@ import jakarta.validation.ConstraintViolationException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import io.quarkus.security.AuthenticationFailedException;
+import io.quarkus.security.ForbiddenException;
+import io.quarkus.security.UnauthorizedException;
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.server.ServerExceptionMapper;
 
@@ -35,6 +38,21 @@ public class ErrorMappers {
     @ServerExceptionMapper
     public Response badJson(JsonProcessingException e) {
         return respond(new ApiError(400, "malformed_json", "The request body is not valid JSON"));
+    }
+
+    @ServerExceptionMapper
+    public Response unauthorized(UnauthorizedException e) {
+        return respond(new ApiError(401, "unauthorized", "Sign in to continue"));
+    }
+
+    @ServerExceptionMapper
+    public Response authFailed(AuthenticationFailedException e) {
+        return respond(new ApiError(401, "unauthorized", "Your session has expired, sign in again"));
+    }
+
+    @ServerExceptionMapper
+    public Response forbidden(ForbiddenException e) {
+        return respond(new ApiError(403, "forbidden", "You are not allowed to do that"));
     }
 
     @ServerExceptionMapper
