@@ -5,6 +5,9 @@ import com.projectplanner.auth.AuthDtos.LoginRequest;
 import com.projectplanner.auth.AuthDtos.SignupRequest;
 import com.projectplanner.auth.AuthDtos.UserResponse;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.org.Membership;
+import com.projectplanner.org.Organisation;
+import com.projectplanner.org.Role;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 
@@ -24,6 +27,7 @@ public class AuthService {
         this.clock = clock;
     }
 
+    /** Creates the account and an organisation with the new user as its owner. */
     @Transactional
     public AuthResponse signup(SignupRequest request) {
         String email = User.normalizeEmail(request.email());
@@ -37,6 +41,13 @@ public class AuthService {
         user.passwordHash = hasher.hash(request.password());
         user.createdAt = now;
         user.persist();
+
+        boolean named = request.organisationName() != null && !request.organisationName().isBlank();
+        Organisation org = new Organisation();
+        org.name = named ? request.organisationName().trim() : user.name + "'s workspace";
+        org.createdAt = now;
+        org.persist();
+        Membership.create(org.id, user.id, Role.OWNER, now);
         return respond(user);
     }
 
