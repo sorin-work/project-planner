@@ -59,4 +59,9 @@ class AuthResourceTest {
         given().get("/api/me").then().statusCode(401).body("code", equalTo("unauthorized"));
         given().auth().oauth2("not.a.token").get("/api/me").then().statusCode(401);
     }
+
+    @Test
+    void healthIsUp() {
+        given().get("/q/health/ready").then().statusCode(200).body("status", equalTo("UP"));
+    }
 }
