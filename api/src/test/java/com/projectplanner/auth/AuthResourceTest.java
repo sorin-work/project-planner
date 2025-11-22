@@ -35,6 +35,16 @@ class AuthResourceTest {
     }
 
     @Test
+    void loginIsCaseInsensitiveOnEmail() {
+        Api.Account account = Api.signup("Ben");
+        given().contentType(ContentType.JSON)
+                .body(Map.of("email", account.email().toUpperCase(), "password", "correct-horse"))
+                .post("/api/auth/login")
+                .then().statusCode(200)
+                .body("user.id", equalTo((int) account.userId()));
+    }
+
+    @Test
     void rejectsWrongPassword() {
         Api.Account account = Api.signup("Cara");
         given().contentType(ContentType.JSON)

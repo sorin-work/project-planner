@@ -37,7 +37,7 @@ public class User extends PanacheEntityBase {
     }
 
     public static Optional<User> findByEmail(String email) {
-        return find("email", email).firstResultOptional();
+        return find("email", normalizeEmail(email)).firstResultOptional();
     }
 
     /** The name used for @mentions: the part of the email before the @. */
