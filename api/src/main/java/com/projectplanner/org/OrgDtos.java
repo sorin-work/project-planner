@@ -1,6 +1,14 @@
 package com.projectplanner.org;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.auth.User;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 
 public final class OrgDtos {
 
@@ -12,5 +20,39 @@ public final class OrgDtos {
             Organisation org = Organisation.findById(membership.organisationId);
             return new MembershipSummary(org.id, org.name, membership.role, org.currency);
         }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record OrganisationResponse(long id, String name, String currency, String timezone,
+                                       BigDecimal defaultHourlyRate, Role role) {
+        public static OrganisationResponse of(Organisation org, Membership membership) {
+            BigDecimal rate = org.defaultHourlyRate;
+            return new OrganisationResponse(org.id, org.name, org.currency, org.timezone, rate, membership.role);
+        }
+    }
+
+    public record UpdateOrganisationRequest(
+            @Size(min = 1, max = 120) String name,
+            @Pattern(regexp = "[A-Z]{3}", message = "must be a three letter ISO currency code") String currency,
+            @Size(min = 1, max = 64) String timezone,
+            @DecimalMin("0") @DecimalMax("100000") BigDecimal defaultHourlyRate) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record MemberResponse(long id, long userId, String name, String email, String handle, Role role,
+                                 BigDecimal hourlyRate, BigDecimal weeklyCapacityHours, Long clientId,
+                                 Instant joinedAt) {
+        public static MemberResponse of(Membership m, User user, boolean showRates) {
+            return new MemberResponse(m.id, user.id, user.name, user.email, user.handle(), m.role,
+                    showRates ? m.hourlyRate : null, m.weeklyCapacityHours, m.clientId, m.createdAt);
+        }
+    }
+
+    public record UpdateMemberRequest(
+            Role role,
+            @DecimalMin("0") @DecimalMax("100000") BigDecimal hourlyRate,
+            boolean clearHourlyRate,
+            @DecimalMin("0") @DecimalMax("168") BigDecimal weeklyCapacityHours,
+            Long clientId) {
     }
 }
