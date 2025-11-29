@@ -2,6 +2,7 @@ package com.projectplanner.org;
 
 import com.projectplanner.auth.CurrentUser;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.project.Project;
 import jakarta.enterprise.context.RequestScoped;
 
 
@@ -38,6 +39,37 @@ public class OrgAccess {
 
     public Membership manager(long organisationId) {
         return require(organisationId, Role.MANAGER);
+    }
+
+    /** Read access to a project: the whole team, or a client viewer of the project's client. */
+    public Membership viewProject(Project project) {
+        return member(project.organisationId);
+    }
+
+    /** Planning changes (tasks, dates, dependencies) are for the team, not client viewers. */
+    public Membership editProject(Project project) {
+        Membership membership = viewProject(project);
+        if (!membership.role.isTeam()) {
+            throw ApiException.forbidden("Client viewers can't change the plan");
+        }
+        return membership;
+    }
+
+    public Membership manageProject(Project project) {
+        Membership membership = viewProject(project);
+        if (!membership.role.canManage()) {
+            throw ApiException.forbidden("Only owners and managers can change project settings");
+        }
+        return membership;
+    }
+
+    public Project project(long projectId) {
+        Project project = Project.findById(projectId);
+        if (project == null) {
+            throw ApiException.notFound("Project");
+        }
+        viewProject(project);
+        return project;
     }
 
     public long userId() {

@@ -4,6 +4,7 @@ import com.projectplanner.auth.User;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Role;
+import com.projectplanner.project.Project;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
 import io.quarkus.security.Authenticated;
@@ -38,6 +39,16 @@ public class ActivityResource {
                                                   @QueryParam("limit") @DefaultValue("50") int limit) {
         Membership me = access.member(orgId);
         List<ActivityEntry> entries = ActivityEntry.find("organisationId", Sort.descending("createdAt", "id"), orgId)
+                .page(Page.ofSize(limit)).list();
+        return toResponses(entries);
+    }
+
+    @GET
+    @Path("/projects/{projectId}/activity")
+    public List<ActivityResponse> forProject(@PathParam("projectId") long projectId,
+                                             @QueryParam("limit") @DefaultValue("50") int limit) {
+        Project project = access.project(projectId);
+        List<ActivityEntry> entries = ActivityEntry.find("projectId", Sort.descending("createdAt", "id"), project.id)
                 .page(Page.ofSize(limit)).list();
         return toResponses(entries);
     }
