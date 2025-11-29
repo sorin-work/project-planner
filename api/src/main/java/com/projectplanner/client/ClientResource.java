@@ -4,6 +4,7 @@ import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Role;
+import com.projectplanner.project.Project;
 import io.quarkus.security.Authenticated;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -80,13 +81,19 @@ public class ClientResource {
         return ClientResponse.of(client);
     }
 
+    /** Clients with projects are archived instead of deleted so the history stays intact. */
     @DELETE
     @Path("/{clientId}")
     @Transactional
     @ResponseStatus(204)
     public void delete(@PathParam("orgId") long orgId, @PathParam("clientId") long clientId) {
         access.manager(orgId);
-        find(orgId, clientId).delete();
+        Client client = find(orgId, clientId);
+        if (Project.count("clientId", clientId) > 0) {
+            client.archived = true;
+        } else {
+            client.delete();
+        }
     }
 
     private static void apply(Client client, ClientRequest request) {
@@ -118,9 +125,10 @@ public class ClientResource {
     }
 
     public record ClientResponse(long id, String name, String contactName, String contactEmail, String notes,
-                                 boolean archived) {
+                                 boolean archived, long projectCount) {
         static ClientResponse of(Client c) {
-            return new ClientResponse(c.id, c.name, c.contactName, c.contactEmail, c.notes, c.archived);
+            return new ClientResponse(c.id, c.name, c.contactName, c.contactEmail, c.notes, c.archived,
+                    Project.count("clientId", c.id));
         }
     }
 }

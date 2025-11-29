@@ -53,4 +53,15 @@ class ProjectResourceTest {
                 .post("/api/orgs/" + owner.orgId() + "/projects")
                 .then().statusCode(400).body("code", equalTo("invalid_dates"));
     }
+
+    @Test
+    void deletingAClientWithProjectsArchivesIt() {
+        Account owner = Api.signup("Jade");
+        long clientId = Api.createClient(owner, "Keep me");
+        Api.createProject(owner, "KEEP", clientId);
+        owner.as().delete("/api/orgs/" + owner.orgId() + "/clients/" + clientId).then().statusCode(204);
+        owner.as().get("/api/orgs/" + owner.orgId() + "/clients/" + clientId)
+                .then().statusCode(200).body("archived", equalTo(true));
+        owner.as().get("/api/orgs/" + owner.orgId() + "/clients").then().body("$", hasSize(0));
+    }
 }
