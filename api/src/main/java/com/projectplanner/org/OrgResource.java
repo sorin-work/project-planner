@@ -25,7 +25,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-@Path("/api/orgs/{orgId}")
+@Path("/api")
 @Authenticated
 public class OrgResource {
 
@@ -38,12 +38,14 @@ public class OrgResource {
     }
 
     @GET
+    @Path("/orgs/{orgId}")
     public OrganisationResponse get(@PathParam("orgId") long orgId) {
         Membership membership = access.member(orgId);
         return OrganisationResponse.of(Organisation.findById(orgId), membership);
     }
 
     @PATCH
+    @Path("/orgs/{orgId}")
     @Transactional
     public OrganisationResponse update(@PathParam("orgId") long orgId, @Valid @NotNull UpdateOrganisationRequest request) {
         Membership membership = access.require(orgId, Role.OWNER);
@@ -64,7 +66,7 @@ public class OrgResource {
     }
 
     @GET
-    @Path("/members")
+    @Path("/orgs/{orgId}/members")
     public List<MemberResponse> members(@PathParam("orgId") long orgId) {
         Membership me = access.member(orgId);
         List<Membership> memberships = Membership.forOrganisation(orgId);
@@ -75,7 +77,7 @@ public class OrgResource {
     }
 
     @PATCH
-    @Path("/members/{memberId}")
+    @Path("/orgs/{orgId}/members/{memberId}")
     @Transactional
     public MemberResponse updateMember(@PathParam("orgId") long orgId, @PathParam("memberId") long memberId,
                                        @Valid @NotNull UpdateMemberRequest request) {
@@ -106,7 +108,7 @@ public class OrgResource {
     }
 
     @DELETE
-    @Path("/members/{memberId}")
+    @Path("/orgs/{orgId}/members/{memberId}")
     @Transactional
     @ResponseStatus(204)
     public void removeMember(@PathParam("orgId") long orgId, @PathParam("memberId") long memberId) {
