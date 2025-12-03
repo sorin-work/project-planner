@@ -37,4 +37,17 @@ public final class ProjectDtos {
                                   LocalDate endDate, BigDecimal budgetHours, BigDecimal budgetAmount,
                                   BigDecimal hourlyRate, String color, Instant createdAt, Instant updatedAt) {
     }
+
+    public record PhaseRequest(
+            @NotBlank @Size(max = 120) String name,
+            Integer position,
+            LocalDate startDate,
+            LocalDate endDate) {
+    }
+
+    public record PhaseResponse(long id, long projectId, String name, int position, LocalDate startDate, LocalDate endDate) {
+        public static PhaseResponse of(Phase phase) {
+            return new PhaseResponse(phase.id, phase.projectId, phase.name, phase.position, phase.startDate, phase.endDate);
+        }
+    }
 }
