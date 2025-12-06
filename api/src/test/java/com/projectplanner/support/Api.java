@@ -74,6 +74,12 @@ public final class Api {
         return id.longValue();
     }
 
+    public static long createTask(Account who, long projectId, Map<String, Object> fields) {
+        Number id = who.as().body(fields).post("/api/projects/" + projectId + "/tasks")
+                .then().statusCode(201).extract().path("id");
+        return id.longValue();
+    }
+
     public static long createClient(Account owner, String name) {
         Number id = owner.as().body(Map.of("name", name)).post("/api/orgs/" + owner.orgId() + "/clients")
                 .then().statusCode(201).extract().path("id");
