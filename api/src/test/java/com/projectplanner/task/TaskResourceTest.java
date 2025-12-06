@@ -54,6 +54,16 @@ class TaskResourceTest {
     }
 
     @Test
+    void milestonesAreSingleDays() {
+        Account owner = Api.signup("Nia");
+        long projectId = Api.createProject(owner, "MS");
+        owner.as().body(Map.of("title", "Launch", "milestone", true, "dueDate", "2026-03-20"))
+                .post("/api/projects/" + projectId + "/tasks").then().statusCode(201)
+                .body("startDate", equalTo("2026-03-20"))
+                .body("dueDate", equalTo("2026-03-20"));
+    }
+
+    @Test
     void statusChangesTrackCompletion() {
         Account owner = Api.signup("Oli");
         long projectId = Api.createProject(owner, "DONE");

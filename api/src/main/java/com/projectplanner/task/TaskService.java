@@ -126,6 +126,12 @@ public class TaskService {
     }
 
     private void setDates(Task task, LocalDate start, LocalDate due) {
+        if (task.milestone) {
+            LocalDate day = due != null ? due : start;
+            task.startDate = day;
+            task.dueDate = day;
+            return;
+        }
         if (start != null && due != null && due.isBefore(start)) {
             throw ApiException.badRequest("invalid_dates", "The due date can't be before the start date");
         }
