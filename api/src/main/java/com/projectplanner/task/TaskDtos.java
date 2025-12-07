@@ -3,12 +3,16 @@ package com.projectplanner.task;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 public final class TaskDtos {
 
@@ -49,11 +53,20 @@ public final class TaskDtos {
             Boolean milestone) {
     }
 
+    public record DependencyRequest(@NotNull Long predecessorId, @Min(0) @Max(365) int lagDays) {
+    }
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record TaskResponse(long id, long projectId, Long phaseId, Long parentId, String title, String description,
                                TaskStatus status, Priority priority, BigDecimal estimateHours, LocalDate startDate,
                                LocalDate dueDate, Long assigneeId, String assigneeName, boolean milestone,
                                Instant completedAt, Instant createdAt, Instant updatedAt,
-                               int subtaskCount) {
+                               List<DependencyResponse> predecessors, int subtaskCount) {
+    }
+
+    public record DependencyResponse(long id, long predecessorId, long successorId, int lagDays) {
+        public static DependencyResponse of(TaskDependency d) {
+            return new DependencyResponse(d.id, d.predecessorId, d.successorId, d.lagDays);
+        }
     }
 }

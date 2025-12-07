@@ -75,4 +75,48 @@ class TaskResourceTest {
         owner.as().get("/api/projects/" + projectId + "/activity").then()
                 .body("action", hasItems("task.created", "task.status"));
     }
+
+    @Test
+    void rejectsDependencyCycles() {
+        Account owner = Api.signup("Ugo");
+        long projectId = Api.createProject(owner, "CYCLE");
+        long a = Api.createTask(owner, projectId, Map.of("title", "Design"));
+        long b = Api.createTask(owner, projectId, Map.of("title", "Build"));
+        long c = Api.createTask(owner, projectId, Map.of("title", "Test"));
+        owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + b + "/dependencies").then().statusCode(201);
+        owner.as().body(Map.of("predecessorId", b)).post("/api/tasks/" + c + "/dependencies").then().statusCode(201);
+
+        owner.as().body(Map.of("predecessorId", c)).post("/api/tasks/" + a + "/dependencies")
+                .then().statusCode(409)
+                .body("code", equalTo("dependency_cycle"))
+                .body("message", containsString("Design → Build → Test → Design"));
+        owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + a + "/dependencies")
+                .then().statusCode(409).body("code", equalTo("dependency_cycle"));
+        owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + b + "/dependencies")
+                .then().statusCode(409).body("code", equalTo("dependency_exists"));
+    }
+
+    @Test
+    void dependenciesMustStayInTheProject() {
+        Account owner = Api.signup("Vic");
+        long p1 = Api.createProject(owner, "P1");
+        long p2 = Api.createProject(owner, "P2");
+        long a = Api.createTask(owner, p1, Map.of("title", "A"));
+        long b = Api.createTask(owner, p2, Map.of("title", "B"));
+        owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + b + "/dependencies")
+                .then().statusCode(400).body("code", equalTo("unknown_task"));
+    }
+
+    @Test
+    void deletingATaskRemovesItsLinks() {
+        Account owner = Api.signup("Zed");
+        long projectId = Api.createProject(owner, "DEL");
+        long a = Api.createTask(owner, projectId, Map.of("title", "A"));
+        long b = Api.createTask(owner, projectId, Map.of("title", "B"));
+        owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + b + "/dependencies").then().statusCode(201);
+        owner.as().delete("/api/tasks/" + a).then().statusCode(204);
+        owner.as().get("/api/projects/" + projectId + "/dependencies").then().body("$", hasSize(0));
+        owner.as().get("/api/tasks/" + a).then().statusCode(404);
+        owner.as().get("/api/projects/" + projectId + "/tasks").then().body("title", hasItem("B"));
+    }
 }

@@ -5,6 +5,8 @@ import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.project.Project;
 import com.projectplanner.task.TaskDtos.CreateTaskRequest;
+import com.projectplanner.task.TaskDtos.DependencyRequest;
+import com.projectplanner.task.TaskDtos.DependencyResponse;
 import com.projectplanner.task.TaskDtos.TaskResponse;
 import com.projectplanner.task.TaskDtos.UpdateTaskRequest;
 import io.quarkus.security.Authenticated;
@@ -27,11 +29,13 @@ public class TaskResource {
 
     private final OrgAccess access;
     private final TaskService tasks;
+    private final DependencyService dependencies;
     private final TaskMapper mapper;
 
-    public TaskResource(OrgAccess access, TaskService tasks, TaskMapper mapper) {
+    public TaskResource(OrgAccess access, TaskService tasks, DependencyService dependencies, TaskMapper mapper) {
         this.access = access;
         this.tasks = tasks;
+        this.dependencies = dependencies;
         this.mapper = mapper;
     }
 
@@ -78,6 +82,39 @@ public class TaskResource {
         Project project = Project.findById(task.projectId);
         Membership me = access.editProject(project);
         tasks.delete(me, project, task);
+    }
+
+    @GET
+    @Path("/projects/{projectId}/dependencies")
+    public List<DependencyResponse> projectDependencies(@PathParam("projectId") long projectId) {
+        access.project(projectId);
+        return TaskDependency.forProject(projectId).stream().map(DependencyResponse::of).toList();
+    }
+
+    @POST
+    @Path("/tasks/{taskId}/dependencies")
+    @Transactional
+    @ResponseStatus(201)
+    public TaskResponse addDependency(@PathParam("taskId") long taskId, @Valid @NotNull DependencyRequest request) {
+        Task successor = find(taskId);
+        Project project = Project.findById(successor.projectId);
+        Membership me = access.editProject(project);
+        return dependencies.add(me, project, successor, request);
+    }
+
+    @DELETE
+    @Path("/dependencies/{dependencyId}")
+    @Transactional
+    @ResponseStatus(204)
+    public void removeDependency(@PathParam("dependencyId") long dependencyId) {
+        TaskDependency dependency = TaskDependency.findById(dependencyId);
+        if (dependency == null) {
+            throw ApiException.notFound("Dependency");
+        }
+        Task successor = find(dependency.successorId);
+        Project project = Project.findById(successor.projectId);
+        Membership me = access.editProject(project);
+        dependencies.remove(me, project, dependency);
     }
 
     private Task find(long taskId) {

@@ -13,6 +13,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -119,7 +120,9 @@ public class TaskService {
 
     public void delete(Membership me, Project project, Task task) {
         activity.record(project.organisationId, project.id, null, me.userId, "task.deleted", "Deleted " + task.title);
+        TaskDependency.delete("predecessorId = ?1 or successorId = ?1", task.id);
         for (Task subtask : Task.<Task>list("parentId", task.id)) {
+            TaskDependency.delete("predecessorId = ?1 or successorId = ?1", subtask.id);
             subtask.delete();
         }
         task.delete();

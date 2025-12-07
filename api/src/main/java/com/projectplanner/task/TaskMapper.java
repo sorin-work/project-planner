@@ -1,9 +1,11 @@
 package com.projectplanner.task;
 
 import com.projectplanner.auth.User;
+import com.projectplanner.task.TaskDtos.DependencyResponse;
 import com.projectplanner.task.TaskDtos.TaskResponse;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -22,6 +24,9 @@ public class TaskMapper {
         }
         List<Long> ids = tasks.stream().map(t -> t.id).toList();
 
+        Map<Long, List<DependencyResponse>> predecessors = new HashMap<>();
+        TaskDependency.<TaskDependency>list("successorId in ?1 order by id", ids)
+                .forEach(d -> predecessors.computeIfAbsent(d.successorId, k -> new ArrayList<>()).add(DependencyResponse.of(d)));
 
         Map<Long, Integer> subtasks = new HashMap<>();
         Task.<Task>list("parentId in ?1", ids).forEach(t -> subtasks.merge(t.parentId, 1, Integer::sum));
@@ -37,7 +42,7 @@ public class TaskMapper {
                 t.description, t.status, t.priority, t.estimateHours, t.startDate, t.dueDate, t.assigneeId,
                 t.assigneeId == null ? null : names.get(t.assigneeId), t.milestone,
                 t.completedAt, t.createdAt, t.updatedAt,
-                subtasks.getOrDefault(t.id, 0))).toList();
+                predecessors.getOrDefault(t.id, List.of()), subtasks.getOrDefault(t.id, 0))).toList();
     }
 
     public TaskResponse toResponse(Task task) {
