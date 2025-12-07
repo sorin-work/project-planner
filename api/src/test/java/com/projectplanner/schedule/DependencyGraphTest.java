@@ -24,6 +24,11 @@ class DependencyGraphTest {
     }
 
     @Test
+    void selfDependencyIsACycle() {
+        assertThat(graph.wouldCreateCycle(5, 5)).isTrue();
+    }
+
+    @Test
     void allowsLinksThatKeepTheGraphAcyclic() {
         assertThat(graph.wouldCreateCycle(4, 3)).isFalse();
         assertThat(graph.wouldCreateCycle(5, 1)).isFalse();

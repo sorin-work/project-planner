@@ -41,6 +41,9 @@ public final class DependencyGraph {
      * successor already leads (directly or indirectly) to the predecessor.
      */
     public boolean wouldCreateCycle(long predecessor, long successor) {
+        if (predecessor == successor) {
+            return true;
+        }
         return reachable(successor).contains(predecessor);
     }
 
