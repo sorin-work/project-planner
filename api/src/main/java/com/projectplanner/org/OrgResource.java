@@ -4,6 +4,9 @@ import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.User;
 import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.org.OrgDtos.InvitationResponse;
+import com.projectplanner.org.OrgDtos.InviteRequest;
+import com.projectplanner.org.OrgDtos.InviteResult;
 import com.projectplanner.org.OrgDtos.MemberResponse;
 import com.projectplanner.org.OrgDtos.OrganisationResponse;
 import com.projectplanner.org.OrgDtos.UpdateMemberRequest;
@@ -15,11 +18,14 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PATCH;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
+import java.time.Clock;
 import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
@@ -31,10 +37,12 @@ public class OrgResource {
 
     private final OrgAccess access;
     private final ActivityLog activity;
+    private final Clock clock;
 
-    public OrgResource(OrgAccess access, ActivityLog activity) {
+    public OrgResource(OrgAccess access, ActivityLog activity, Clock clock) {
         this.access = access;
         this.activity = activity;
+        this.clock = clock;
     }
 
     @GET
@@ -120,6 +128,67 @@ public class OrgResource {
         User user = User.findById(member.userId);
         member.delete();
         activity.record(orgId, null, null, me.userId, "member.removed", "Removed " + user.name + " from the team");
+    }
+
+    @GET
+    @Path("/orgs/{orgId}/invitations")
+    public List<InvitationResponse> invitations(@PathParam("orgId") long orgId) {
+        access.manager(orgId);
+        return Invitation.pendingIn(orgId).stream().map(InvitationResponse::of).toList();
+    }
+
+    @POST
+    @Path("/orgs/{orgId}/invitations")
+    @Transactional
+    @ResponseStatus(201)
+    public InviteResult invite(@PathParam("orgId") long orgId, @Valid @NotNull InviteRequest request) {
+        Membership me = access.manager(orgId);
+        if (request.role() == Role.OWNER) {
+            throw ApiException.badRequest("invalid_role", "Invite people as managers, members or client viewers");
+        }
+        Long clientId = null;
+        if (request.role() == Role.CLIENT) {
+            if (request.clientId() == null) {
+                throw ApiException.badRequest("client_required", "Choose the client this viewer belongs to");
+            }
+            clientId = clientIn(orgId, request.clientId()).id;
+        }
+        String email = User.normalizeEmail(request.email());
+        Instant now = clock.instant();
+        var existing = User.findByEmail(email);
+        if (existing.isPresent()) {
+            User user = existing.get();
+            if (Membership.find(orgId, user.id).isPresent()) {
+                throw ApiException.conflict("already_member", user.name + " is already in this organisation");
+            }
+            Membership membership = Membership.create(orgId, user.id, request.role(), now);
+            membership.clientId = clientId;
+            activity.record(orgId, null, null, me.userId, "member.added", "Added " + user.name + " as " + request.role().label());
+            return new InviteResult(MemberResponse.of(membership, user, true), null);
+        }
+        Invitation invitation = new Invitation();
+        invitation.organisationId = orgId;
+        invitation.email = email;
+        invitation.role = request.role();
+        invitation.clientId = clientId;
+        invitation.invitedBy = me.userId;
+        invitation.createdAt = now;
+        invitation.persist();
+        activity.record(orgId, null, null, me.userId, "member.invited", "Invited " + email + " as " + request.role().label());
+        return new InviteResult(null, InvitationResponse.of(invitation));
+    }
+
+    @DELETE
+    @Path("/orgs/{orgId}/invitations/{invitationId}")
+    @Transactional
+    @ResponseStatus(204)
+    public void cancelInvitation(@PathParam("orgId") long orgId, @PathParam("invitationId") long invitationId) {
+        access.manager(orgId);
+        Invitation invitation = Invitation.findById(invitationId);
+        if (invitation == null || invitation.organisationId != orgId || invitation.acceptedAt != null) {
+            throw ApiException.notFound("Invitation");
+        }
+        invitation.delete();
     }
 
     private long countOwners(long orgId) {

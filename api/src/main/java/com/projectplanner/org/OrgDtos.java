@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.projectplanner.auth.User;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -54,5 +57,22 @@ public final class OrgDtos {
             boolean clearHourlyRate,
             @DecimalMin("0") @DecimalMax("168") BigDecimal weeklyCapacityHours,
             Long clientId) {
+    }
+
+    public record InviteRequest(
+            @NotBlank @Email @Size(max = 320) String email,
+            @NotNull Role role,
+            Long clientId) {
+    }
+
+    public record InvitationResponse(long id, String email, Role role, Long clientId, Instant createdAt) {
+        public static InvitationResponse of(Invitation i) {
+            return new InvitationResponse(i.id, i.email, i.role, i.clientId, i.createdAt);
+        }
+    }
+
+    /** Result of inviting someone: existing users are added straight away. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record InviteResult(MemberResponse member, InvitationResponse invitation) {
     }
 }

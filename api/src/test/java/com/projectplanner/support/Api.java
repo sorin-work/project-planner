@@ -59,6 +59,19 @@ public final class Api {
         return new Account(token, userId, email, handle, orgId == null ? -1 : orgId.longValue());
     }
 
+    /** Adds an existing account to {@code owner}'s organisation with the given role. */
+    public static void addMember(Account owner, Account member, String role) {
+        addMember(owner, member, role, null);
+    }
+
+    public static void addMember(Account owner, Account member, String role, Long clientId) {
+        var body = new java.util.HashMap<String, Object>(Map.of("email", member.email(), "role", role));
+        if (clientId != null) {
+            body.put("clientId", clientId);
+        }
+        owner.as().body(body).post("/api/orgs/" + owner.orgId() + "/invitations").then().statusCode(201);
+    }
+
     public static long createProject(Account owner, String code) {
         return createProject(owner, code, null);
     }
