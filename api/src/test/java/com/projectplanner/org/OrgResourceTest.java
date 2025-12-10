@@ -75,4 +75,18 @@ class OrgResourceTest {
                 .patch("/api/orgs/" + owner.orgId() + "/members/" + memberId)
                 .then().statusCode(409).body("code", equalTo("last_owner"));
     }
+
+    @Test
+    void ratesAreOnlyVisibleToManagers() {
+        Account owner = Api.signup("Yara");
+        Account member = Api.signup("Zack");
+        Api.addMember(owner, member, "MEMBER");
+        Number memberId = owner.as().get("/api/orgs/" + owner.orgId() + "/members")
+                .then().extract().path("find { it.email == '" + member.email() + "' }.id");
+        owner.as().body(Map.of("hourlyRate", 85, "weeklyCapacityHours", 32))
+                .patch("/api/orgs/" + owner.orgId() + "/members/" + memberId)
+                .then().statusCode(200)
+                .body("hourlyRate", Api.num(85))
+                .body("weeklyCapacityHours", Api.num(32));
+    }
 }

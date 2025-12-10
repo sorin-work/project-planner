@@ -11,6 +11,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 @QuarkusTest
 class ProjectResourceTest {
@@ -52,6 +53,22 @@ class ProjectResourceTest {
         owner.as().body(Map.of("name", "Bad dates", "code", "BAD", "startDate", "2026-05-01", "endDate", "2026-04-01"))
                 .post("/api/orgs/" + owner.orgId() + "/projects")
                 .then().statusCode(400).body("code", equalTo("invalid_dates"));
+    }
+
+    @Test
+    void membersCanReadButNotCreateAndDontSeeMoney() {
+        Account owner = Api.signup("Edna");
+        Account member = Api.signup("Finn");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = Api.createProject(owner, "MONEY");
+
+        member.as().body(Map.of("name", "Nope", "code", "NOPE"))
+                .post("/api/orgs/" + owner.orgId() + "/projects").then().statusCode(403);
+        member.as().get("/api/projects/" + projectId)
+                .then().statusCode(200)
+                .body("budgetHours", Api.num(100))
+                .body("budgetAmount", nullValue());
+        owner.as().get("/api/projects/" + projectId).then().body("budgetAmount", Api.num(10000));
     }
 
     @Test
