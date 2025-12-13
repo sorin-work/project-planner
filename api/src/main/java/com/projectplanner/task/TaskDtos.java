@@ -53,6 +53,10 @@ public final class TaskDtos {
             Boolean milestone) {
     }
 
+    /** Moves a task by whole days, keeping its length. Used by timeline drags. */
+    public record ShiftRequest(@NotNull @Min(-3650) @Max(3650) Integer days) {
+    }
+
     public record DependencyRequest(@NotNull Long predecessorId, @Min(0) @Max(365) int lagDays) {
     }
 
@@ -68,5 +72,9 @@ public final class TaskDtos {
         public static DependencyResponse of(TaskDependency d) {
             return new DependencyResponse(d.id, d.predecessorId, d.successorId, d.lagDays);
         }
+    }
+
+    /** A change to one task plus every dependant that had to move because of it. */
+    public record TaskChange(TaskResponse task, List<TaskResponse> rescheduled) {
     }
 }

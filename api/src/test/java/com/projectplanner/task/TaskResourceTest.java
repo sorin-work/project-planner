@@ -69,9 +69,9 @@ class TaskResourceTest {
         long projectId = Api.createProject(owner, "DONE");
         long task = Api.createTask(owner, projectId, Map.of("title", "Ship it"));
         owner.as().body(Map.of("status", "DONE")).patch("/api/tasks/" + task)
-                .then().statusCode(200).body("completedAt", notNullValue());
+                .then().statusCode(200).body("task.completedAt", notNullValue());
         owner.as().body(Map.of("status", "IN_PROGRESS")).patch("/api/tasks/" + task)
-                .then().statusCode(200).body("completedAt", nullValue());
+                .then().statusCode(200).body("task.completedAt", nullValue());
         owner.as().get("/api/projects/" + projectId + "/activity").then()
                 .body("action", hasItems("task.created", "task.status"));
     }
@@ -105,6 +105,20 @@ class TaskResourceTest {
         long b = Api.createTask(owner, p2, Map.of("title", "B"));
         owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + b + "/dependencies")
                 .then().statusCode(400).body("code", equalTo("unknown_task"));
+    }
+
+    @Test
+    void addingADependencyPushesTheSuccessor() {
+        Account owner = Api.signup("Wes");
+        long projectId = Api.createProject(owner, "PUSH");
+        long design = Api.createTask(owner, projectId, Map.of("title", "Design", "startDate", "2026-03-02", "dueDate", "2026-03-04"));
+        long build = Api.createTask(owner, projectId, Map.of("title", "Build", "startDate", "2026-03-03", "dueDate", "2026-03-05"));
+        owner.as().body(Map.of("predecessorId", design, "lagDays", 1)).post("/api/tasks/" + build + "/dependencies")
+                .then().statusCode(201)
+                .body("rescheduled", hasSize(1))
+                .body("rescheduled[0].id", equalTo((int) build))
+                .body("rescheduled[0].startDate", equalTo("2026-03-06"))
+                .body("rescheduled[0].dueDate", equalTo("2026-03-10"));
     }
 
     @Test

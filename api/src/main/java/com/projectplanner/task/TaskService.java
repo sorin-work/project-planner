@@ -6,7 +6,11 @@ import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
 import com.projectplanner.project.Phase;
 import com.projectplanner.project.Project;
+import com.projectplanner.schedule.Rescheduler;
+import com.projectplanner.schedule.ScheduledTask;
+import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.TaskDtos.CreateTaskRequest;
+import com.projectplanner.task.TaskDtos.TaskChange;
 import com.projectplanner.task.TaskDtos.UpdateTaskRequest;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -14,18 +18,24 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @ApplicationScoped
 public class TaskService {
 
     private final ActivityLog activity;
+    private final TaskMapper mapper;
     private final Clock clock;
+    private final Rescheduler rescheduler = new Rescheduler(WorkCalendar.DEFAULT);
 
-    public TaskService(ActivityLog activity, Clock clock) {
+    public TaskService(ActivityLog activity, TaskMapper mapper, Clock clock) {
         this.activity = activity;
+        this.mapper = mapper;
         this.clock = clock;
     }
 
@@ -58,7 +68,7 @@ public class TaskService {
         return task;
     }
 
-    public Task update(Membership me, Project project, Task task, UpdateTaskRequest request) {
+    public TaskChange update(Membership me, Project project, Task task, UpdateTaskRequest request) {
         Instant now = Instant.now(clock);
         LocalDate oldStart = task.startDate;
         LocalDate oldDue = task.dueDate;
@@ -111,11 +121,26 @@ public class TaskService {
             activity.record(project.organisationId, project.id, task.id, me.userId, "task.assigned",
                     "Assigned " + task.title + " to " + User.<User>findById(task.assigneeId).name);
         }
-        if (!Objects.equals(oldStart, task.startDate) || !Objects.equals(oldDue, task.dueDate)) {
+        boolean datesChanged = !Objects.equals(oldStart, task.startDate) || !Objects.equals(oldDue, task.dueDate);
+        List<Task> moved = List.of();
+        if (datesChanged) {
             activity.record(project.organisationId, project.id, task.id, me.userId, "task.rescheduled",
                     "Rescheduled " + task.title + " to " + describeDates(task));
+            moved = reschedule(me, project, Set.of(task.id));
         }
-        return task;
+        return new TaskChange(mapper.toResponse(task), mapper.toResponses(moved));
+    }
+
+    /** Moves a task by {@code days} calendar days, keeping its length, and pushes its dependants. */
+    public TaskChange shift(Membership me, Project project, Task task, int days) {
+        if (task.startDate == null && task.dueDate == null) {
+            throw ApiException.badRequest("unscheduled", "Give the task dates before moving it on the timeline");
+        }
+        UpdateTaskRequest request = new UpdateTaskRequest(null, null, null, false, null, null, null,
+                task.startDate == null ? null : task.startDate.plusDays(days),
+                task.dueDate == null ? null : task.dueDate.plusDays(days),
+                false, null, false, null);
+        return update(me, project, task, request);
     }
 
     public void delete(Membership me, Project project, Task task) {
@@ -126,6 +151,36 @@ public class TaskService {
             subtask.delete();
         }
         task.delete();
+    }
+
+    /**
+     * Applies the rescheduler to the project after {@code changed} moved and saves
+     * the new dates. Returns the tasks that moved.
+     */
+    public List<Task> reschedule(Membership me, Project project, Set<Long> changed) {
+        List<Task> tasks = Task.forProject(project.id);
+        List<ScheduledTask> scheduled = tasks.stream().map(Task::toScheduled).toList();
+        var links = TaskDependency.forProject(project.id).stream().map(TaskDependency::toLink).toList();
+        Map<Long, ScheduledTask> shifted = rescheduler.propagate(scheduled, links, changed);
+        if (shifted.isEmpty()) {
+            return List.of();
+        }
+        Instant now = Instant.now(clock);
+        List<Task> moved = new ArrayList<>();
+        for (Task task : tasks) {
+            ScheduledTask update = shifted.get(task.id);
+            if (update != null) {
+                task.startDate = update.start();
+                task.dueDate = update.due();
+                task.updatedAt = now;
+                moved.add(task);
+            }
+        }
+        moved.sort(Comparator.comparing((Task t) -> t.startDate).thenComparing(t -> t.id));
+        activity.record(project.organisationId, project.id, null, me.userId, "task.cascade",
+                moved.size() == 1 ? "Pushed back " + moved.getFirst().title + " to keep dependencies in order"
+                        : "Pushed back " + moved.size() + " dependent tasks to keep dependencies in order");
+        return moved;
     }
 
     private void setDates(Task task, LocalDate start, LocalDate due) {

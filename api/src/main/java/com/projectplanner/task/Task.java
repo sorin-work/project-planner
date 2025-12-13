@@ -1,5 +1,6 @@
 package com.projectplanner.task;
 
+import com.projectplanner.schedule.ScheduledTask;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -77,6 +78,10 @@ public class Task extends PanacheEntityBase {
 
     public double estimate() {
         return estimateHours == null ? 0 : estimateHours.doubleValue();
+    }
+
+    public ScheduledTask toScheduled() {
+        return new ScheduledTask(id, startDate, dueDate);
     }
 
     public static List<Task> forProject(long projectId) {

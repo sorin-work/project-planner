@@ -6,7 +6,7 @@ import com.projectplanner.org.Membership;
 import com.projectplanner.project.Project;
 import com.projectplanner.schedule.DependencyGraph;
 import com.projectplanner.task.TaskDtos.DependencyRequest;
-import com.projectplanner.task.TaskDtos.TaskResponse;
+import com.projectplanner.task.TaskDtos.TaskChange;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.time.Clock;
@@ -14,23 +14,30 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class DependencyService {
 
+    private final TaskService tasks;
     private final TaskMapper mapper;
     private final ActivityLog activity;
     private final Clock clock;
 
-    public DependencyService(TaskMapper mapper, ActivityLog activity, Clock clock) {
+    public DependencyService(TaskService tasks, TaskMapper mapper, ActivityLog activity, Clock clock) {
+        this.tasks = tasks;
         this.mapper = mapper;
         this.activity = activity;
         this.clock = clock;
     }
 
-    /** Makes {@code successor} wait for the requested predecessor, unless that would create a loop. */
-    public TaskResponse add(Membership me, Project project, Task successor, DependencyRequest request) {
+    /**
+     * Makes {@code successor} wait for the requested predecessor. Rejects links that
+     * would create a loop, then pushes the successor (and its dependants) later if
+     * they now start too early.
+     */
+    public TaskChange add(Membership me, Project project, Task successor, DependencyRequest request) {
         Task predecessor = TaskService.taskIn(project, request.predecessorId());
         if (TaskDependency.count("predecessorId = ?1 and successorId = ?2", predecessor.id, successor.id) > 0) {
             throw ApiException.conflict("dependency_exists", successor.title + " already depends on " + predecessor.title);
@@ -52,7 +59,9 @@ public class DependencyService {
         dependency.persist();
         activity.record(project.organisationId, project.id, successor.id, me.userId, "dependency.added",
                 successor.title + " now waits for " + predecessor.title);
-        return mapper.toResponse(successor);
+
+        List<Task> moved = tasks.reschedule(me, project, Set.of(predecessor.id));
+        return new TaskChange(mapper.toResponse(successor), mapper.toResponses(moved));
     }
 
     public void remove(Membership me, Project project, TaskDependency dependency) {

@@ -7,6 +7,8 @@ import com.projectplanner.project.Project;
 import com.projectplanner.task.TaskDtos.CreateTaskRequest;
 import com.projectplanner.task.TaskDtos.DependencyRequest;
 import com.projectplanner.task.TaskDtos.DependencyResponse;
+import com.projectplanner.task.TaskDtos.ShiftRequest;
+import com.projectplanner.task.TaskDtos.TaskChange;
 import com.projectplanner.task.TaskDtos.TaskResponse;
 import com.projectplanner.task.TaskDtos.UpdateTaskRequest;
 import io.quarkus.security.Authenticated;
@@ -66,11 +68,21 @@ public class TaskResource {
     @PATCH
     @Path("/tasks/{taskId}")
     @Transactional
-    public TaskResponse update(@PathParam("taskId") long taskId, @Valid @NotNull UpdateTaskRequest request) {
+    public TaskChange update(@PathParam("taskId") long taskId, @Valid @NotNull UpdateTaskRequest request) {
         Task task = find(taskId);
         Project project = Project.findById(task.projectId);
         Membership me = access.editProject(project);
-        return mapper.toResponse(tasks.update(me, project, task, request));
+        return tasks.update(me, project, task, request);
+    }
+
+    @POST
+    @Path("/tasks/{taskId}/shift")
+    @Transactional
+    public TaskChange shift(@PathParam("taskId") long taskId, @Valid @NotNull ShiftRequest request) {
+        Task task = find(taskId);
+        Project project = Project.findById(task.projectId);
+        Membership me = access.editProject(project);
+        return tasks.shift(me, project, task, request.days());
     }
 
     @DELETE
@@ -95,7 +107,7 @@ public class TaskResource {
     @Path("/tasks/{taskId}/dependencies")
     @Transactional
     @ResponseStatus(201)
-    public TaskResponse addDependency(@PathParam("taskId") long taskId, @Valid @NotNull DependencyRequest request) {
+    public TaskChange addDependency(@PathParam("taskId") long taskId, @Valid @NotNull DependencyRequest request) {
         Task successor = find(taskId);
         Project project = Project.findById(successor.projectId);
         Membership me = access.editProject(project);
