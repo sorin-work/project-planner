@@ -122,6 +122,25 @@ class TaskResourceTest {
     }
 
     @Test
+    void movingATaskCascadesThroughItsDependants() {
+        Account owner = Api.signup("Xia");
+        long projectId = Api.createProject(owner, "CASCADE");
+        long a = Api.createTask(owner, projectId, Map.of("title", "A", "startDate", "2026-03-02", "dueDate", "2026-03-03"));
+        long b = Api.createTask(owner, projectId, Map.of("title", "B", "startDate", "2026-03-04", "dueDate", "2026-03-05"));
+        long c = Api.createTask(owner, projectId, Map.of("title", "C", "startDate", "2026-03-06", "dueDate", "2026-03-06"));
+        owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + b + "/dependencies").then().statusCode(201);
+        owner.as().body(Map.of("predecessorId", b)).post("/api/tasks/" + c + "/dependencies").then().statusCode(201);
+
+        // A slips by a week.
+        owner.as().body(Map.of("days", 7)).post("/api/tasks/" + a + "/shift")
+                .then().statusCode(200)
+                .body("task.startDate", equalTo("2026-03-09"))
+                .body("rescheduled.id", hasItems((int) b, (int) c));
+        owner.as().get("/api/tasks/" + c).then().body("startDate", equalTo("2026-03-13"));
+        owner.as().get("/api/tasks/" + b).then().body("startDate", equalTo("2026-03-11")).body("dueDate", equalTo("2026-03-12"));
+    }
+
+    @Test
     void deletingATaskRemovesItsLinks() {
         Account owner = Api.signup("Zed");
         long projectId = Api.createProject(owner, "DEL");

@@ -36,7 +36,7 @@ public final class Rescheduler {
 
         Set<Long> affected = new HashSet<>();
         for (long id : changed) {
-            graph.successors(id).forEach(link -> affected.add(link.successorId()));
+            affected.addAll(graph.reachable(id));
         }
 
         Map<Long, ScheduledTask> moved = new LinkedHashMap<>();

@@ -55,6 +55,20 @@ class ReschedulerTest {
     }
 
     @Test
+    void cascadesThroughTheWholeChain() {
+        var a = new ScheduledTask(1, day(0), day(4));
+        var b = new ScheduledTask(2, day(1), day(1));
+        var c = new ScheduledTask(3, day(2), day(2));
+        var d = new ScheduledTask(4, day(3), day(3));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b, c, d),
+                List.of(new Link(1, 2), new Link(2, 3), new Link(3, 4)), Set.of(1L));
+        assertThat(moved).containsOnlyKeys(2L, 3L, 4L);
+        assertThat(moved.get(2L).start()).isEqualTo(day(7));
+        assertThat(moved.get(3L).start()).isEqualTo(day(8));
+        assertThat(moved.get(4L).start()).isEqualTo(day(9));
+    }
+
+    @Test
     void doesNotTouchTasksOutsideTheMovedTasksChain() {
         // C already violates its link to D, but nothing upstream of it moved.
         var a = new ScheduledTask(1, day(0), day(0));
