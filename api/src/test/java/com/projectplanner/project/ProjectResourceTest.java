@@ -10,6 +10,7 @@ import java.util.Map;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
@@ -69,6 +70,25 @@ class ProjectResourceTest {
                 .body("budgetHours", Api.num(100))
                 .body("budgetAmount", nullValue());
         owner.as().get("/api/projects/" + projectId).then().body("budgetAmount", Api.num(10000));
+    }
+
+    @Test
+    void clientViewersOnlySeeTheirClientsProjects() {
+        Account owner = Api.signup("Gail");
+        long acme = Api.createClient(owner, "Acme");
+        long globex = Api.createClient(owner, "Globex");
+        long acmeProject = Api.createProject(owner, "ACME", acme);
+        long globexProject = Api.createProject(owner, "GLX", globex);
+        Account viewer = Api.signup("Hank");
+        Api.addMember(owner, viewer, "CLIENT", acme);
+
+        viewer.as().get("/api/orgs/" + owner.orgId() + "/projects")
+                .then().statusCode(200)
+                .body("project.id", hasItem((int) acmeProject))
+                .body("project.id", not(hasItem((int) globexProject)));
+        viewer.as().get("/api/projects/" + globexProject).then().statusCode(404);
+        viewer.as().body(Map.of("title", "Sneaky"))
+                .post("/api/projects/" + acmeProject + "/tasks").then().statusCode(403);
     }
 
     @Test

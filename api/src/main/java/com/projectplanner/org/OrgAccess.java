@@ -5,6 +5,7 @@ import com.projectplanner.common.ApiException;
 import com.projectplanner.project.Project;
 import jakarta.enterprise.context.RequestScoped;
 
+import java.util.Objects;
 
 /**
  * Permission checks for the signed-in user. Organisations a user doesn't belong
@@ -43,7 +44,11 @@ public class OrgAccess {
 
     /** Read access to a project: the whole team, or a client viewer of the project's client. */
     public Membership viewProject(Project project) {
-        return member(project.organisationId);
+        Membership membership = member(project.organisationId);
+        if (membership.role == Role.CLIENT && !Objects.equals(membership.clientId, project.clientId)) {
+            throw ApiException.notFound("Project");
+        }
+        return membership;
     }
 
     /** Planning changes (tasks, dates, dependencies) are for the team, not client viewers. */
