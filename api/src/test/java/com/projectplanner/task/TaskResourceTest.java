@@ -141,6 +141,22 @@ class TaskResourceTest {
     }
 
     @Test
+    void criticalPath() {
+        Account owner = Api.signup("Yan");
+        long projectId = Api.createProject(owner, "CPM");
+        long a = Api.createTask(owner, projectId, Map.of("title", "A", "startDate", "2026-03-02", "dueDate", "2026-03-03"));
+        long b = Api.createTask(owner, projectId, Map.of("title", "B", "startDate", "2026-03-02", "dueDate", "2026-03-06"));
+        long c = Api.createTask(owner, projectId, Map.of("title", "C", "startDate", "2026-03-09", "dueDate", "2026-03-09"));
+        owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + c + "/dependencies").then().statusCode(201);
+        owner.as().body(Map.of("predecessorId", b)).post("/api/tasks/" + c + "/dependencies").then().statusCode(201);
+
+        owner.as().get("/api/projects/" + projectId + "/critical-path").then().statusCode(200)
+                .body("criticalTaskIds", equalTo(java.util.List.of((int) b, (int) c)))
+                .body("finish", equalTo("2026-03-09"))
+                .body("tasks.find { it.taskId == " + a + " }.floatDays", equalTo(3));
+    }
+
+    @Test
     void deletingATaskRemovesItsLinks() {
         Account owner = Api.signup("Zed");
         long projectId = Api.createProject(owner, "DEL");
