@@ -77,6 +77,30 @@ class TaskResourceTest {
     }
 
     @Test
+    void assigningSomeoneNotifiesThem() {
+        Account owner = Api.signup("Quin");
+        Account member = Api.signup("Remy");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = Api.createProject(owner, "ASSIGN");
+        long task = Api.createTask(owner, projectId, Map.of("title", "Write copy"));
+        owner.as().body(Map.of("assigneeId", member.userId())).patch("/api/tasks/" + task).then().statusCode(200);
+        member.as().get("/api/notifications").then()
+                .body("[0].type", equalTo("ASSIGNED"))
+                .body("[0].taskId", equalTo((int) task));
+    }
+
+    @Test
+    void cannotAssignClientViewers() {
+        Account owner = Api.signup("Sol");
+        long clientId = Api.createClient(owner, "Client");
+        Account viewer = Api.signup("Tia");
+        Api.addMember(owner, viewer, "CLIENT", clientId);
+        long projectId = Api.createProject(owner, "NOCLIENT", clientId);
+        owner.as().body(Map.of("title", "x", "assigneeId", viewer.userId()))
+                .post("/api/projects/" + projectId + "/tasks").then().statusCode(400).body("code", equalTo("unknown_assignee"));
+    }
+
+    @Test
     void rejectsDependencyCycles() {
         Account owner = Api.signup("Ugo");
         long projectId = Api.createProject(owner, "CYCLE");

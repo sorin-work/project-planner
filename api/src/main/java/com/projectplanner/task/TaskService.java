@@ -3,6 +3,8 @@ package com.projectplanner.task;
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.User;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.notification.NotificationType;
+import com.projectplanner.notification.Notifier;
 import com.projectplanner.org.Membership;
 import com.projectplanner.project.Phase;
 import com.projectplanner.project.Project;
@@ -29,12 +31,14 @@ import java.util.Set;
 public class TaskService {
 
     private final ActivityLog activity;
+    private final Notifier notifier;
     private final TaskMapper mapper;
     private final Clock clock;
     private final Rescheduler rescheduler = new Rescheduler(WorkCalendar.DEFAULT);
 
-    public TaskService(ActivityLog activity, TaskMapper mapper, Clock clock) {
+    public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock) {
         this.activity = activity;
+        this.notifier = notifier;
         this.mapper = mapper;
         this.clock = clock;
     }
@@ -65,6 +69,9 @@ public class TaskService {
 
         activity.record(project.organisationId, project.id, task.id, me.userId, "task.created",
                 "Created " + (task.milestone ? "milestone " : "task ") + task.title);
+        if (task.assigneeId != null) {
+            notifyAssigned(me, project, task);
+        }
         return task;
     }
 
@@ -118,8 +125,7 @@ public class TaskService {
                     "Moved " + task.title + " to " + label(task.status));
         }
         if (!Objects.equals(oldAssignee, task.assigneeId) && task.assigneeId != null) {
-            activity.record(project.organisationId, project.id, task.id, me.userId, "task.assigned",
-                    "Assigned " + task.title + " to " + User.<User>findById(task.assigneeId).name);
+            notifyAssigned(me, project, task);
         }
         boolean datesChanged = !Objects.equals(oldStart, task.startDate) || !Objects.equals(oldDue, task.dueDate);
         List<Task> moved = List.of();
@@ -204,6 +210,15 @@ public class TaskService {
             task.completedAt = null;
         }
         task.status = status;
+    }
+
+    private void notifyAssigned(Membership me, Project project, Task task) {
+        User actor = User.findById(me.userId);
+        notifier.notify(task.assigneeId, project.organisationId, me.userId, NotificationType.ASSIGNED,
+                actor.name + " assigned you " + task.title + " in " + project.name, project.id, task.id);
+        User assignee = User.findById(task.assigneeId);
+        activity.record(project.organisationId, project.id, task.id, me.userId, "task.assigned",
+                "Assigned " + task.title + " to " + assignee.name);
     }
 
     static Long phaseIn(Project project, Long phaseId) {
