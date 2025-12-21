@@ -8,11 +8,12 @@ import java.util.regex.Pattern;
 
 /**
  * Finds @mentions in comment text. A mention is "@" followed by a handle (the
- * part of someone's email before the @), e.g. "@ana.popescu".
+ * part of someone's email before the @), e.g. "@ana.popescu". The "@" must not
+ * follow a letter or digit, so email addresses in the text aren't mentions.
  */
 public final class MentionParser {
 
-    private static final Pattern MENTION = Pattern.compile("@([\\p{L}\\p{N}][\\p{L}\\p{N}._+-]*)");
+    private static final Pattern MENTION = Pattern.compile("(?<![\\p{L}\\p{N}._%+-])@([\\p{L}\\p{N}][\\p{L}\\p{N}._+-]*)");
 
     private MentionParser() {
     }

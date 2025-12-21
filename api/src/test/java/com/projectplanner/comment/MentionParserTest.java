@@ -17,6 +17,11 @@ class MentionParserTest {
     }
 
     @Test
+    void ignoresEmailAddresses() {
+        assertThat(MentionParser.handles("send it to ana@example.com please")).isEmpty();
+    }
+
+    @Test
     void stripsTrailingPunctuation() {
         assertThat(MentionParser.handles("Thanks @ana.")).containsExactly("ana");
         assertThat(MentionParser.handles("(@ben) and @cara, done")).containsExactly("ben", "cara");
