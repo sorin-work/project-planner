@@ -54,7 +54,7 @@ public final class CriticalPath {
             ef.put(id, start + d - 1);
         }
 
-        int finish = ef.get(order.getLast());
+        int finish = ef.values().stream().max(Integer::compare).orElse(0);
 
         Map<Long, Integer> ls = new HashMap<>();
         Map<Long, Integer> lf = new HashMap<>();

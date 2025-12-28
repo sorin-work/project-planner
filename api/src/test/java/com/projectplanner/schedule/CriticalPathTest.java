@@ -47,6 +47,19 @@ class CriticalPathTest {
     }
 
     @Test
+    void projectEndIsTheLatestFinishNotTheLastTaskInOrder() {
+        // Two independent chains; the long one decides the end date.
+        var a = new ScheduledTask(1, day(0), day(9));
+        var b = new ScheduledTask(2, day(0), day(0));
+        var c = new ScheduledTask(3, day(1), day(1));
+        CriticalPath.Result result = cpm.calculate(List.of(a, b, c), List.of(new Link(2, 3)));
+        assertThat(result.finish()).isEqualTo(day(9));
+        assertThat(result.criticalTaskIds()).containsExactly(1L);
+        CriticalPath.TaskTiming timingC = result.tasks().stream().filter(t -> t.taskId() == 3).findFirst().orElseThrow();
+        assertThat(timingC.floatDays()).isEqualTo(6);
+    }
+
+    @Test
     void plannedStartActsAsStartNoEarlierThan() {
         // B could start right after A, but is planned three days later.
         var a = new ScheduledTask(1, day(0), day(0));
