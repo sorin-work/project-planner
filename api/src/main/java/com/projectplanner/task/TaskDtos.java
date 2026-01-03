@@ -65,7 +65,7 @@ public final class TaskDtos {
                                TaskStatus status, Priority priority, BigDecimal estimateHours, LocalDate startDate,
                                LocalDate dueDate, Long assigneeId, String assigneeName, boolean milestone,
                                Instant completedAt, Instant createdAt, Instant updatedAt,
-                               List<DependencyResponse> predecessors, int subtaskCount) {
+                               List<DependencyResponse> predecessors, int subtaskCount, double loggedHours) {
     }
 
     public record DependencyResponse(long id, long predecessorId, long successorId, int lagDays) {

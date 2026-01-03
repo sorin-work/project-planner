@@ -3,6 +3,7 @@ package com.projectplanner.task;
 import com.projectplanner.auth.User;
 import com.projectplanner.task.TaskDtos.DependencyResponse;
 import com.projectplanner.task.TaskDtos.TaskResponse;
+import com.projectplanner.time.TimeEntry;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.ArrayList;
@@ -31,6 +32,12 @@ public class TaskMapper {
         Map<Long, Integer> subtasks = new HashMap<>();
         Task.<Task>list("parentId in ?1", ids).forEach(t -> subtasks.merge(t.parentId, 1, Integer::sum));
 
+        Map<Long, Long> minutes = new HashMap<>();
+        TimeEntry.getEntityManager()
+                .createQuery("select e.taskId, sum(e.minutes) from TimeEntry e where e.taskId in :ids group by e.taskId", Object[].class)
+                .setParameter("ids", ids)
+                .getResultList()
+                .forEach(row -> minutes.put((Long) row[0], ((Number) row[1]).longValue()));
 
         Set<Long> assigneeIds = tasks.stream().map(t -> t.assigneeId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<Long, String> names = new HashMap<>();
@@ -42,7 +49,8 @@ public class TaskMapper {
                 t.description, t.status, t.priority, t.estimateHours, t.startDate, t.dueDate, t.assigneeId,
                 t.assigneeId == null ? null : names.get(t.assigneeId), t.milestone,
                 t.completedAt, t.createdAt, t.updatedAt,
-                predecessors.getOrDefault(t.id, List.of()), subtasks.getOrDefault(t.id, 0))).toList();
+                predecessors.getOrDefault(t.id, List.of()), subtasks.getOrDefault(t.id, 0),
+                Math.round(minutes.getOrDefault(t.id, 0L) / 60.0 * 100) / 100.0)).toList();
     }
 
     public TaskResponse toResponse(Task task) {
