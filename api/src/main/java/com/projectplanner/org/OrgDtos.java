@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 public final class OrgDtos {
 
@@ -74,5 +75,11 @@ public final class OrgDtos {
     /** Result of inviting someone: existing users are added straight away. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record InviteResult(MemberResponse member, InvitationResponse invitation) {
+    }
+
+    public record RoleRateEntry(@NotNull Role role, @NotNull @DecimalMin("0") @DecimalMax("100000") BigDecimal hourlyRate) {
+    }
+
+    public record RoleRatesRequest(@NotNull List<@NotNull RoleRateEntry> rates) {
     }
 }

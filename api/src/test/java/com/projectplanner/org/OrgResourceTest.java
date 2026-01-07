@@ -5,6 +5,7 @@ import com.projectplanner.support.Api.Account;
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.equalTo;
@@ -88,5 +89,16 @@ class OrgResourceTest {
                 .then().statusCode(200)
                 .body("hourlyRate", Api.num(85))
                 .body("weeklyCapacityHours", Api.num(32));
+    }
+
+    @Test
+    void ownersSetRoleRates() {
+        Account owner = Api.signup("Abel");
+        owner.as().body(Map.of("rates", List.of(Map.of("role", "MANAGER", "hourlyRate", 100), Map.of("role", "MEMBER", "hourlyRate", 70))))
+                .put("/api/orgs/" + owner.orgId() + "/role-rates")
+                .then().statusCode(200).body("$", hasSize(2));
+        owner.as().body(Map.of("currency", "GBP", "timezone", "Europe/London", "defaultHourlyRate", 60))
+                .patch("/api/orgs/" + owner.orgId())
+                .then().statusCode(200).body("currency", equalTo("GBP")).body("timezone", equalTo("Europe/London"));
     }
 }

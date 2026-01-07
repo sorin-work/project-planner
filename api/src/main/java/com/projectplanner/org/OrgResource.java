@@ -9,6 +9,8 @@ import com.projectplanner.org.OrgDtos.InviteRequest;
 import com.projectplanner.org.OrgDtos.InviteResult;
 import com.projectplanner.org.OrgDtos.MemberResponse;
 import com.projectplanner.org.OrgDtos.OrganisationResponse;
+import com.projectplanner.org.OrgDtos.RoleRateEntry;
+import com.projectplanner.org.OrgDtos.RoleRatesRequest;
 import com.projectplanner.org.OrgDtos.UpdateMemberRequest;
 import com.projectplanner.org.OrgDtos.UpdateOrganisationRequest;
 import io.quarkus.security.Authenticated;
@@ -19,16 +21,19 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 @Path("/api")
@@ -189,6 +194,31 @@ public class OrgResource {
             throw ApiException.notFound("Invitation");
         }
         invitation.delete();
+    }
+
+    @GET
+    @Path("/orgs/{orgId}/role-rates")
+    public List<RoleRateEntry> roleRates(@PathParam("orgId") long orgId) {
+        access.manager(orgId);
+        Map<Role, BigDecimal> rates = RoleRate.forOrganisation(orgId);
+        return rates.entrySet().stream().map(e -> new RoleRateEntry(e.getKey(), e.getValue())).toList();
+    }
+
+    @PUT
+    @Path("/orgs/{orgId}/role-rates")
+    @Transactional
+    public List<RoleRateEntry> setRoleRates(@PathParam("orgId") long orgId, @Valid @NotNull RoleRatesRequest request) {
+        access.require(orgId, Role.OWNER);
+        RoleRate.delete("organisationId", orgId);
+        RoleRate.flush();
+        for (RoleRateEntry entry : request.rates()) {
+            RoleRate rate = new RoleRate();
+            rate.organisationId = orgId;
+            rate.role = entry.role();
+            rate.hourlyRate = entry.hourlyRate();
+            rate.persist();
+        }
+        return roleRates(orgId);
     }
 
     private long countOwners(long orgId) {
