@@ -112,13 +112,16 @@ public class TimeService {
         return running;
     }
 
-    /** Ends a running timer. */
+    /**
+     * Ends a running timer. The time is booked on the day the timer was started,
+     * in the organisation's time zone, even if it was stopped after midnight.
+     */
     void finish(TimeEntry entry) {
         Instant now = Instant.now(clock);
         long minutes = Math.round(Duration.between(entry.startedAt, now).toSeconds() / 60.0);
         entry.endedAt = now;
         entry.minutes = (int) Math.max(1, Math.min(1440, minutes));
-        entry.entryDate = LocalDate.ofInstant(now, organisation(entry.organisationId).zone());
+        entry.entryDate = LocalDate.ofInstant(entry.startedAt, organisation(entry.organisationId).zone());
     }
 
     public List<TimeEntryResponse> toResponses(Collection<TimeEntry> entries) {
