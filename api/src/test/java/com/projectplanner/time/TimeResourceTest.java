@@ -26,6 +26,29 @@ class TimeResourceTest {
     }
 
     @Test
+    void logsTimeAndShowsItInTheWeek() {
+        Account owner = Api.signup("Ada");
+        long projectId = Api.createProject(owner, "TIME");
+        long taskId = Api.createTask(owner, projectId, Map.of("title", "Design"));
+        owner.as().body(Map.of("projectId", projectId, "taskId", taskId, "date", WEEK.toString(), "minutes", 90, "billable", true))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries")
+                .then().statusCode(201).body("taskTitle", equalTo("Design")).body("locked", equalTo(false));
+        owner.as().body(entry(projectId, WEEK.plusDays(2), 30))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201);
+
+        owner.as().queryParam("date", WEEK.plusDays(3).toString())
+                .get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().statusCode(200)
+                .body("weekStart", equalTo(WEEK.toString()))
+                .body("status", equalTo("DRAFT"))
+                .body("totalMinutes", equalTo(120))
+                .body("days[0].minutes", equalTo(90))
+                .body("days[2].minutes", equalTo(30))
+                .body("entries", hasSize(2));
+        owner.as().get("/api/tasks/" + taskId).then().body("loggedHours", Api.num(1.5));
+    }
+
+    @Test
     void validatesEntries() {
         Account owner = Api.signup("Bo");
         long projectId = Api.createProject(owner, "VAL");
@@ -49,6 +72,50 @@ class TimeResourceTest {
         owner.as().post("/api/orgs/" + owner.orgId() + "/timer/stop")
                 .then().statusCode(200).body("running", equalTo(false)).body("minutes", equalTo(1));
         owner.as().post("/api/orgs/" + owner.orgId() + "/timer/stop").then().statusCode(409).body("code", equalTo("no_timer"));
+    }
+
+    @Test
+    void submittedWeeksAreLockedUntilRejected() {
+        Account owner = Api.signup("Eli");
+        Account member = Api.signup("Fay");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = Api.createProject(owner, "SHEET");
+        Number entryId = member.as().body(entry(projectId, WEEK, 120))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201).extract().path("id");
+
+        Number sheetId = member.as().body(Map.of("weekStart", WEEK.toString()))
+                .post("/api/orgs/" + owner.orgId() + "/timesheets/submit")
+                .then().statusCode(200).body("status", equalTo("SUBMITTED")).extract().path("timesheetId");
+
+        member.as().body(entry(projectId, WEEK.plusDays(1), 60))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries")
+                .then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        member.as().delete("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId).then().statusCode(409);
+
+        owner.as().get("/api/orgs/" + owner.orgId() + "/timesheets")
+                .then().statusCode(200).body("id", hasItem(sheetId.intValue()));
+        owner.as().get("/api/notifications").then().body("type", hasItem("TIMESHEET_SUBMITTED"));
+
+        owner.as().body(Map.of("note", "Wrong project on Monday"))
+                .post("/api/orgs/" + owner.orgId() + "/timesheets/" + sheetId + "/reject")
+                .then().statusCode(200).body("status", equalTo("REJECTED")).body("reviewNote", equalTo("Wrong project on Monday"));
+        member.as().get("/api/notifications").then().body("[0].type", equalTo("TIMESHEET_REJECTED"));
+        member.as().delete("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId).then().statusCode(204);
+    }
+
+    @Test
+    void managersApproveButNotTheirOwnWeek() {
+        Account owner = Api.signup("Gus");
+        Account manager = Api.signup("Hal");
+        Api.addMember(owner, manager, "MANAGER");
+        long projectId = Api.createProject(owner, "APPROVE");
+        manager.as().body(entry(projectId, WEEK, 60)).post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201);
+        Number sheetId = manager.as().body(Map.of("weekStart", WEEK.toString()))
+                .post("/api/orgs/" + owner.orgId() + "/timesheets/submit").then().statusCode(200).extract().path("timesheetId");
+
+        owner.as().post("/api/orgs/" + owner.orgId() + "/timesheets/" + sheetId + "/approve")
+                .then().statusCode(200).body("status", equalTo("APPROVED")).body("reviewedByName", equalTo("Gus"));
+        owner.as().post("/api/orgs/" + owner.orgId() + "/timesheets/" + sheetId + "/approve").then().statusCode(409);
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
 import com.projectplanner.project.Project;
 import com.projectplanner.project.ProjectStatus;
+import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.Task;
 import com.projectplanner.time.TimeDtos.StartTimerRequest;
 import com.projectplanner.time.TimeDtos.TimeEntryRequest;
@@ -40,6 +41,7 @@ public class TimeService {
 
     public TimeEntry create(Membership me, TimeEntryRequest request) {
         Target target = target(me.organisationId, request.projectId(), request.taskId());
+        checkUnlocked(me.organisationId, me.userId, request.date());
         TimeEntry entry = new TimeEntry();
         entry.organisationId = me.organisationId;
         entry.userId = me.userId;
@@ -56,7 +58,9 @@ public class TimeService {
 
     public void update(Membership me, TimeEntry entry, TimeEntryRequest request) {
         checkOwner(me, entry);
+        checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
         Target target = target(entry.organisationId, request.projectId(), request.taskId());
+        checkUnlocked(entry.organisationId, entry.userId, request.date());
         entry.projectId = target.project().id;
         entry.taskId = target.task() == null ? null : target.task().id;
         entry.entryDate = request.date();
@@ -71,6 +75,7 @@ public class TimeService {
 
     public void delete(Membership me, TimeEntry entry) {
         checkOwner(me, entry);
+        checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
         entry.delete();
     }
 
@@ -80,6 +85,7 @@ public class TimeService {
         TimeEntry.runningFor(me.organisationId, me.userId).ifPresent(this::finish);
         Instant now = Instant.now(clock);
         LocalDate today = organisation(me.organisationId).today(clock);
+        checkUnlocked(me.organisationId, me.userId, today);
         TimeEntry entry = new TimeEntry();
         entry.organisationId = me.organisationId;
         entry.userId = me.userId;
@@ -138,11 +144,15 @@ public class TimeService {
         if (!userIds.isEmpty()) {
             User.<User>list("id in ?1", userIds).forEach(u -> users.put(u.id, u.name));
         }
+        Map<String, TimesheetStatus> sheetStatus = new HashMap<>();
         return entries.stream().map(e -> {
             Project p = projects.get(e.projectId);
+            LocalDate week = WorkCalendar.weekStart(e.entryDate);
+            TimesheetStatus status = sheetStatus.computeIfAbsent(e.userId + ":" + week,
+                    k -> Timesheet.statusOf(e.organisationId, e.userId, week));
             return new TimeEntryResponse(e.id, e.userId, users.get(e.userId), e.projectId, p.name, p.code, e.taskId,
                     e.taskId == null ? null : tasks.get(e.taskId), e.entryDate, e.minutes, e.description, e.billable,
-                    e.startedAt, e.endedAt, e.isRunning());
+                    e.startedAt, e.endedAt, e.isRunning(), status.locked());
         }).toList();
     }
 
@@ -166,6 +176,15 @@ public class TimeService {
             }
         }
         return new Target(project, task);
+    }
+
+    static void checkUnlocked(long organisationId, long userId, LocalDate date) {
+        LocalDate week = WorkCalendar.weekStart(date);
+        TimesheetStatus status = Timesheet.statusOf(organisationId, userId, week);
+        if (status.locked()) {
+            throw ApiException.conflict("timesheet_locked",
+                    "The timesheet for the week of " + week + " is " + status.name().toLowerCase() + " and can't be changed");
+        }
     }
 
     private static void checkOwner(Membership me, TimeEntry entry) {
