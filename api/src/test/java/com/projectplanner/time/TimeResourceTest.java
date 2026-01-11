@@ -132,4 +132,34 @@ class TimeResourceTest {
         owner.as().get("/api/orgs/" + owner.orgId() + "/time-entries" + range).then().statusCode(200).body("$", hasSize(2));
         member.as().get("/api/orgs/" + owner.orgId() + "/time-entries" + range + "&userId=" + owner.userId()).then().statusCode(403);
     }
+
+    @Test
+    void exportsCsv() {
+        Account owner = Api.signup("Lou");
+        Account member = Api.signup("Mo");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = Api.createProject(owner, "CSV");
+        owner.as().body(Map.of("rates", java.util.List.of(Map.of("role", "MEMBER", "hourlyRate", 80))))
+                .put("/api/orgs/" + owner.orgId() + "/role-rates").then().statusCode(200);
+        member.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 90,
+                        "description", "=cmd|' /C calc'!A0, then a comma", "billable", true))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201);
+
+        String range = "?from=" + WEEK + "&to=" + WEEK.plusDays(6);
+        String csv = owner.as().get("/api/orgs/" + owner.orgId() + "/exports/timesheets.csv" + range)
+                .then().statusCode(200)
+                .header("Content-Disposition", containsString("timesheets-" + WEEK))
+                .contentType(startsWith("text/csv"))
+                .extract().asString();
+        String[] lines = csv.split("\r\n");
+        org.assertj.core.api.Assertions.assertThat(lines).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(lines[0]).startsWith("date,week,member").endsWith("rate,amount");
+        org.assertj.core.api.Assertions.assertThat(lines[1]).contains("\"'=cmd|' /C calc'!A0, then a comma\"").endsWith(",1.50,yes,draft,80.00,120.00");
+
+        String own = member.as().get("/api/orgs/" + owner.orgId() + "/exports/timesheets.csv" + range)
+                .then().statusCode(200).extract().asString();
+        org.assertj.core.api.Assertions.assertThat(own.split("\r\n")[0]).doesNotContain("rate");
+        member.as().get("/api/orgs/" + owner.orgId() + "/exports/timesheets.csv" + range + "&userId=" + owner.userId())
+                .then().statusCode(403);
+    }
 }
