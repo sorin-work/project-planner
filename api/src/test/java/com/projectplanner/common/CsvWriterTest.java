@@ -14,6 +14,13 @@ class CsvWriterTest {
     }
 
     @Test
+    void quotesCommasQuotesAndNewlines() {
+        assertThat(CsvWriter.escape("Design, round 2")).isEqualTo("\"Design, round 2\"");
+        assertThat(CsvWriter.escape("the \"big\" one")).isEqualTo("\"the \"\"big\"\" one\"");
+        assertThat(CsvWriter.escape("line one\nline two")).isEqualTo("\"line one\nline two\"");
+    }
+
+    @Test
     void nullIsEmpty() {
         assertThat(CsvWriter.escape(null)).isEmpty();
     }

@@ -32,7 +32,7 @@ public final class CsvWriter {
             return "";
         }
         String text = value.toString();
-        if (text.contains(",")) {
+        if (text.contains(",") || text.contains("\"") || text.contains("\n") || text.contains("\r")) {
             return '"' + text.replace("\"", "\"\"") + '"';
         }
         return text;
