@@ -211,13 +211,15 @@ public class OrgResource {
         access.require(orgId, Role.OWNER);
         RoleRate.delete("organisationId", orgId);
         RoleRate.flush();
-        for (RoleRateEntry entry : request.rates()) {
+        Map<Role, BigDecimal> byRole = new java.util.EnumMap<>(Role.class);
+        request.rates().forEach(entry -> byRole.put(entry.role(), entry.hourlyRate()));
+        byRole.forEach((role, hourlyRate) -> {
             RoleRate rate = new RoleRate();
             rate.organisationId = orgId;
-            rate.role = entry.role();
-            rate.hourlyRate = entry.hourlyRate();
+            rate.role = role;
+            rate.hourlyRate = hourlyRate;
             rate.persist();
-        }
+        });
         return roleRates(orgId);
     }
 
