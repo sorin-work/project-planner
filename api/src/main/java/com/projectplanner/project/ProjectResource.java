@@ -5,6 +5,8 @@ import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Role;
 import com.projectplanner.project.ProjectDtos.ProjectRequest;
 import com.projectplanner.project.ProjectDtos.ProjectResponse;
+import com.projectplanner.report.ProjectHealthService;
+import com.projectplanner.report.ProjectHealthService.HealthSummary;
 import io.quarkus.panache.common.Parameters;
 import io.quarkus.security.Authenticated;
 import jakarta.transaction.Transactional;
@@ -30,15 +32,17 @@ public class ProjectResource {
 
     private final OrgAccess access;
     private final ProjectService projects;
+    private final ProjectHealthService health;
 
-    public ProjectResource(OrgAccess access, ProjectService projects) {
+    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health) {
         this.access = access;
         this.projects = projects;
+        this.health = health;
     }
 
     @GET
     @Path("/orgs/{orgId}/projects")
-    public List<ProjectResponse> list(@PathParam("orgId") long orgId,
+    public List<ProjectListItem> list(@PathParam("orgId") long orgId,
                                       @QueryParam("status") ProjectStatus status,
                                       @QueryParam("clientId") Long clientId) {
         Membership me = access.member(orgId);
@@ -58,7 +62,12 @@ public class ProjectResource {
         }
         query.append(" order by name");
         List<Project> found = new ArrayList<>(Project.<Project>list(query.toString(), params));
-        return found.stream().map(p -> ProjectService.toResponse(p, me.role.canManage())).toList();
+        List<ProjectListItem> items = new ArrayList<>();
+        for (Project project : found) {
+            items.add(new ProjectListItem(ProjectService.toResponse(project, me.role.canManage()),
+                    health.summary(project, me)));
+        }
+        return items;
     }
 
     @POST
@@ -95,5 +104,8 @@ public class ProjectResource {
         Project project = access.project(projectId);
         access.manageProject(project);
         project.delete();
+    }
+
+    public record ProjectListItem(ProjectResponse project, HealthSummary health) {
     }
 }

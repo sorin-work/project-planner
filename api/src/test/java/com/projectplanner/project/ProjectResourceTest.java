@@ -33,7 +33,8 @@ class ProjectResourceTest {
         owner.as().get("/api/orgs/" + owner.orgId() + "/projects")
                 .then().statusCode(200)
                 .body("$", hasSize(1))
-                .body("[0].name", equalTo("Website"));
+                .body("[0].project.name", equalTo("Website"))
+                .body("[0].health.status", notNullValue());
     }
 
     @Test
