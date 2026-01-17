@@ -35,6 +35,7 @@ class ReportResourceTest {
 
         owner.as().get("/api/projects/" + projectId + "/health").then().statusCode(200)
                 .body("progress.progressPct", Api.num(75))
+                .body("progress.overdueTasks", equalTo(1))
                 .body("overdue", hasSize(1))
                 .body("overdue[0].title", equalTo("Late"))
                 .body("budget.loggedHours", Api.num(10))

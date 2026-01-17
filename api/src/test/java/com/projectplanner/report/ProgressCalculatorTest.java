@@ -79,4 +79,13 @@ class ProgressCalculatorTest {
         assertThat(p.overdueTasks()).isEqualTo(1);
         assertThat(p.openTasks()).isEqualTo(3);
     }
+
+    @Test
+    void finishedTasksAreNeverOverdue() {
+        Progress p = calculator.calculate(List.of(
+                task(1, 5, true, day(0), day(1)),
+                task(2, 5, false, day(0), day(1))), day(5));
+        assertThat(p.overdueTasks()).isEqualTo(1);
+        assertThat(p.doneTasks()).isEqualTo(1);
+    }
 }

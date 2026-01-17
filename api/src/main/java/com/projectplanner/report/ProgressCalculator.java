@@ -64,9 +64,9 @@ public final class ProgressCalculator {
         for (TaskFacts task : tasks) {
             if (!task.done()) {
                 open++;
-            }
-            if (task.due() != null && task.due().isBefore(today)) {
-                overdue++;
+                if (task.due() != null && task.due().isBefore(today)) {
+                    overdue++;
+                }
             }
         }
 
