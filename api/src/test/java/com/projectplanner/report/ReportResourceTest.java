@@ -45,6 +45,25 @@ class ReportResourceTest {
     }
 
     @Test
+    void workloadComparesAllocationWithCapacity() {
+        Account owner = Api.signup("Xan");
+        long projectId = Api.createProject(owner, "LOAD");
+        Number memberId = owner.as().get("/api/orgs/" + owner.orgId() + "/members").then().extract().path("[0].id");
+        owner.as().body(Map.of("weeklyCapacityHours", 20)).patch("/api/orgs/" + owner.orgId() + "/members/" + memberId)
+                .then().statusCode(200);
+        Api.createTask(owner, projectId, Map.of("title", "Big job", "estimateHours", 30, "assigneeId", owner.userId(),
+                "startDate", MONDAY.plusWeeks(1).toString(), "dueDate", MONDAY.plusWeeks(1).plusDays(4).toString()));
+
+        owner.as().get("/api/orgs/" + owner.orgId() + "/workload?weeks=3&from=" + MONDAY).then().statusCode(200)
+                .body("members", hasSize(1))
+                .body("members[0].weeks", hasSize(3))
+                .body("members[0].weeks[0].allocatedHours", Api.num(0))
+                .body("members[0].weeks[1].allocatedHours", Api.num(30))
+                .body("members[0].weeks[1].overallocated", equalTo(true))
+                .body("tasks[0].title", equalTo("Big job"));
+    }
+
+    @Test
     void activityFeed() {
         Account owner = Api.signup("Zoe");
         Api.createProject(owner, "FEED");

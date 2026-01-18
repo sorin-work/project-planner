@@ -1,0 +1,77 @@
+package com.projectplanner.workload;
+
+import com.projectplanner.schedule.WorkCalendar;
+import com.projectplanner.workload.WorkloadCalculator.Assignment;
+import com.projectplanner.workload.WorkloadCalculator.MemberLoad;
+import com.projectplanner.workload.WorkloadCalculator.Person;
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class WorkloadCalculatorTest {
+
+    private final WorkloadCalculator calculator = new WorkloadCalculator(WorkCalendar.DEFAULT);
+
+    // 2026-03-02 is a Monday.
+    private static LocalDate day(int offset) {
+        return LocalDate.of(2026, 3, 2).plusDays(offset);
+    }
+
+    private final Person ana = new Person(1, 40);
+    private final Person ben = new Person(2, 20);
+
+    @Test
+    void spreadsEstimateEvenlyOverWorkingDays() {
+        // 20 hours over two weeks (10 working days): 10 hours per week.
+        List<MemberLoad> loads = calculator.calculate(List.of(ana),
+                List.of(new Assignment(100, 1, 20, day(0), day(11), false)), day(0), 3);
+        MemberLoad load = loads.getFirst();
+        assertThat(load.weeks()).extracting(WorkloadCalculator.WeekLoad::allocatedHours).containsExactly(10.0, 10.0, 0.0);
+        assertThat(load.weeks().getFirst().taskIds()).containsExactly(100L);
+        assertThat(load.weeks().get(2).taskIds()).isEmpty();
+    }
+
+    @Test
+    void flagsOverallocatedWeeks() {
+        List<MemberLoad> loads = calculator.calculate(List.of(ben), List.of(
+                new Assignment(1, 2, 15, day(0), day(4), false),
+                new Assignment(2, 2, 10, day(2), day(4), false)), day(0), 1);
+        var week = loads.getFirst().weeks().getFirst();
+        assertThat(week.allocatedHours()).isEqualTo(25.0);
+        assertThat(week.overallocated()).isTrue();
+        assertThat(week.capacityHours()).isEqualTo(20.0);
+    }
+
+    @Test
+    void onlyCountsTheVisibleWindow() {
+        // A 4-week task starting two weeks before the window.
+        List<MemberLoad> loads = calculator.calculate(List.of(ana),
+                List.of(new Assignment(1, 1, 80, day(-14), day(11), false)), day(0), 1);
+        assertThat(loads.getFirst().weeks().getFirst().allocatedHours()).isEqualTo(20.0);
+    }
+
+    @Test
+    void tasksWithoutDatesAreUnscheduled() {
+        List<MemberLoad> loads = calculator.calculate(List.of(ana),
+                List.of(new Assignment(1, 1, 12, null, null, false)), day(0), 2);
+        assertThat(loads.getFirst().unscheduledHours()).isEqualTo(12.0);
+        assertThat(loads.getFirst().weeks()).allMatch(w -> w.allocatedHours() == 0);
+    }
+
+    @Test
+    void windowStartsOnMonday() {
+        List<MemberLoad> loads = calculator.calculate(List.of(ana), List.of(), day(3), 1);
+        assertThat(loads.getFirst().weeks().getFirst().weekStart()).isEqualTo(day(0));
+    }
+
+    @Test
+    void ignoresPeopleOutsideTheTeam() {
+        List<MemberLoad> loads = calculator.calculate(List.of(ana),
+                List.of(new Assignment(1, 99, 10, day(0), day(0), false)), day(0), 1);
+        assertThat(loads).hasSize(1);
+        assertThat(loads.getFirst().weeks().getFirst().allocatedHours()).isZero();
+    }
+}
