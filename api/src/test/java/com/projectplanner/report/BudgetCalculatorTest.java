@@ -43,6 +43,13 @@ class BudgetCalculatorTest {
     }
 
     @Test
+    void zeroBudgetDoesNotDivideByZero() {
+        Budget b = calculator.calculate(BigDecimal.ZERO, BigDecimal.ZERO, List.of(new TimeFacts(60, true, bd("50"))));
+        assertThat(b.hoursBurnPct()).isNull();
+        assertThat(b.amountBurnPct()).isNull();
+    }
+
+    @Test
     void overspendingShowsAsNegativeRemaining() {
         Budget b = calculator.calculate(bd("10"), bd("500"), List.of(new TimeFacts(720, true, bd("50"))));
         assertThat(b.remainingHours()).isEqualByComparingTo("-2");

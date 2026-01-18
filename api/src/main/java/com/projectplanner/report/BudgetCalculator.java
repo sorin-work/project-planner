@@ -39,7 +39,7 @@ public final class BudgetCalculator {
 
     /** {@code part / whole} as a percentage, or null when there is no budget to compare against. */
     static Double percent(BigDecimal part, BigDecimal whole) {
-        if (whole == null) {
+        if (whole == null || whole.signum() <= 0) {
             return null;
         }
         return part.multiply(BigDecimal.valueOf(100)).divide(whole, 1, RoundingMode.HALF_UP).doubleValue();
