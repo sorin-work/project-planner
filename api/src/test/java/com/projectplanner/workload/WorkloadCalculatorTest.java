@@ -54,6 +54,13 @@ class WorkloadCalculatorTest {
     }
 
     @Test
+    void finishedTasksDoNotCount() {
+        List<MemberLoad> loads = calculator.calculate(List.of(ana),
+                List.of(new Assignment(1, 1, 40, day(0), day(4), true)), day(0), 1);
+        assertThat(loads.getFirst().weeks().getFirst().allocatedHours()).isZero();
+    }
+
+    @Test
     void tasksWithoutDatesAreUnscheduled() {
         List<MemberLoad> loads = calculator.calculate(List.of(ana),
                 List.of(new Assignment(1, 1, 12, null, null, false)), day(0), 2);

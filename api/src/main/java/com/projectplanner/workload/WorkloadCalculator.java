@@ -37,7 +37,7 @@ public final class WorkloadCalculator {
 
         for (Assignment a : assignments) {
             double[] perWeek = hours.get(a.userId());
-            if (perWeek == null || a.estimateHours() <= 0) {
+            if (perWeek == null || a.done() || a.estimateHours() <= 0) {
                 continue;
             }
             LocalDate start = a.start() != null ? a.start() : a.due();
