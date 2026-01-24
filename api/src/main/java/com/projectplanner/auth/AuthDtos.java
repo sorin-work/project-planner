@@ -21,6 +21,14 @@ public final class AuthDtos {
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
     }
 
+    public record ProfileRequest(@NotBlank @Size(max = 120) String name) {
+    }
+
+    public record PasswordRequest(
+            @NotBlank String currentPassword,
+            @NotBlank @Size(min = 8, max = 72, message = "must be between 8 and 72 characters") String newPassword) {
+    }
+
     public record UserResponse(long id, String email, String name, String handle) {
         public static UserResponse of(User user) {
             return new UserResponse(user.id, user.email, user.name, user.handle());

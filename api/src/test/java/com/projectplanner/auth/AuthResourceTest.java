@@ -71,6 +71,18 @@ class AuthResourceTest {
     }
 
     @Test
+    void changesPassword() {
+        Api.Account account = Api.signup("Eve");
+        account.as().body(Map.of("currentPassword", "nope-nope", "newPassword", "new-password-1"))
+                .post("/api/me/password").then().statusCode(400).body("code", equalTo("wrong_password"));
+        account.as().body(Map.of("currentPassword", "correct-horse", "newPassword", "new-password-1"))
+                .post("/api/me/password").then().statusCode(204);
+        given().contentType(ContentType.JSON)
+                .body(Map.of("email", account.email(), "password", "new-password-1"))
+                .post("/api/auth/login").then().statusCode(200);
+    }
+
+    @Test
     void healthIsUp() {
         given().get("/q/health/ready").then().statusCode(200).body("status", equalTo("UP"));
     }
