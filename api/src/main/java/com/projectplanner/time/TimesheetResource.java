@@ -63,6 +63,15 @@ public class TimesheetResource {
         return timesheets.week(orgId, me.userId, sheet.weekStart);
     }
 
+    @POST
+    @Path("/withdraw")
+    @Transactional
+    public WeekResponse withdraw(@PathParam("orgId") long orgId, @Valid @NotNull SubmitRequest request) {
+        Membership me = access.team(orgId);
+        Timesheet sheet = timesheets.withdraw(me, request.weekStart());
+        return timesheets.week(orgId, me.userId, sheet.weekStart);
+    }
+
     /** The approval queue for managers; by default only weeks waiting for review. */
     @GET
     public List<TimesheetSummary> list(@PathParam("orgId") long orgId,

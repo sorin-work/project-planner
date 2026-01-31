@@ -107,6 +107,19 @@ public class TimesheetService {
         return sheet;
     }
 
+    /** Takes a submitted week back to draft so it can be corrected before review. */
+    public Timesheet withdraw(Membership me, LocalDate anyDay) {
+        LocalDate weekStart = WorkCalendar.weekStart(anyDay);
+        Timesheet sheet = Timesheet.find(me.organisationId, me.userId, weekStart)
+                .orElseThrow(() -> ApiException.notFound("Timesheet"));
+        if (sheet.status != TimesheetStatus.SUBMITTED) {
+            throw ApiException.conflict("not_submitted", "Only submitted timesheets can be withdrawn");
+        }
+        sheet.status = TimesheetStatus.DRAFT;
+        sheet.submittedAt = null;
+        return sheet;
+    }
+
     public Timesheet approve(Membership me, Timesheet sheet) {
         checkReviewer(me, sheet);
         sheet.status = TimesheetStatus.APPROVED;
