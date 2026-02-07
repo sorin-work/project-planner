@@ -1,0 +1,49 @@
+<div class="layout" [class.menu-open]="menuOpen()">
+  <aside class="sidebar">
+    <a class="brand" routerLink="/">project-planner</a>
+    @if (org.current(); as current) {
+      <p class="org-name">{{ current.organisationName }}</p>
+    }
+    <nav aria-label="Main">
+      <a routerLink="/projects" routerLinkActive="active">Projects</a>
+      @if (org.isTeam()) {
+      }
+      @if (org.canManage()) {
+      }
+      @if (org.isTeam()) {
+      }
+    </nav>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-button menu-toggle" type="button" aria-label="Menu" (click)="menuOpen.set(!menuOpen())">☰</button>
+      <div class="spacer"></div>
+      @if (auth.user(); as user) {
+        <a class="user-link" routerLink="/settings" [title]="user.email">
+          <app-avatar [name]="user.name" [small]="true" />
+          <span class="user-name">{{ user.name }}</span>
+          @if (org.role(); as role) {
+            <span class="muted small">{{ roleLabels[role] }}</span>
+          }
+        </a>
+      }
+      <button type="button" class="link" (click)="logout()">Sign out</button>
+    </header>
+
+    <main class="content">
+      @if (loadError()) {
+        <p class="alert error">{{ loadError() }}</p>
+      } @else if (auth.me() && !org.current()) {
+        <div class="card empty">
+          <h2>You're not part of a team</h2>
+          <p class="muted">Ask an owner or manager to invite you again.</p>
+        </div>
+      } @else if (org.current()) {
+        <router-outlet />
+      } @else {
+        <p class="muted">Loading…</p>
+      }
+    </main>
+  </div>
+</div>

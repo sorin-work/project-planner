@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
-import { guestGuard } from './core/auth.guard';
+import { authGuard, guestGuard } from './core/auth.guard';
+import { Shell } from './features/shell/shell';
 
 export const routes: Routes = [
   {
@@ -12,5 +13,11 @@ export const routes: Routes = [
     canActivate: [guestGuard],
     loadComponent: () => import('./features/auth/signup.page').then((m) => m.SignupPage),
   },
-  { path: '**', redirectTo: 'login' },
+  {
+    path: '',
+    component: Shell,
+    canActivate: [authGuard],
+    children: [],
+  },
+  { path: '**', redirectTo: '' },
 ];
