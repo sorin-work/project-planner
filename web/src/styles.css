@@ -603,6 +603,81 @@ a.stat:hover {
   opacity: 0.6;
 }
 
+/* Tables */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table th {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.table tr.clickable {
+  cursor: pointer;
+}
+
+.table tr.clickable:hover td {
+  background: var(--surface-2);
+}
+
+.tasks-table tr.subtask td:first-child {
+  padding-left: 1.8rem;
+}
+
+.tasks-table tr.critical td:first-child {
+  box-shadow: inset 3px 0 0 var(--critical);
+}
+
+.task-title {
+  text-align: left;
+}
+
+select.compact {
+  width: auto;
+  padding: 0.2rem 0.4rem;
+}
+
+.weekend {
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+}
+
+.person {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.num-input {
+  width: 6rem;
+  text-align: right;
+}
+
+.actions-cell {
+  white-space: nowrap;
+  text-align: right;
+}
+
 /* Forms */
 
 .form-grid {

@@ -17,7 +17,10 @@ export const routes: Routes = [
     path: '',
     component: Shell,
     canActivate: [authGuard],
-    children: [],
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'projects' },
+      { path: 'projects', loadComponent: () => import('./features/projects/projects.page').then((m) => m.ProjectsPage) },
+    ],
   },
   { path: '**', redirectTo: '' },
 ];
