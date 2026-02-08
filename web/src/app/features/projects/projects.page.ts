@@ -31,6 +31,26 @@ import { ProjectForm } from './project-form';
       </section>
     }
 
+    <div class="filters">
+      <label>Status
+        <select [(ngModel)]="status" (ngModelChange)="load()">
+          <option value="">All</option>
+          @for (s of statuses; track s) {
+            <option [value]="s">{{ statusLabels[s] }}</option>
+          }
+        </select>
+      </label>
+      @if (clients().length > 1) {
+        <label>Client
+          <select [(ngModel)]="clientId" (ngModelChange)="load()">
+            <option [ngValue]="null">All</option>
+            @for (c of clients(); track c.id) {
+              <option [ngValue]="c.id">{{ c.name }}</option>
+            }
+          </select>
+        </label>
+      }
+    </div>
 
     @if (error()) {
       <p class="alert error">{{ error() }}</p>
