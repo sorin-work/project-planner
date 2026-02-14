@@ -14,6 +14,12 @@ import { groupTasks } from './task-groups';
   selector: 'app-list-tab',
   imports: [FormsModule],
   template: `
+    <div class="toolbar">
+      <label><input type="checkbox" [(ngModel)]="hideDone" /> Hide done</label>
+      <label><input type="checkbox" [(ngModel)]="mineOnly" /> Only mine</label>
+      <span class="spacer"></span>
+      <span class="muted small">{{ store.tasks().length }} tasks</span>
+    </div>
     @if (error()) {
       <p class="alert error">{{ error() }}</p>
     }
