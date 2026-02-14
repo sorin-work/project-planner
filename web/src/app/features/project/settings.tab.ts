@@ -1,0 +1,121 @@
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { messageOf } from '../../core/errors';
+import { Client, Phase } from '../../core/models';
+import { OrgApi } from '../../core/org.api';
+import { OrgContext } from '../../core/org-context.service';
+import { ProjectApi, ProjectInput } from '../../core/project.api';
+import { ProjectForm } from '../projects/project-form';
+import { ProjectStore } from './project.store';
+
+@Component({
+  selector: 'app-settings-tab',
+  imports: [FormsModule, ProjectForm],
+  template: `
+    <section class="card">
+      <h2>Project details</h2>
+      @if (saved()) {
+        <p class="alert success">Saved.</p>
+      }
+      <app-project-form [project]="store.project()" [clients]="clients()" [busy]="busy()" [error]="error()"
+        (saved)="save($event)" (cancelled)="reset()" />
+    </section>
+
+    <section class="card">
+      <h2>Phases</h2>
+      <ul class="phase-list">
+        @for (phase of store.phases(); track phase.id) {
+          <li>
+            <input [ngModel]="phase.name" (change)="rename(phase, $any($event.target).value)" [attr.aria-label]="'Name of ' + phase.name" />
+            <button type="button" class="small danger" (click)="removePhase(phase)">Remove</button>
+          </li>
+        }
+      </ul>
+      <form class="quick-add" (ngSubmit)="addPhase()">
+        <input name="phase" placeholder="New phase name" [(ngModel)]="newPhase" aria-label="New phase name" />
+        <button type="submit" class="small">Add phase</button>
+      </form>
+    </section>
+
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class SettingsTab {
+  protected readonly store = inject(ProjectStore);
+  private readonly api = inject(ProjectApi);
+  private readonly orgApi = inject(OrgApi);
+  private readonly org = inject(OrgContext);
+
+  protected readonly clients = signal<Client[]>([]);
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+  protected readonly saved = signal(false);
+  protected newPhase = '';
+
+  constructor() {
+    effect(() => {
+      const orgId = this.org.orgId();
+      if (orgId !== null) {
+        this.orgApi.clients(orgId).subscribe({ next: (c) => this.clients.set(c) });
+      }
+    });
+  }
+
+  save(input: ProjectInput): void {
+    const project = this.store.project();
+    if (!project) {
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    this.api.update(project.id, input).subscribe({
+      next: (p) => {
+        this.store.project.set(p);
+        this.busy.set(false);
+        this.saved.set(true);
+      },
+      error: (err: unknown) => {
+        this.busy.set(false);
+        this.error.set(messageOf(err));
+      },
+    });
+  }
+
+  reset(): void {
+    this.store.project.update((p) => (p ? { ...p } : p));
+  }
+
+  addPhase(): void {
+    const project = this.store.project();
+    const name = this.newPhase.trim();
+    if (!project || !name) {
+      return;
+    }
+    this.api.createPhase(project.id, { name }).subscribe({
+      next: () => {
+        this.newPhase = '';
+        this.store.refreshPhases();
+      },
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  rename(phase: Phase, name: string): void {
+    if (!name.trim() || name === phase.name) {
+      return;
+    }
+    this.api.updatePhase(phase.id, { ...phase, name }).subscribe({ next: () => this.store.refreshPhases() });
+  }
+
+  removePhase(phase: Phase): void {
+    if (!confirm(`Remove the phase "${phase.name}"? Its tasks stay in the project.`)) {
+      return;
+    }
+    this.api.deletePhase(phase.id).subscribe({
+      next: () => {
+        this.store.refreshPhases();
+        this.store.reloadTasks();
+      },
+    });
+  }
+}
