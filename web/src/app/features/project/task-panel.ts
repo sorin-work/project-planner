@@ -1,0 +1,186 @@
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { messageOf } from '../../core/errors';
+import { Priority, Task, TaskStatus } from '../../core/models';
+import { OrgContext } from '../../core/org-context.service';
+import { TaskApi, TaskPatch } from '../../core/task.api';
+import { formatDate } from '../../shared/dates';
+import { PRIORITIES, PRIORITY_LABELS, TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/format';
+import { ProjectStore } from './project.store';
+
+@Component({
+  selector: 'app-task-panel',
+  imports: [FormsModule],
+  templateUrl: './task-panel.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class TaskPanel {
+  protected readonly store = inject(ProjectStore);
+  protected readonly org = inject(OrgContext);
+  private readonly api = inject(TaskApi);
+
+  readonly taskId = input.required<number>();
+  readonly closed = output();
+
+  protected readonly error = signal<string | null>(null);
+  protected readonly notice = signal<string | null>(null);
+  protected newSubtask = '';
+  protected newPredecessor: number | null = null;
+  protected newLag = 0;
+
+  protected readonly task = computed<Task | undefined>(() => this.store.byId().get(this.taskId()));
+  protected readonly subtasks = computed(() => this.store.subtasks(this.taskId()));
+  protected readonly parent = computed(() => {
+    const parentId = this.task()?.parentId;
+    return parentId ? this.store.byId().get(parentId) : undefined;
+  });
+  protected readonly predecessorOptions = computed(() => {
+    const task = this.task();
+    if (!task) {
+      return [];
+    }
+    const existing = new Set(task.predecessors.map((d) => d.predecessorId));
+    return this.store.tasks().filter((t) => t.id !== task.id && !existing.has(t.id));
+  });
+  protected readonly canEdit = computed(() => this.org.isTeam());
+  protected readonly isCritical = computed(() => this.store.criticalIds().has(this.taskId()));
+
+  protected readonly statuses = TASK_STATUSES;
+  protected readonly statusLabels = TASK_STATUS_LABELS;
+  protected readonly priorities = PRIORITIES;
+  protected readonly priorityLabels = PRIORITY_LABELS;
+  protected readonly formatDate = formatDate;
+  protected readonly formatHours = formatHours;
+
+  constructor() {
+    effect(() => {
+      const id = this.taskId();
+      this.error.set(null);
+      this.notice.set(null);
+    });
+  }
+
+
+  taskTitle(id: number): string {
+    return this.store.byId().get(id)?.title ?? `#${id}`;
+  }
+
+  save(patch: TaskPatch): void {
+    this.error.set(null);
+    this.notice.set(null);
+    this.store.updateTask(this.taskId(), patch).subscribe({
+      next: (change) => {
+        if (change.rescheduled.length) {
+          this.notice.set(
+            `Moved ${change.rescheduled.length} dependent task${change.rescheduled.length === 1 ? '' : 's'} to keep the plan consistent: ` +
+              change.rescheduled.map((t) => t.title).join(', '),
+          );
+        }
+      },
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  setTitle(value: string): void {
+    const title = value.trim();
+    if (title && title !== this.task()?.title) {
+      this.save({ title });
+    }
+  }
+
+  setDescription(value: string): void {
+    if (value !== (this.task()?.description ?? '')) {
+      this.save({ description: value });
+    }
+  }
+
+  setStatus(status: TaskStatus): void {
+    this.save({ status });
+  }
+
+  setPriority(priority: Priority): void {
+    this.save({ priority });
+  }
+
+  setAssignee(value: string): void {
+    this.save(value ? { assigneeId: Number(value) } : { clearAssignee: true });
+  }
+
+  setPhase(value: string): void {
+    this.save(value ? { phaseId: Number(value) } : { clearPhase: true });
+  }
+
+  setEstimate(value: string): void {
+    if (value !== '') {
+      this.save({ estimateHours: Number(value) });
+    }
+  }
+
+  setStart(value: string): void {
+    if (value) {
+      this.save({ startDate: value });
+    }
+  }
+
+  setDue(value: string): void {
+    if (value) {
+      this.save({ dueDate: value });
+    }
+  }
+
+  addSubtask(): void {
+    const title = this.newSubtask.trim();
+    const task = this.task();
+    if (!title || !task) {
+      return;
+    }
+    this.store.createTask({ title, parentId: task.id, phaseId: task.phaseId ?? null }).subscribe({
+      next: () => {
+        this.newSubtask = '';
+        this.store.reloadTasks();
+      },
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  toggleSubtask(sub: Task): void {
+    this.store.updateTask(sub.id, { status: sub.status === 'DONE' ? 'TODO' : 'DONE' }).subscribe({
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  addDependency(): void {
+    if (this.newPredecessor === null) {
+      return;
+    }
+    this.error.set(null);
+    this.notice.set(null);
+    this.store.addDependency(this.taskId(), this.newPredecessor, this.newLag || 0).subscribe({
+      next: (change) => {
+        this.newPredecessor = null;
+        this.newLag = 0;
+        if (change.rescheduled.length) {
+          this.notice.set(`Rescheduled: ${change.rescheduled.map((t) => t.title).join(', ')}`);
+        }
+      },
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  removeDependency(dependencyId: number): void {
+    this.store.removeDependency(this.taskId(), dependencyId).subscribe({
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  remove(): void {
+    const task = this.task();
+    if (!task || !confirm(`Delete "${task.title}"${task.subtaskCount ? ' and its subtasks' : ''}?`)) {
+      return;
+    }
+    this.store.deleteTask(task.id).subscribe({
+      next: () => this.closed.emit(),
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+}

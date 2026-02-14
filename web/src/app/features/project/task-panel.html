@@ -1,0 +1,147 @@
+<aside class="task-panel card" aria-label="Task details">
+  @if (task(); as t) {
+    <header class="panel-header">
+      @if (parent(); as p) {
+        <p class="muted small">Subtask of {{ p.title }}</p>
+      }
+      <button type="button" class="icon-button close" aria-label="Close" (click)="closed.emit()">✕</button>
+      @if (canEdit()) {
+        <input class="title-input" [value]="t.title" (change)="setTitle($any($event.target).value)" aria-label="Title" />
+      } @else {
+        <h2>{{ t.title }}</h2>
+      }
+      <div class="panel-badges">
+        @if (t.milestone) {
+          <span class="badge">◆ Milestone</span>
+        }
+        @if (isCritical()) {
+          <span class="badge critical-badge" title="Any delay here delays the project end">Critical path</span>
+        }
+      </div>
+    </header>
+
+    @if (error()) {
+      <p class="alert error" role="alert">{{ error() }}</p>
+    }
+    @if (notice()) {
+      <p class="alert info" role="status">{{ notice() }}</p>
+    }
+
+    <div class="panel-fields">
+      <label for="tp-status">Status</label>
+      <select id="tp-status" [disabled]="!canEdit()" [ngModel]="t.status" (ngModelChange)="setStatus($event)">
+        @for (s of statuses; track s) {
+          <option [value]="s">{{ statusLabels[s] }}</option>
+        }
+      </select>
+
+      <label for="tp-assignee">Assignee</label>
+      <select id="tp-assignee" [disabled]="!canEdit()" [value]="t.assigneeId ?? ''" (change)="setAssignee($any($event.target).value)">
+        <option value="">Unassigned</option>
+        @for (m of store.team(); track m.userId) {
+          <option [value]="m.userId" [selected]="m.userId === t.assigneeId">{{ m.name }}</option>
+        }
+      </select>
+
+      <label for="tp-priority">Priority</label>
+      <select id="tp-priority" [disabled]="!canEdit()" [ngModel]="t.priority" (ngModelChange)="setPriority($event)">
+        @for (p of priorities; track p) {
+          <option [value]="p">{{ priorityLabels[p] }}</option>
+        }
+      </select>
+
+      <label for="tp-phase">Phase</label>
+      <select id="tp-phase" [disabled]="!canEdit() || !!t.parentId" (change)="setPhase($any($event.target).value)">
+        <option value="" [selected]="!t.phaseId">No phase</option>
+        @for (ph of store.phases(); track ph.id) {
+          <option [value]="ph.id" [selected]="ph.id === t.phaseId">{{ ph.name }}</option>
+        }
+      </select>
+
+      @if (!t.milestone) {
+        <label for="tp-start">Start</label>
+        <input id="tp-start" type="date" [disabled]="!canEdit()" [value]="t.startDate ?? ''" (change)="setStart($any($event.target).value)" />
+      }
+      <label for="tp-due">{{ t.milestone ? 'Date' : 'Due' }}</label>
+      <div class="inline">
+        <input id="tp-due" type="date" [disabled]="!canEdit()" [value]="t.dueDate ?? ''" (change)="setDue($any($event.target).value)" />
+      </div>
+
+      @if (!t.milestone) {
+        <label for="tp-estimate">Estimate (h)</label>
+        <input id="tp-estimate" type="number" min="0" step="0.5" [disabled]="!canEdit()" [value]="t.estimateHours ?? ''"
+          (change)="setEstimate($any($event.target).value)" />
+        <span class="label">Logged</span>
+        <span>
+          {{ formatHours(t.loggedHours) }}
+        </span>
+      }
+    </div>
+
+    <label for="tp-description" class="block-label">Description</label>
+    <textarea id="tp-description" rows="4" [disabled]="!canEdit()" [value]="t.description ?? ''"
+      (change)="setDescription($any($event.target).value)"></textarea>
+
+    @if (!t.parentId && !t.milestone) {
+      <section class="panel-section">
+        <h3>Subtasks</h3>
+        <ul class="checklist">
+          @for (sub of subtasks(); track sub.id) {
+            <li>
+              <input type="checkbox" [id]="'sub-' + sub.id" [checked]="sub.status === 'DONE'" [disabled]="!canEdit()" (change)="toggleSubtask(sub)" />
+              <label [for]="'sub-' + sub.id" [class.done]="sub.status === 'DONE'">{{ sub.title }}</label>
+              <span class="muted small">{{ sub.assigneeName }}</span>
+            </li>
+          }
+        </ul>
+        @if (canEdit()) {
+          <form class="quick-add" (ngSubmit)="addSubtask()">
+            <input name="subtask" placeholder="Add a subtask" [(ngModel)]="newSubtask" aria-label="New subtask" />
+            <button type="submit" class="small">Add</button>
+          </form>
+        }
+      </section>
+    }
+
+    <section class="panel-section">
+      <h3>Waits for</h3>
+      <ul class="deps">
+        @for (d of t.predecessors; track d.id) {
+          <li>
+            {{ taskTitle(d.predecessorId) }}
+            @if (d.lagDays) {
+              <span class="muted small">+{{ d.lagDays }} working days</span>
+            }
+            @if (canEdit()) {
+              <button type="button" class="link small" (click)="removeDependency(d.id)" [attr.aria-label]="'Remove dependency on ' + taskTitle(d.predecessorId)">remove</button>
+            }
+          </li>
+        } @empty {
+          <li class="muted small">Nothing; it can start any time.</li>
+        }
+      </ul>
+      @if (canEdit()) {
+        <form class="dep-form" (ngSubmit)="addDependency()">
+          <select name="predecessor" [(ngModel)]="newPredecessor" aria-label="Task to wait for">
+            <option [ngValue]="null">Add a task this waits for…</option>
+            @for (o of predecessorOptions(); track o.id) {
+              <option [ngValue]="o.id">{{ o.title }}</option>
+            }
+          </select>
+          <label class="small">lag <input name="lag" type="number" min="0" max="365" [(ngModel)]="newLag" class="lag-input" /></label>
+          <button type="submit" class="small" [disabled]="newPredecessor === null">Add</button>
+        </form>
+      }
+    </section>
+
+
+    @if (canEdit()) {
+      <footer class="panel-footer">
+        <button type="button" class="danger small" (click)="remove()">Delete task</button>
+      </footer>
+    }
+  } @else {
+    <button type="button" class="icon-button close" aria-label="Close" (click)="closed.emit()">✕</button>
+    <p class="muted">This task no longer exists.</p>
+  }
+</aside>

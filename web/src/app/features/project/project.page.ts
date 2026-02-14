@@ -7,10 +7,11 @@ import { OrgContext } from '../../core/org-context.service';
 import { formatRange } from '../../shared/dates';
 import { PROJECT_STATUS_LABELS } from '../../shared/format';
 import { ProjectStore } from './project.store';
+import { TaskPanel } from './task-panel';
 
 @Component({
   selector: 'app-project-page',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, TaskPanel],
   providers: [ProjectStore],
   template: `
     @if (error()) {
@@ -29,6 +30,9 @@ import { ProjectStore } from './project.store';
       </nav>
       <div class="project-body" [class.with-panel]="openTaskId() !== null">
         <div class="tab-content"><router-outlet /></div>
+        @if (openTaskId(); as taskId) {
+          <app-task-panel [taskId]="taskId" (closed)="closeTask()" />
+        }
       </div>
     } @else {
       <p class="muted">Loading…</p>
