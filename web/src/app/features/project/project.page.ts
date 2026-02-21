@@ -26,6 +26,7 @@ import { TaskPanel } from './task-panel';
         </div>
       </div>
       <nav class="tabs" aria-label="Project views">
+        <a routerLink="overview" routerLinkActive="active">Overview</a>
         <a routerLink="list" routerLinkActive="active">List</a>
         @if (org.canManage()) {
           <a routerLink="settings" routerLinkActive="active">Settings</a>

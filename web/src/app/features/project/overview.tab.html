@@ -1,0 +1,105 @@
+@if (error()) {
+  <p class="alert error">{{ error() }}</p>
+}
+@if (health(); as h) {
+  <section class="stats">
+    <div class="card stat">
+      <span class="stat-label">Health</span>
+      <app-health-badge [status]="h.status" />
+    </div>
+    <div class="card stat">
+      <span class="stat-label">Progress (by estimate)</span>
+      <span class="stat-value">{{ formatPercent(h.progress.progressPct) }}</span>
+      <app-progress-bar [value]="h.progress.progressPct" label="Progress" />
+    </div>
+    <div class="card stat">
+      <span class="stat-label">Schedule variance</span>
+      <span class="stat-value" [class.danger]="h.progress.scheduleVarianceHours < 0" [class.good]="h.progress.scheduleVarianceHours > 0">
+        {{ h.progress.scheduleVarianceHours > 0 ? '+' : '' }}{{ formatHours(h.progress.scheduleVarianceHours) }}
+      </span>
+      <span class="muted small">earned {{ formatHours(h.progress.earnedHours) }} of {{ formatHours(h.progress.plannedHours) }} planned</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-label">End date</span>
+      <span class="stat-value small-value">{{ formatDate(h.forecastEnd) }}</span>
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section class="card">
+      <h2>Budget</h2>
+      <div class="budget-row">
+        <div class="budget-head">
+          <span>Hours</span>
+          <span>{{ formatHours(h.budget.loggedHours) }} @if (h.budget.budgetHours) { / {{ formatHours(h.budget.budgetHours) }} }</span>
+        </div>
+        @if (h.budget.hoursBurnPct !== null && h.budget.hoursBurnPct !== undefined) {
+          <app-progress-bar [value]="h.budget.hoursBurnPct" [marker]="h.progress.progressPct" label="Hours burn" />
+          <p class="muted small">{{ formatPercent(h.budget.hoursBurnPct) }} burned vs {{ formatPercent(h.progress.progressPct) }} done ·
+            {{ formatHours(h.budget.billableHours) }} billable, {{ formatHours(h.budget.nonBillableHours) }} non-billable</p>
+        } @else {
+          <p class="muted small">No hours budget set.</p>
+        }
+      </div>
+      @if (org.canManage()) {
+        <div class="budget-row">
+          <div class="budget-head">
+            <span>Money</span>
+            <span>{{ money(h.budget.spentAmount) }} @if (h.budget.budgetAmount) { / {{ money(h.budget.budgetAmount) }} }</span>
+          </div>
+          @if (h.budget.amountBurnPct !== null && h.budget.amountBurnPct !== undefined) {
+            <app-progress-bar [value]="h.budget.amountBurnPct" [marker]="h.progress.progressPct" label="Budget burn" />
+            <p class="muted small">{{ money(h.budget.remainingAmount) }} remaining</p>
+          } @else {
+            <p class="muted small">No money budget set.</p>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="card">
+      <h2>Overdue <span class="muted">({{ h.overdue.length }})</span></h2>
+      @for (t of h.overdue; track t.id) {
+        <button type="button" class="row-button" (click)="openTask(t.id)">
+          <span class="grow">{{ t.title }}</span>
+          <span class="muted small">{{ memberName(t.assigneeId) }}</span>
+          <span class="danger small">{{ t.daysOverdue }}d late</span>
+        </button>
+      } @empty {
+        <p class="muted">Nothing overdue.</p>
+      }
+    </section>
+  </div>
+}
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Phases</h2>
+    @for (p of phaseSummaries(); track p.name) {
+      <div class="phase-row">
+        <div class="budget-head">
+          <strong>{{ p.name }}</strong>
+          <span class="muted small">{{ formatRange(p.start, p.end) }}</span>
+        </div>
+        <app-progress-bar [value]="p.pct" [label]="p.name + ' progress'" />
+        <span class="muted small">{{ formatHours(p.done) }} of {{ formatHours(p.total) }}</span>
+      </div>
+    } @empty {
+      <p class="muted">No phases yet.</p>
+    }
+  </section>
+  <section class="card">
+    <h2>Milestones</h2>
+    <ul class="task-lines">
+      @for (m of milestones(); track m.id) {
+        <li>
+          <span class="diamond" [class.done]="m.status === 'DONE'">◆</span>
+          <button type="button" class="link" (click)="openTask(m.id)">{{ m.title }}</button>
+          <span class="muted small">{{ formatDate(m.dueDate) }}</span>
+        </li>
+      } @empty {
+        <li class="muted">No milestones yet.</li>
+      }
+    </ul>
+  </section>
+</div>
