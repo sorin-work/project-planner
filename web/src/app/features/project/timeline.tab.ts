@@ -12,6 +12,11 @@ import { ProjectStore } from './project.store';
   imports: [FormsModule, Gantt],
   template: `
     <div class="toolbar">
+      <div class="segmented" role="group" aria-label="Zoom">
+        @for (z of zooms; track z) {
+          <button type="button" [class.active]="zoom() === z" (click)="zoom.set(z)">{{ z }}</button>
+        }
+      </div>
       <span class="spacer"></span>
     </div>
     @if (org.isTeam()) {
