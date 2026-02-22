@@ -1076,3 +1076,185 @@ select.compact {
   align-items: center;
   margin-top: 1rem;
 }
+
+/* Timeline */
+
+.gantt-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.gantt {
+  display: flex;
+}
+
+.gantt-labels {
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+}
+
+.gantt-label-header {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 0.6rem 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.gantt-label {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 0 0.6rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gantt-label.phase {
+  font-weight: 600;
+  background: var(--surface-2);
+}
+
+.gantt-label.subtask {
+  padding-left: 1.6rem;
+  color: var(--muted);
+}
+
+.gantt-scroll {
+  overflow-x: auto;
+  flex: 1;
+}
+
+.gantt-svg {
+  display: block;
+  user-select: none;
+}
+
+.gantt-svg .weekend {
+  fill: var(--surface-2);
+  opacity: 0.6;
+}
+
+.gantt-svg .phase-row {
+  fill: var(--surface-2);
+}
+
+.gantt-svg .row-line {
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.gantt-svg .header-bg {
+  fill: var(--surface);
+}
+
+.gantt-svg .month {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text);
+}
+
+.gantt-svg .month-line {
+  stroke: var(--border);
+}
+
+.gantt-svg .tick {
+  font-size: 10px;
+  fill: var(--muted);
+}
+
+.gantt-svg .tick.minor {
+  opacity: 0.5;
+}
+
+.gantt-svg .today {
+  stroke: var(--danger);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+
+.gantt-svg .link {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.2;
+}
+
+.gantt-svg .link.critical {
+  stroke: var(--critical);
+}
+
+.gantt-svg .arrow-head {
+  fill: var(--muted);
+}
+
+.gantt-svg .arrow-head.critical {
+  fill: var(--critical);
+}
+
+.gantt-svg .bar {
+  cursor: pointer;
+}
+
+.gantt-svg .bar.editable {
+  cursor: grab;
+}
+
+.gantt-svg .bar.dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+}
+
+.gantt-svg .bar-bg {
+  fill: color-mix(in srgb, var(--primary) 35%, var(--surface));
+}
+
+.gantt-svg .bar-progress {
+  fill: var(--primary);
+}
+
+.gantt-svg .bar.critical .bar-bg {
+  fill: color-mix(in srgb, var(--critical) 35%, var(--surface));
+}
+
+.gantt-svg .bar.critical .bar-progress {
+  fill: var(--critical);
+}
+
+.gantt-svg .bar.done .bar-bg,
+.gantt-svg .bar.done .bar-progress {
+  fill: color-mix(in srgb, var(--good) 55%, var(--surface));
+}
+
+.gantt-svg .milestone {
+  fill: var(--warning);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+
+.gantt-svg .bar.done .milestone {
+  fill: var(--good);
+}
+
+.gantt-svg .bar-label {
+  font-size: 10px;
+  fill: #fff;
+  pointer-events: none;
+}
+
+.gantt-hint {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--surface);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+}

@@ -1,0 +1,69 @@
+<div class="gantt">
+  <div class="gantt-labels" [style.height.px]="layout().height">
+    <div class="gantt-label-header" [style.height.px]="44">Task</div>
+    @for (row of layout().rows; track row.kind + (row.task?.id ?? row.phaseId)) {
+      @if (row.kind === 'phase') {
+        <button type="button" class="gantt-label phase" [style.height.px]="rowHeight" (click)="toggle(row.phaseId)"
+          [attr.aria-expanded]="!isCollapsed(row.phaseId)">
+          {{ isCollapsed(row.phaseId) ? '▸' : '▾' }} {{ row.label }}
+        </button>
+      } @else {
+        <button type="button" class="gantt-label" [class.subtask]="row.depth > 0" [style.height.px]="rowHeight"
+          (click)="opened.emit(row.task!.id)" [title]="row.label">
+          {{ row.label }}
+        </button>
+      }
+    }
+  </div>
+  <div class="gantt-scroll">
+    <svg [attr.width]="layout().width" [attr.height]="layout().height" class="gantt-svg" role="img"
+      aria-label="Timeline of tasks">
+      <defs>
+        <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 8 4 L 0 8 z" class="arrow-head" />
+        </marker>
+        <marker id="arrow-critical" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 8 4 L 0 8 z" class="arrow-head critical" />
+        </marker>
+      </defs>
+
+      @for (row of layout().rows; track row.kind + (row.task?.id ?? row.phaseId)) {
+        @if (row.kind === 'phase') {
+          <rect class="phase-row" x="0" [attr.y]="row.y" [attr.width]="layout().width" [attr.height]="rowHeight" />
+        }
+        <line class="row-line" x1="0" [attr.x2]="layout().width" [attr.y1]="row.y + rowHeight" [attr.y2]="row.y + rowHeight" />
+      }
+
+      <g class="header">
+        <rect x="0" y="0" [attr.width]="layout().width" height="44" class="header-bg" />
+        @for (m of layout().months; track m.x) {
+          <text [attr.x]="m.x + 4" y="16" class="month">{{ m.label }}</text>
+          <line [attr.x1]="m.x" [attr.x2]="m.x" y1="0" [attr.y2]="layout().height" class="month-line" />
+        }
+        @for (t of layout().ticks; track t.x) {
+          <text [attr.x]="t.x + layout().dayWidth / 2" y="36" class="tick" [class.minor]="!t.major" text-anchor="middle">{{ t.label }}</text>
+        }
+      </g>
+
+
+      @for (link of layout().links; track link.id) {
+        <path [attr.d]="link.path" class="link" [class.critical]="link.critical"
+          [attr.marker-end]="link.critical ? 'url(#arrow-critical)' : 'url(#arrow)'" />
+      }
+
+      @for (bar of layout().bars; track bar.task.id) {
+        <g class="bar" [class.critical]="bar.critical" [class.done]="bar.done" [class.editable]="editable()"
+          [class.dragging]="drag()?.taskId === bar.task.id" [attr.transform]="'translate(' + offset(bar) + ',0)'"
+          tabindex="0" role="button" [attr.aria-label]="bar.task.title + ', ' + formatRange(bar.task.startDate, bar.task.dueDate)"
+          (pointerdown)="onPointerDown($event, bar)" (pointermove)="onPointerMove($event)" (pointerup)="onPointerUp($event, bar)">
+          <title>{{ bar.task.title }} ({{ formatRange(bar.task.startDate, bar.task.dueDate) }})</title>
+          @if (bar.milestone) {
+            <polygon [attr.points]="diamond(bar)" class="milestone" />
+          } @else {
+            <rect [attr.x]="bar.x + 1" [attr.y]="bar.y" [attr.width]="bar.width - 2" [attr.height]="bar.height" rx="4" class="bar-bg" />
+          }
+        </g>
+      }
+    </svg>
+  </div>
+</div>
