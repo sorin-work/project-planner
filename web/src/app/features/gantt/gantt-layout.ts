@@ -72,9 +72,10 @@ export function xOf(date: string, start: string, dayWidth: number): number {
   return diffDays(start, date) * dayWidth;
 }
 
+/** A bar covers its start and due day: a one-day task is one column wide. */
 export function barSpan(startDate: string, dueDate: string, rangeStart: string, dayWidth: number): { x: number; width: number } {
   const x = xOf(startDate, rangeStart, dayWidth);
-  const width = diffDays(startDate, dueDate) * dayWidth;
+  const width = (diffDays(startDate, dueDate) + 1) * dayWidth;
   return { x, width };
 }
 
