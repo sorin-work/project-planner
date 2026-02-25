@@ -63,6 +63,9 @@ public class Task extends PanacheEntityBase {
     @Column(nullable = false)
     public boolean milestone;
 
+    @Column(nullable = false)
+    public int position;
+
     @Column(name = "completed_at")
     public Instant completedAt;
 
@@ -85,6 +88,6 @@ public class Task extends PanacheEntityBase {
     }
 
     public static List<Task> forProject(long projectId) {
-        return list("projectId = ?1 order by id", projectId);
+        return list("projectId = ?1 order by position, id", projectId);
     }
 }

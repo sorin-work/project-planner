@@ -64,6 +64,7 @@ public class TaskService {
         task.assigneeId = assigneeIn(project, request.assigneeId());
         task.createdAt = now;
         setStatus(task, request.status() != null ? request.status() : TaskStatus.TODO, now);
+        task.position = nextPosition(project.id, task.status);
         task.updatedAt = now;
         task.persist();
 
@@ -118,6 +119,9 @@ public class TaskService {
         if (request.status() != null) {
             setStatus(task, request.status(), now);
         }
+        if (request.position() != null || task.status != oldStatus) {
+            reorder(task, request.position());
+        }
         task.updatedAt = now;
 
         if (oldStatus != task.status) {
@@ -145,7 +149,7 @@ public class TaskService {
         UpdateTaskRequest request = new UpdateTaskRequest(null, null, null, false, null, null, null,
                 task.startDate == null ? null : task.startDate.plusDays(days),
                 task.dueDate == null ? null : task.dueDate.plusDays(days),
-                false, null, false, null);
+                false, null, false, null, null);
         return update(me, project, task, request);
     }
 
@@ -210,6 +214,22 @@ public class TaskService {
             task.completedAt = null;
         }
         task.status = status;
+    }
+
+    /** Puts the task at {@code position} in its board column and renumbers the others. */
+    private static void reorder(Task task, Integer position) {
+        List<Task> column = new ArrayList<>(Task.<Task>list(
+                "projectId = ?1 and status = ?2 and parentId is null and id <> ?3 order by position, id",
+                task.projectId, task.status, task.id));
+        int index = position == null ? column.size() : Math.min(position, column.size());
+        column.add(index, task);
+        for (int i = 0; i < column.size(); i++) {
+            column.get(i).position = i;
+        }
+    }
+
+    private static int nextPosition(long projectId, TaskStatus status) {
+        return (int) Task.count("projectId = ?1 and status = ?2 and parentId is null", projectId, status);
     }
 
     private void notifyAssigned(Membership me, Project project, Task task) {

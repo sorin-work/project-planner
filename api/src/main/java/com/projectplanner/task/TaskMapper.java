@@ -47,7 +47,7 @@ public class TaskMapper {
 
         return tasks.stream().map(t -> new TaskResponse(t.id, t.projectId, t.phaseId, t.parentId, t.title,
                 t.description, t.status, t.priority, t.estimateHours, t.startDate, t.dueDate, t.assigneeId,
-                t.assigneeId == null ? null : names.get(t.assigneeId), t.milestone,
+                t.assigneeId == null ? null : names.get(t.assigneeId), t.milestone, t.position,
                 t.completedAt, t.createdAt, t.updatedAt,
                 predecessors.getOrDefault(t.id, List.of()), subtasks.getOrDefault(t.id, 0),
                 Math.round(minutes.getOrDefault(t.id, 0L) / 60.0 * 100) / 100.0)).toList();

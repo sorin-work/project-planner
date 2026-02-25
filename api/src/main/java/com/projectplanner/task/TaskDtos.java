@@ -50,7 +50,8 @@ public final class TaskDtos {
             boolean clearDates,
             Long assigneeId,
             boolean clearAssignee,
-            Boolean milestone) {
+            Boolean milestone,
+            @Min(0) Integer position) {
     }
 
     /** Moves a task by whole days, keeping its length. Used by timeline drags. */
@@ -63,7 +64,7 @@ public final class TaskDtos {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record TaskResponse(long id, long projectId, Long phaseId, Long parentId, String title, String description,
                                TaskStatus status, Priority priority, BigDecimal estimateHours, LocalDate startDate,
-                               LocalDate dueDate, Long assigneeId, String assigneeName, boolean milestone,
+                               LocalDate dueDate, Long assigneeId, String assigneeName, boolean milestone, int position,
                                Instant completedAt, Instant createdAt, Instant updatedAt,
                                List<DependencyResponse> predecessors, int subtaskCount, double loggedHours) {
     }

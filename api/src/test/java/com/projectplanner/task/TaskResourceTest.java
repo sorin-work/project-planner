@@ -77,6 +77,20 @@ class TaskResourceTest {
     }
 
     @Test
+    void boardReorderPutsTheCardWhereItWasDropped() {
+        Account owner = Api.signup("Pia");
+        long projectId = Api.createProject(owner, "BOARD");
+        long a = Api.createTask(owner, projectId, Map.of("title", "A"));
+        long b = Api.createTask(owner, projectId, Map.of("title", "B"));
+        long c = Api.createTask(owner, projectId, Map.of("title", "C"));
+        owner.as().body(Map.of("position", 0)).patch("/api/tasks/" + c).then().statusCode(200);
+        owner.as().get("/api/projects/" + projectId + "/tasks").then()
+                .body("find { it.id == " + c + " }.position", equalTo(0))
+                .body("find { it.id == " + a + " }.position", equalTo(1))
+                .body("find { it.id == " + b + " }.position", equalTo(2));
+    }
+
+    @Test
     void assigningSomeoneNotifiesThem() {
         Account owner = Api.signup("Quin");
         Account member = Api.signup("Remy");
