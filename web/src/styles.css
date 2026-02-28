@@ -1077,6 +1077,54 @@ select.compact {
   margin-top: 1rem;
 }
 
+/* Board */
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 0.75rem;
+  overflow-x: auto;
+}
+
+.board-column {
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+  min-height: 300px;
+}
+
+.board-column.drop-target {
+  outline: 2px dashed var(--primary);
+}
+
+.board-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+  cursor: grab;
+}
+
+.board-card.critical {
+  border-left: 3px solid var(--critical);
+}
+
+.board-card.dragging {
+  opacity: 0.4;
+}
+
+.card-title {
+  margin: 0 0 0.4rem;
+  font-weight: 500;
+}
+
+.card-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 /* Timeline */
 
 .gantt-card {
