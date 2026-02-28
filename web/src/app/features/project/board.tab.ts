@@ -7,6 +7,12 @@ import { TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/for
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
 
+/** Index a card should take when dropped at {@code y} within a column of cards. */
+export function dropIndex(cardMiddles: number[], y: number): number {
+  const index = cardMiddles.findIndex((middle) => y < middle);
+  return index === -1 ? cardMiddles.length : index;
+}
+
 @Component({
   selector: 'app-board-tab',
     template: `
@@ -90,7 +96,14 @@ export class BoardTab {
     if (id === null) {
       return;
     }
-    const position = this.columns().find((c) => c.status === status)?.tasks.length ?? 0;
+    const column = event.currentTarget as HTMLElement;
+    const cards = Array.from(column.querySelectorAll<HTMLElement>('.board-card')).filter(
+      (el) => !el.classList.contains('dragging'),
+    );
+    const position = dropIndex(cards.map((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    }), event.clientY);
     const task = this.store.byId().get(id);
     if (!task) {
       return;
