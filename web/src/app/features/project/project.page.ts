@@ -30,6 +30,7 @@ import { TaskPanel } from './task-panel';
         <a routerLink="list" routerLinkActive="active">List</a>
         <a routerLink="board" routerLinkActive="active">Board</a>
         <a routerLink="timeline" routerLinkActive="active">Timeline</a>
+        <a routerLink="activity" routerLinkActive="active">Activity</a>
         @if (org.canManage()) {
           <a routerLink="settings" routerLinkActive="active">Settings</a>
         }

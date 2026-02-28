@@ -6,5 +6,6 @@ export const projectRoutes: Routes = [
   { path: 'list', loadComponent: () => import('./list.tab').then((m) => m.ListTab) },
   { path: 'board', loadComponent: () => import('./board.tab').then((m) => m.BoardTab) },
   { path: 'timeline', loadComponent: () => import('./timeline.tab').then((m) => m.TimelineTab) },
+  { path: 'activity', loadComponent: () => import('./activity.tab').then((m) => m.ActivityTab) },
   { path: 'settings', loadComponent: () => import('./settings.tab').then((m) => m.SettingsTab) },
 ];
