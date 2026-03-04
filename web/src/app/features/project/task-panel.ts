@@ -1,16 +1,19 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
-import { Priority, Task, TaskStatus } from '../../core/models';
+import { Comment, Priority, Task, TaskStatus } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { TaskApi, TaskPatch } from '../../core/task.api';
-import { formatDate } from '../../shared/dates';
+import { formatDate, timeAgo } from '../../shared/dates';
 import { PRIORITIES, PRIORITY_LABELS, TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/format';
+import { segments } from '../../shared/mentions';
+import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
 
 @Component({
   selector: 'app-task-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, CommentBox],
   templateUrl: './task-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -18,12 +21,16 @@ export class TaskPanel {
   protected readonly store = inject(ProjectStore);
   protected readonly org = inject(OrgContext);
   private readonly api = inject(TaskApi);
+  private readonly auth = inject(AuthService);
 
   readonly taskId = input.required<number>();
   readonly closed = output();
 
+  private readonly commentBox = viewChild(CommentBox);
+  protected readonly comments = signal<Comment[]>([]);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
+  protected readonly posting = signal(false);
   protected newSubtask = '';
   protected newPredecessor: number | null = null;
   protected newLag = 0;
@@ -42,6 +49,7 @@ export class TaskPanel {
     const existing = new Set(task.predecessors.map((d) => d.predecessorId));
     return this.store.tasks().filter((t) => t.id !== task.id && !existing.has(t.id));
   });
+  protected readonly handles = computed(() => new Set(this.store.members().map((m) => m.handle)));
   protected readonly canEdit = computed(() => this.org.isTeam());
   protected readonly isCritical = computed(() => this.store.criticalIds().has(this.taskId()));
 
@@ -51,12 +59,15 @@ export class TaskPanel {
   protected readonly priorityLabels = PRIORITY_LABELS;
   protected readonly formatDate = formatDate;
   protected readonly formatHours = formatHours;
+  protected readonly timeAgo = timeAgo;
+  protected readonly segments = segments;
 
   constructor() {
     effect(() => {
       const id = this.taskId();
       this.error.set(null);
       this.notice.set(null);
+      this.api.comments(id).subscribe({ next: (c) => this.comments.set(c), error: () => this.comments.set([]) });
     });
   }
 
@@ -173,6 +184,28 @@ export class TaskPanel {
     });
   }
 
+  postComment(body: string): void {
+    this.posting.set(true);
+    this.api.addComment(this.taskId(), body).subscribe({
+      next: (comment) => {
+        this.comments.update((all) => [...all, comment]);
+        this.commentBox()?.clear();
+        this.posting.set(false);
+      },
+      error: (err: unknown) => {
+        this.error.set(messageOf(err));
+        this.posting.set(false);
+      },
+    });
+  }
+
+  deleteComment(comment: Comment): void {
+    this.api.deleteComment(comment.id).subscribe({
+      next: () => this.comments.update((all) => all.filter((c) => c.id !== comment.id)),
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
   remove(): void {
     const task = this.task();
     if (!task || !confirm(`Delete "${task.title}"${task.subtaskCount ? ' and its subtasks' : ''}?`)) {
@@ -182,5 +215,9 @@ export class TaskPanel {
       next: () => this.closed.emit(),
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
+  }
+
+  canDelete(comment: Comment): boolean {
+    return comment.authorId === this.auth.user()?.id || this.org.canManage();
   }
 }

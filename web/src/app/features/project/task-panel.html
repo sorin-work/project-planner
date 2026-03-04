@@ -134,6 +134,34 @@
       }
     </section>
 
+    <section class="panel-section">
+      <h3>Comments</h3>
+      <ul class="comments">
+        @for (c of comments(); track c.id) {
+          <li>
+            <div class="comment-head">
+              <strong>{{ c.authorName }}</strong>
+              <span class="muted small" [title]="c.createdAt">{{ timeAgo(c.createdAt) }}{{ c.editedAt ? ' · edited' : '' }}</span>
+              @if (canDelete(c)) {
+                <button type="button" class="link small" (click)="deleteComment(c)">delete</button>
+              }
+            </div>
+            <p class="comment-body">
+              @for (seg of segments(c.body, handles()); track $index) {
+                @if (seg.mention) {
+                  <span class="mention">{{ seg.text }}</span>
+                } @else {
+                  {{ seg.text }}
+                }
+              }
+            </p>
+          </li>
+        } @empty {
+          <li class="muted small">No comments yet.</li>
+        }
+      </ul>
+      <app-comment-box [members]="store.members()" [busy]="posting()" (submitted)="postComment($event)" />
+    </section>
 
     @if (canEdit()) {
       <footer class="panel-footer">
