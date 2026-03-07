@@ -19,6 +19,12 @@
     <header class="topbar">
       <button class="icon-button menu-toggle" type="button" aria-label="Menu" (click)="menuOpen.set(!menuOpen())">☰</button>
       <div class="spacer"></div>
+      <a class="icon-button bell" routerLink="/notifications" aria-label="Notifications">
+        🔔
+        @if (unread() > 0) {
+          <span class="count">{{ unread() > 99 ? '99+' : unread() }}</span>
+        }
+      </a>
       @if (auth.user(); as user) {
         <a class="user-link" routerLink="/settings" [title]="user.email">
           <app-avatar [name]="user.name" [small]="true" />
