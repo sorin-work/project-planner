@@ -2,6 +2,7 @@
 // before the @). Mirrors MentionParser on the server.
 
 const HANDLE_CHAR = /[\p{L}\p{N}._+-]/u;
+const BEFORE_AT = /[\p{L}\p{N}._%+-]/u;
 
 export interface ActiveMention {
   /** Index of the "@". */
@@ -18,6 +19,9 @@ export function activeMention(text: string, cursor: number): ActiveMention | nul
   }
   if (i < 0 || text[i] !== '@') {
     return null;
+  }
+  if (i > 0 && BEFORE_AT.test(text[i - 1])) {
+    return null; // part of an email address
   }
   return { start: i, query: text.slice(i + 1, cursor).toLowerCase() };
 }
