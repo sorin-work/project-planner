@@ -1306,3 +1306,61 @@ select.compact {
   padding: 0.4rem 0.8rem;
   border-radius: 6px;
 }
+
+/* Time */
+
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.week-nav select {
+  width: auto;
+}
+
+.week-label {
+  min-width: 9rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.timesheet-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.timesheet-status .right {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.timesheet-status.status-approved {
+  border-left: 4px solid var(--good);
+}
+
+.timesheet-status.status-submitted {
+  border-left: 4px solid var(--primary);
+}
+
+.timesheet-status.status-rejected {
+  border-left: 4px solid var(--danger);
+}
+
+.timesheet-grid tfoot th {
+  color: var(--text);
+}
+
+.review-actions {
+  margin-top: 1rem;
+}
+
+.presets {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}

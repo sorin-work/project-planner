@@ -1,0 +1,142 @@
+<div class="page-header">
+  <h1>Timesheet</h1>
+  <div class="week-nav">
+    <button type="button" (click)="shiftWeek(-1)" aria-label="Previous week">‹</button>
+    <span class="week-label">Week of {{ formatDate(weekOf()) }}</span>
+    <button type="button" (click)="shiftWeek(1)" aria-label="Next week">›</button>
+  </div>
+</div>
+
+@if (error()) {
+  <p class="alert error" role="alert">{{ error() }}</p>
+}
+
+@if (week(); as w) {
+  <div class="timesheet-status card" [class]="'timesheet-status card status-' + w.status.toLowerCase()">
+    <div>
+      <strong>{{ labels[w.status] }}</strong>
+      @if (w.status === 'SUBMITTED') {
+        <span class="muted"> · waiting for approval</span>
+      }
+      @if (w.status === 'APPROVED' && w.reviewedByName) {
+        <span class="muted"> · approved by {{ w.reviewedByName }}</span>
+      }
+      @if (w.status === 'REJECTED') {
+        <p class="small">{{ w.reviewedByName }} sent this week back{{ w.reviewNote ? ': “' + w.reviewNote + '”' : '.' }}</p>
+      }
+    </div>
+    <div class="right">
+      <span class="muted small">{{ formatMinutes(w.totalMinutes) }} total · {{ formatMinutes(w.billableMinutes) }} billable</span>
+      @if (w.status === 'DRAFT' || w.status === 'REJECTED') {
+        <button type="button" class="primary" [disabled]="!w.entries.length" (click)="submit()">Submit week</button>
+      }
+    </div>
+  </div>
+
+  @if (grid(); as g) {
+    <div class="card table-wrap">
+      <table class="table timesheet-grid">
+        <thead>
+          <tr>
+            <th>Project / task</th>
+            @for (d of g.dates; track d) {
+              <th class="num" [class.weekend]="$index >= 5">{{ dayName(d) }}<br /><span class="muted small">{{ formatDate(d) }}</span></th>
+            }
+            <th class="num">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of g.rows; track row.key) {
+            <tr>
+              <td>
+                <span class="code">{{ row.projectCode }}</span> {{ row.taskTitle || row.projectName }}
+              </td>
+              @for (m of row.days; track $index) {
+                <td class="num" [class.weekend]="$index >= 5">{{ m ? formatMinutes(m) : '' }}</td>
+              }
+              <td class="num"><strong>{{ formatMinutes(row.total) }}</strong></td>
+            </tr>
+          } @empty {
+            <tr><td colspan="9" class="muted">No time logged this week.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  <div class="grid-2">
+    <section class="card">
+      <h2>{{ editing() ? 'Edit entry' : 'Log time' }}</h2>
+      @if (locked()) {
+        <p class="muted">This week is {{ labels[w.status].toLowerCase() }} and can't be changed.</p>
+      } @else {
+        <form class="form-grid" (ngSubmit)="save()">
+          <div class="field span-2">
+            <label for="te-project">Project</label>
+            <select id="te-project" name="project" [(ngModel)]="form.projectId" (ngModelChange)="projectChanged($event)">
+              <option [ngValue]="null">Choose…</option>
+              @for (p of projects(); track p.id) {
+                <option [ngValue]="p.id">{{ p.label }}</option>
+              }
+            </select>
+          </div>
+          <div class="field span-2">
+            <label for="te-task">Task <span class="muted">(optional)</span></label>
+            <select id="te-task" name="task" [(ngModel)]="form.taskId" [disabled]="!tasks().length">
+              <option [ngValue]="null">No task</option>
+              @for (t of tasks(); track t.id) {
+                <option [ngValue]="t.id">{{ t.parentId ? '— ' : '' }}{{ t.title }}</option>
+              }
+            </select>
+          </div>
+          <div class="field">
+            <label for="te-date">Date</label>
+            <input id="te-date" name="date" type="date" [(ngModel)]="form.date" required />
+          </div>
+          <div class="field">
+            <label for="te-duration">Duration</label>
+            <input id="te-duration" name="duration" placeholder="1h 30m" [(ngModel)]="form.duration" required />
+          </div>
+          <div class="field span-2">
+            <label for="te-description">Description</label>
+            <input id="te-description" name="description" [(ngModel)]="form.description" />
+          </div>
+          <label class="span-2 checkbox"><input type="checkbox" name="billable" [(ngModel)]="form.billable" /> Billable</label>
+          @if (formError()) {
+            <p class="alert error span-2">{{ formError() }}</p>
+          }
+          <div class="actions span-2">
+            @if (editing()) {
+              <button type="button" (click)="cancelEdit()">Cancel</button>
+            }
+            <button type="submit" class="primary">{{ editing() ? 'Save' : 'Add entry' }}</button>
+          </div>
+        </form>
+      }
+    </section>
+
+    <section class="card">
+      <h2>Entries</h2>
+      <ul class="entries">
+        @for (e of w.entries; track e.id) {
+          <li [class.running]="e.running">
+            <div class="grow">
+              <span class="muted small">{{ dayName(e.date) }} {{ formatDate(e.date) }}</span>
+              <span><span class="code">{{ e.projectCode }}</span> {{ e.taskTitle || e.projectName }}</span>
+              @if (e.description) {
+                <span class="muted small">{{ e.description }}</span>
+              }
+            </div>
+            <strong>{{ e.running ? 'running' : formatMinutes(e.minutes) }}</strong>
+            @if (!e.locked && !e.running) {
+              <button type="button" class="link small" (click)="edit(e)">edit</button>
+              <button type="button" class="link small danger" (click)="remove(e)">delete</button>
+            }
+          </li>
+        } @empty {
+          <li class="muted">Nothing yet. Start a timer from a task or add an entry.</li>
+        }
+      </ul>
+    </section>
+  </div>
+}
