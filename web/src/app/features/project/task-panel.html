@@ -74,6 +74,11 @@
         <span class="label">Logged</span>
         <span>
           {{ formatHours(t.loggedHours) }}
+          @if (org.isTeam()) {
+            <button type="button" class="small" [class.primary]="!timerHere()" (click)="toggleTimer()">
+              {{ timerHere() ? 'Stop timer' : 'Start timer' }}
+            </button>
+          }
         </span>
       }
     </div>

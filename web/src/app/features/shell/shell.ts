@@ -7,6 +7,7 @@ import { InboxApi } from '../../core/inbox.api';
 import { OrgContext } from '../../core/org-context.service';
 import { Avatar } from '../../shared/avatar';
 import { ROLE_LABELS } from '../../shared/format';
+import { TimerService, formatElapsed } from '../time/timer.service';
 
 const UNREAD_POLL_MS = 60_000;
 
@@ -19,6 +20,7 @@ const UNREAD_POLL_MS = 60_000;
 export class Shell {
   protected readonly auth = inject(AuthService);
   protected readonly org = inject(OrgContext);
+  protected readonly timer = inject(TimerService);
   private readonly inbox = inject(InboxApi);
   private readonly router = inject(Router);
 
@@ -26,6 +28,7 @@ export class Shell {
   protected readonly loadError = signal<string | null>(null);
   protected readonly menuOpen = signal(false);
   protected readonly roleLabels = ROLE_LABELS;
+  protected readonly formatElapsed = formatElapsed;
 
   constructor() {
     this.auth.loadMe().subscribe({ error: (err: unknown) => this.loadError.set(messageOf(err)) });
@@ -33,6 +36,7 @@ export class Shell {
     effect(() => {
       const orgId = this.org.orgId();
       if (orgId !== null) {
+        this.timer.refresh(orgId);
         this.refreshUnread();
       }
     });
@@ -46,6 +50,13 @@ export class Shell {
       clearInterval(poll);
       navigation.unsubscribe();
     });
+  }
+
+  stopTimer(): void {
+    const orgId = this.org.orgId();
+    if (orgId !== null) {
+      this.timer.stop(orgId).subscribe();
+    }
   }
 
   logout(): void {

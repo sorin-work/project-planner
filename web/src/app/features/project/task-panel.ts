@@ -8,6 +8,7 @@ import { TaskApi, TaskPatch } from '../../core/task.api';
 import { formatDate, timeAgo } from '../../shared/dates';
 import { PRIORITIES, PRIORITY_LABELS, TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/format';
 import { segments } from '../../shared/mentions';
+import { TimerService } from '../time/timer.service';
 import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
 
@@ -20,6 +21,7 @@ import { ProjectStore } from './project.store';
 export class TaskPanel {
   protected readonly store = inject(ProjectStore);
   protected readonly org = inject(OrgContext);
+  protected readonly timer = inject(TimerService);
   private readonly api = inject(TaskApi);
   private readonly auth = inject(AuthService);
 
@@ -52,6 +54,7 @@ export class TaskPanel {
   protected readonly handles = computed(() => new Set(this.store.members().map((m) => m.handle)));
   protected readonly canEdit = computed(() => this.org.isTeam());
   protected readonly isCritical = computed(() => this.store.criticalIds().has(this.taskId()));
+  protected readonly timerHere = computed(() => this.timer.running()?.taskId === this.taskId());
 
   protected readonly statuses = TASK_STATUSES;
   protected readonly statusLabels = TASK_STATUS_LABELS;
@@ -202,6 +205,19 @@ export class TaskPanel {
   deleteComment(comment: Comment): void {
     this.api.deleteComment(comment.id).subscribe({
       next: () => this.comments.update((all) => all.filter((c) => c.id !== comment.id)),
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  toggleTimer(): void {
+    const orgId = this.org.id();
+    const task = this.task();
+    if (!task) {
+      return;
+    }
+    const request = this.timerHere() ? this.timer.stop(orgId) : this.timer.start(orgId, task.projectId, task.id);
+    request.subscribe({
+      next: () => this.store.reloadTasks(),
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
   }
