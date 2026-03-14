@@ -34,15 +34,15 @@ export function parseDuration(input: string): number | null {
   if (colon) {
     return Number(colon[1]) * 60 + Number(colon[2]);
   }
-  const units = /^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?$/.exec(text);
+  const units = /^(?:(\d+(?:[.,]\d+)?)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?$/.exec(text);
   if (units && (units[1] || units[2])) {
-    const hours = units[1] ? Number(units[1]) : 0;
+    const hours = units[1] ? Number(units[1].replace(',', '.')) : 0;
     const minutes = units[2] ? Number(units[2]) : 0;
     return Math.round(hours * 60 + minutes);
   }
-  const decimal = /^\d+(?:\.\d+)?$/.exec(text);
+  const decimal = /^\d+(?:[.,]\d+)?$/.exec(text);
   if (decimal) {
-    return Math.round(Number(text) * 60);
+    return Math.round(Number(text.replace(',', '.')) * 60);
   }
   return null;
 }

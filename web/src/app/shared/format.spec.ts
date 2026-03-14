@@ -22,6 +22,7 @@ describe('format', () => {
     expect(parseDuration('45m')).toBe(45);
     expect(parseDuration('45 min')).toBe(45);
     expect(parseDuration('1.5')).toBe(90);
+    expect(parseDuration('1,25')).toBe(75);
     expect(parseDuration('1.5h')).toBe(90);
     expect(parseDuration('1:15')).toBe(75);
     expect(parseDuration('')).toBeNull();
