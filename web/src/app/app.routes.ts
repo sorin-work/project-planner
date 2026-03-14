@@ -26,6 +26,7 @@ export const routes: Routes = [
         loadChildren: () => import('./features/project/project.routes').then((m) => m.projectRoutes),
       },
       { path: 'time', loadComponent: () => import('./features/time/timesheet.page').then((m) => m.TimesheetPage) },
+      { path: 'approvals', loadComponent: () => import('./features/approvals/approvals.page').then((m) => m.ApprovalsPage) },
       {
         path: 'notifications',
         loadComponent: () => import('./features/notifications/notifications.page').then((m) => m.NotificationsPage),
