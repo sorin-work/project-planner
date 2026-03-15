@@ -8,6 +8,7 @@
       <a routerLink="/projects" routerLinkActive="active">Projects</a>
       @if (org.isTeam()) {
         <a routerLink="/time" routerLinkActive="active">Timesheet</a>
+        <a routerLink="/workload" routerLinkActive="active">Workload</a>
       }
       @if (org.canManage()) {
         <a routerLink="/approvals" routerLinkActive="active">Approvals</a>

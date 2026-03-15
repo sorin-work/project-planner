@@ -1364,3 +1364,51 @@ select.compact {
   gap: 1rem;
   margin-top: 0.5rem;
 }
+
+/* Workload */
+
+.workload .load-cell {
+  padding: 0;
+}
+
+.cell-button {
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 0.6rem;
+  text-align: right;
+}
+
+.load-light {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.load-good {
+  background: color-mix(in srgb, var(--good) 18%, transparent);
+}
+
+.load-full {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+}
+
+.load-over {
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.flag {
+  color: var(--danger);
+  font-weight: 700;
+  margin-left: 0.25rem;
+}
+
+.legend span {
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  margin-right: 0.4rem;
+}
+
+.empty {
+  text-align: center;
+  padding: 2rem;
+}
