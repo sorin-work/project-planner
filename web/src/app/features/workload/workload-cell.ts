@@ -11,7 +11,7 @@ export function loadLevel(week: Pick<WeekLoad, 'allocatedHours' | 'capacityHours
     return 'over';
   }
   const ratio = week.allocatedHours / week.capacityHours;
-  if (ratio >= 1) {
+  if (ratio > 1) {
     return 'over';
   }
   if (ratio >= 0.85) {
