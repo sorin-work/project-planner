@@ -1,0 +1,118 @@
+<h1>Team</h1>
+@if (error()) {
+  <p class="alert error" role="alert">{{ error() }}</p>
+}
+@if (notice()) {
+  <p class="alert success" role="status">{{ notice() }}</p>
+}
+<section class="card table-wrap">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Person</th>
+        <th>Role</th>
+        <th class="num">Capacity (h/week)</th>
+        @if (org.canManage()) {
+          <th class="num">Hourly rate</th>
+        }
+      </tr>
+    </thead>
+    <tbody>
+      @for (m of members(); track m.id) {
+        <tr>
+          <td class="person">
+            <app-avatar [name]="m.name" [small]="true" />
+            <span><strong>{{ m.name }}</strong><br /><span class="muted small">{{ m.email }}</span></span>
+          </td>
+          <td>
+            @if (org.canManage()) {
+              <select [ngModel]="m.role" (ngModelChange)="updateMember(m, { role: $event })" [attr.aria-label]="'Role of ' + m.name">
+                @for (r of roles; track r) {
+                  <option [value]="r" [disabled]="r === 'OWNER' && !org.isOwner()">{{ roleLabels[r] }}</option>
+                }
+              </select>
+              @if (m.role === 'CLIENT') {
+                <select [ngModel]="m.clientId" (ngModelChange)="updateMember(m, { clientId: $event })" [attr.aria-label]="'Client of ' + m.name">
+                  @for (c of clients(); track c.id) {
+                    <option [ngValue]="c.id">{{ c.name }}</option>
+                  }
+                </select>
+              }
+            } @else {
+              {{ roleLabels[m.role] }} @if (m.clientId) { <span class="muted small">{{ clientName(m.clientId) }}</span> }
+            }
+          </td>
+          <td class="num">
+            @if (org.canManage() && m.role !== 'CLIENT') {
+              <input class="num-input" type="number" min="0" max="168" [value]="m.weeklyCapacityHours"
+                (change)="updateMember(m, { weeklyCapacityHours: +$any($event.target).value })" [attr.aria-label]="'Capacity of ' + m.name" />
+            } @else if (m.role !== 'CLIENT') {
+              {{ m.weeklyCapacityHours }}
+            }
+          </td>
+          @if (org.canManage()) {
+            <td class="num">
+              @if (m.role !== 'CLIENT') {
+                <input class="num-input" type="number" min="0" [value]="m.hourlyRate ?? ''" placeholder="role rate"
+                  (change)="setRate(m, $any($event.target).value)" [attr.aria-label]="'Hourly rate of ' + m.name" />
+              }
+            </td>
+          }
+        </tr>
+      }
+    </tbody>
+  </table>
+</section>
+
+@if (org.canManage()) {
+  <div class="grid-2">
+    <section class="card">
+      <h2>Invite someone</h2>
+      <form class="form-grid" (ngSubmit)="sendInvite()">
+        <div class="field span-2">
+          <label for="inv-email">Email</label>
+          <input id="inv-email" name="email" type="email" [(ngModel)]="invite.email" required />
+        </div>
+        <div class="field">
+          <label for="inv-role">Role</label>
+          <select id="inv-role" name="role" [(ngModel)]="invite.role">
+            @for (r of inviteRoles; track r) {
+              <option [value]="r">{{ roleLabels[r] }}</option>
+            }
+          </select>
+        </div>
+        @if (invite.role === 'CLIENT') {
+          <div class="field">
+            <label for="inv-client">Client</label>
+            <select id="inv-client" name="client" [(ngModel)]="invite.clientId">
+              <option [ngValue]="null">Choose…</option>
+              @for (c of clients(); track c.id) {
+                <option [ngValue]="c.id">{{ c.name }}</option>
+              }
+            </select>
+          </div>
+        }
+        <div class="actions span-2">
+          <button type="submit" class="primary" [disabled]="!invite.email">Invite</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Default rates by role</h2>
+      <p class="muted small">Used when a person has no rate of their own and the project has no fixed rate.</p>
+      <form class="form-grid" (ngSubmit)="saveRates()">
+        @for (r of rateRoles; track r) {
+          <div class="field">
+            <label [for]="'rate-' + r">{{ roleLabels[r] }}</label>
+            <input [id]="'rate-' + r" type="number" min="0" [value]="rates()[r] ?? ''" [disabled]="!org.isOwner()"
+              (change)="setRoleRate(r, $any($event.target).value)" />
+          </div>
+        }
+        @if (org.isOwner()) {
+          <div class="actions span-2"><button type="submit" class="primary">Save rates</button></div>
+        }
+      </form>
+    </section>
+  </div>
+}
