@@ -30,6 +30,7 @@ export const routes: Routes = [
       { path: 'workload', loadComponent: () => import('./features/workload/workload.page').then((m) => m.WorkloadPage) },
       { path: 'clients', loadComponent: () => import('./features/clients/clients.page').then((m) => m.ClientsPage) },
       { path: 'team', loadComponent: () => import('./features/team/team.page').then((m) => m.TeamPage) },
+      { path: 'reports', loadComponent: () => import('./features/reports/reports.page').then((m) => m.ReportsPage) },
       {
         path: 'notifications',
         loadComponent: () => import('./features/notifications/notifications.page').then((m) => m.NotificationsPage),
