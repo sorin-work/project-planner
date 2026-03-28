@@ -55,9 +55,20 @@ export class AuthService {
   }
 }
 
+/** The saved token, unless it has already expired. */
 function readToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    const token = localStorage.getItem(TOKEN_KEY);
+    const expires = localStorage.getItem(EXPIRES_KEY);
+    if (!token) {
+      return null;
+    }
+    if (expires && Date.parse(expires) <= Date.now()) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(EXPIRES_KEY);
+      return null;
+    }
+    return token;
   } catch {
     return null;
   }

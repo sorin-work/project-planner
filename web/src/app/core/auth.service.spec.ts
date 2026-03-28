@@ -28,6 +28,14 @@ describe('AuthService', () => {
     expect(localStorage.getItem('pp.token')).toBe('abc');
   });
 
+  it('ignores an expired token from a previous visit', () => {
+    localStorage.setItem('pp.token', 'old');
+    localStorage.setItem('pp.expiresAt', '2000-01-01T00:00:00Z');
+    const auth = setup();
+    expect(auth.isLoggedIn()).toBe(false);
+    expect(localStorage.getItem('pp.token')).toBeNull();
+  });
+
   it('forgets everything on logout', () => {
     localStorage.setItem('pp.token', 'abc');
     const auth = setup();
