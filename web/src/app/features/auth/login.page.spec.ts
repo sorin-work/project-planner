@@ -1,0 +1,60 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
+import { LoginPage } from './login.page';
+
+describe('LoginPage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      imports: [LoginPage],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    });
+  });
+
+  async function render() {
+    const fixture = TestBed.createComponent(LoginPage);
+    await fixture.whenStable();
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  }
+
+  function type(el: HTMLElement, selector: string, value: string): void {
+    const input = el.querySelector<HTMLInputElement>(selector)!;
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
+  it('shows validation messages instead of sending an empty form', async () => {
+    const { fixture, el } = await render();
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Enter a valid email address');
+    TestBed.inject(HttpTestingController).verify();
+  });
+
+  it('signs in and goes to the dashboard', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    const { fixture, el } = await render();
+    type(el, '#email', 'demo@example.com');
+    type(el, '#password', 'demo-password');
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/auth/login')
+      .flush({ token: 't', expiresAt: '2999-01-01T00:00:00Z', user: { id: 1, email: 'demo@example.com', name: 'Demo', handle: 'demo' } });
+    await fixture.whenStable();
+    expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('shows the server message for bad credentials', async () => {
+    const { fixture, el } = await render();
+    type(el, '#email', 'demo@example.com');
+    type(el, '#password', 'nope');
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/auth/login')
+      .flush({ status: 401, code: 'invalid_credentials', message: 'Email or password is incorrect' }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Email or password is incorrect');
+  });
+});
