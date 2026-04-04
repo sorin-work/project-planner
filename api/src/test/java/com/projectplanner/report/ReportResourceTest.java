@@ -64,6 +64,20 @@ class ReportResourceTest {
     }
 
     @Test
+    void dashboardShowsMyWork() {
+        Account owner = Api.signup("Yul");
+        long projectId = Api.createProject(owner, "DASH");
+        Api.createTask(owner, projectId, Map.of("title", "Overdue thing", "assigneeId", owner.userId(),
+                "dueDate", LocalDate.now().minusDays(3).toString()));
+        Api.createTask(owner, projectId, Map.of("title", "Soon thing", "assigneeId", owner.userId(),
+                "dueDate", LocalDate.now().plusDays(2).toString()));
+        owner.as().get("/api/orgs/" + owner.orgId() + "/dashboard").then().statusCode(200)
+                .body("overdue[0].title", equalTo("Overdue thing"))
+                .body("dueSoon[0].title", equalTo("Soon thing"))
+                .body("activeProjects", hasSize(1));
+    }
+
+    @Test
     void activityFeed() {
         Account owner = Api.signup("Zoe");
         Api.createProject(owner, "FEED");
