@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ActivityEntry, Notification, Workload } from './models';
+import { ActivityEntry, Dashboard, Notification, Workload } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class InboxApi {
@@ -21,6 +21,10 @@ export class InboxApi {
 
   activity(orgId: number, limit = 50): Observable<ActivityEntry[]> {
     return this.http.get<ActivityEntry[]>(`/api/orgs/${orgId}/activity`, { params: { limit } });
+  }
+
+  dashboard(orgId: number): Observable<Dashboard> {
+    return this.http.get<Dashboard>(`/api/orgs/${orgId}/dashboard`);
   }
 
   workload(orgId: number, from: string, weeks: number, projectId?: number | null): Observable<Workload> {

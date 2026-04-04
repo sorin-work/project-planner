@@ -1,0 +1,98 @@
+<h1>Dashboard</h1>
+@if (error()) {
+  <p class="alert error">{{ error() }}</p>
+}
+@if (data(); as d) {
+  @if (org.isTeam()) {
+    <section class="stats">
+      <div class="card stat">
+        <span class="stat-label">Logged this week</span>
+        <span class="stat-value">{{ formatMinutes(d.minutesThisWeek) }}</span>
+        <span class="muted small">{{ formatMinutes(d.billableMinutesThisWeek) }} billable</span>
+      </div>
+      <div class="card stat">
+        <span class="stat-label">Overdue tasks</span>
+        <span class="stat-value" [class.danger]="d.overdue.length > 0">{{ d.overdue.length }}</span>
+        <span class="muted small">assigned to you</span>
+      </div>
+      <div class="card stat">
+        <span class="stat-label">Due in the next 7 days</span>
+        <span class="stat-value">{{ d.dueSoon.length }}</span>
+      </div>
+      @if (org.canManage()) {
+        <a class="card stat" routerLink="/approvals">
+          <span class="stat-label">Timesheets to approve</span>
+          <span class="stat-value">{{ d.pendingApprovals }}</span>
+        </a>
+      }
+    </section>
+  }
+
+  <div class="grid-2">
+    @if (org.isTeam()) {
+      <section class="card">
+        <h2>My work</h2>
+        @if (!d.overdue.length && !d.dueSoon.length && !d.inProgress.length) {
+          <p class="muted">Nothing urgent. Enjoy it while it lasts.</p>
+        }
+        @if (d.overdue.length) {
+          <h3 class="danger">Overdue</h3>
+          <ul class="task-lines">
+            @for (t of d.overdue; track t.id) {
+              <li>
+                <a [routerLink]="['/projects', t.projectId, 'list']" [queryParams]="{ task: t.id }">{{ t.title }}</a>
+                <span class="muted small">due {{ formatDate(t.dueDate) }}</span>
+              </li>
+            }
+          </ul>
+        }
+        @if (d.dueSoon.length) {
+          <h3>Due soon</h3>
+          <ul class="task-lines">
+            @for (t of d.dueSoon; track t.id) {
+              <li>
+                <a [routerLink]="['/projects', t.projectId, 'list']" [queryParams]="{ task: t.id }">{{ t.title }}</a>
+                <app-status-pill [status]="t.status" />
+                <span class="muted small">{{ formatDate(t.dueDate) }}</span>
+              </li>
+            }
+          </ul>
+        }
+        @if (d.inProgress.length) {
+          <h3>In progress</h3>
+          <ul class="task-lines">
+            @for (t of d.inProgress; track t.id) {
+              <li>
+                <a [routerLink]="['/projects', t.projectId, 'list']" [queryParams]="{ task: t.id }">{{ t.title }}</a>
+                <span class="muted small">{{ formatDate(t.dueDate) }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    }
+
+    <section class="card">
+      <h2>Active projects</h2>
+      @for (item of d.activeProjects; track item.project.id) {
+        <a class="project-line" [routerLink]="['/projects', item.project.id]">
+          <span class="swatch" [style.background]="item.project.color"></span>
+          <span class="grow">
+            <strong>{{ item.project.name }}</strong>
+            <span class="muted small">{{ item.project.clientName || 'Internal' }}</span>
+            <app-progress-bar [value]="item.health.progressPct" label="Progress" />
+          </span>
+          <span class="right">
+            <app-health-badge [status]="item.health.status" />
+            <span class="muted small">{{ formatPercent(item.health.progressPct) }} done</span>
+          </span>
+        </a>
+      } @empty {
+        <p class="muted">No active projects.</p>
+      }
+    </section>
+  </div>
+
+} @else if (!error()) {
+  <p class="muted">Loading…</p>
+}

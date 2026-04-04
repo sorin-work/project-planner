@@ -5,6 +5,7 @@
       <p class="org-name">{{ current.organisationName }}</p>
     }
     <nav aria-label="Main">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
       <a routerLink="/projects" routerLinkActive="active">Projects</a>
       @if (org.isTeam()) {
         <a routerLink="/time" routerLinkActive="active">Timesheet</a>

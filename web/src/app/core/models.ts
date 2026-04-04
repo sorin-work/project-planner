@@ -342,3 +342,15 @@ export interface Workload {
   members: MemberWorkload[];
   tasks: WorkloadTask[];
 }
+
+export interface Dashboard {
+  today: string;
+  overdue: Task[];
+  dueSoon: Task[];
+  inProgress: Task[];
+  activeProjects: ProjectListItem[];
+  minutesThisWeek: number;
+  billableMinutesThisWeek: number;
+  pendingApprovals: number;
+  lastWeekTimesheet?: TimesheetStatus;
+}
