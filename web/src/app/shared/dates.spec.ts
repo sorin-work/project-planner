@@ -16,8 +16,9 @@ import {
 
 describe('dates', () => {
   // 2026-03-02 is a Monday.
-  it('adds and diffs days across month ends', () => {
+  it('adds and diffs days across month ends and DST changes', () => {
     expect(addDays('2026-02-27', 3)).toBe('2026-03-02');
+    expect(addDays('2026-03-28', 2)).toBe('2026-03-30');
     expect(diffDays('2026-03-02', '2026-03-09')).toBe(7);
     expect(diffDays('2026-03-09', '2026-03-02')).toBe(-7);
   });

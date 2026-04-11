@@ -21,9 +21,7 @@ export function today(now: Date = new Date()): string {
 }
 
 export function addDays(iso: string, days: number): string {
-  const date = new Date(`${iso}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return toIso(date);
+  return toIso(new Date(toDate(iso).getTime() + days * DAY_MS));
 }
 
 /** Whole days from {@code a} to {@code b}; negative when b is earlier. */
