@@ -50,7 +50,7 @@ public class ProjectService {
         }
         String code = request.code().trim().toUpperCase(Locale.ROOT);
         boolean taken = Project.<Project>find("organisationId = ?1 and code = ?2", project.organisationId, code)
-                .count() > 0;
+                .stream().anyMatch(p -> !Objects.equals(p.id, project.id));
         if (taken) {
             throw ApiException.conflict("code_taken", "Another project already uses the code " + code);
         }

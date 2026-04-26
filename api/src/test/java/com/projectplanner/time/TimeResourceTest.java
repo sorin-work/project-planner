@@ -162,4 +162,15 @@ class TimeResourceTest {
         member.as().get("/api/orgs/" + owner.orgId() + "/exports/timesheets.csv" + range + "&userId=" + owner.userId())
                 .then().statusCode(403);
     }
+
+    @Test
+    void finishedProjectsTakeNoMoreTime() {
+        Account owner = Api.signup("Ned");
+        long projectId = Api.createProject(owner, "FIN");
+        owner.as().body(Map.of("name", "Finished", "code", "FIN", "status", "DONE"))
+                .put("/api/projects/" + projectId).then().statusCode(200);
+        owner.as().body(entry(projectId, WEEK, 60)).post("/api/orgs/" + owner.orgId() + "/time-entries")
+                .then().statusCode(400).body("code", equalTo("project_done"));
+        owner.as().get("/api/orgs/" + owner.orgId() + "/projects").then().body("project.status", not(hasItem("ACTIVE")));
+    }
 }
