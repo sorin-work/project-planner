@@ -29,6 +29,9 @@ import java.util.List;
 @Authenticated
 public class ProjectResource {
 
+    /** Active work first, finished projects last. */
+    private static final List<ProjectStatus> LIST_ORDER =
+            List.of(ProjectStatus.ACTIVE, ProjectStatus.PLANNED, ProjectStatus.ON_HOLD, ProjectStatus.DONE);
 
     private final OrgAccess access;
     private final ProjectService projects;
@@ -62,6 +65,7 @@ public class ProjectResource {
         }
         query.append(" order by name");
         List<Project> found = new ArrayList<>(Project.<Project>list(query.toString(), params));
+        found.sort(Comparator.comparingInt(p -> LIST_ORDER.indexOf(p.status)));
         List<ProjectListItem> items = new ArrayList<>();
         for (Project project : found) {
             items.add(new ProjectListItem(ProjectService.toResponse(project, me.role.canManage()),
