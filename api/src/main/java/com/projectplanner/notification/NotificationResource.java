@@ -42,6 +42,10 @@ public class NotificationResource {
                                            @QueryParam("limit") @DefaultValue("50") int limit) {
         StringBuilder query = new StringBuilder("userId = :user");
         Parameters params = Parameters.with("user", currentUser.id());
+        if (orgId != null) {
+            query.append(" and organisationId = :org");
+            params.and("org", orgId);
+        }
         if (unreadOnly) {
             query.append(" and readAt is null");
         }
@@ -60,7 +64,9 @@ public class NotificationResource {
     @GET
     @Path("/unread-count")
     public UnreadCount unreadCount(@QueryParam("orgId") Long orgId) {
-        long count = Notification.count("userId = ?1 and readAt is null", currentUser.id());
+        long count = orgId == null
+                ? Notification.count("userId = ?1 and readAt is null", currentUser.id())
+                : Notification.count("userId = ?1 and organisationId = ?2 and readAt is null", currentUser.id(), orgId);
         return new UnreadCount(count);
     }
 
