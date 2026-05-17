@@ -59,10 +59,60 @@ the point is knowing whether a project will land on time and on budget.
 | Tests    | JUnit 5, AssertJ, `@QuarkusTest` + REST Assured on H2; Vitest (Angular unit-test builder, jsdom) |
 | Tooling  | Maven wrapper, ESLint with angular-eslint, Docker Compose, nginx, GitHub Actions        |
 
+## Running with Docker
+
+```bash
+cp .env.example .env    # optional, the defaults work
+docker compose up --build
+```
+
+Then open http://localhost:5191 and sign in with the demo account.
+
+On first start the API runs the Flyway migrations and, because `SEED_DEMO=true`,
+creates a demo agency, *Brightline Studio*, with eight projects at different stages
+(two finished, four active including two internal ones, one on hold and one
+planned), phases, milestones and about ninety tasks with dependencies, a year of
+time entries for five people, timesheets
+(older weeks approved, last week waiting for review, one sent back), comments with
+mentions and some notifications. All dates are relative to the day it runs. Set
+`SEED_DEMO=false` for an empty database.
+
+| Service | Host port | URL                                                 | Notes                             |
+| ------- | --------- | --------------------------------------------------- | --------------------------------- |
+| web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
+| api     | 4411      | http://localhost:4411/q/health                      | Quarkus                           |
+| db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
+
+Ports can be changed with `WEB_PORT`, `API_PORT` and `DB_PORT` (in `.env` or inline,
+e.g. `WEB_PORT=8081 docker compose up`). Data lives in the `db-data` volume;
+`docker compose down -v` removes it.
+
+Quick check from the command line:
+
+```bash
+curl http://localhost:4411/q/health/ready
+curl -X POST http://localhost:4411/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@example.com","password":"demo-password"}'
+```
+
+### Demo logins
+
+All demo accounts use the password `demo-password`.
+
+| Email                      | Name          | Role                              |
+| -------------------------- | ------------- | --------------------------------- |
+| `demo@example.com`         | Maya Collins  | Owner                             |
+| `priya@example.com`        | Priya Shah    | Manager                           |
+| `tom@example.com`          | Tom Becker    | Member (designer)                 |
+| `lena@example.com`         | Lena Novak    | Member, 32 h/week                 |
+| `samir@example.com`        | Samir Haddad  | Member                            |
+| `jordan@northwind.example` | Jordan Reyes  | Client viewer for Northwind Traders |
+
 ## Running without Docker
 
 You need Java 21, Node 22 and a PostgreSQL database. The easiest way to get the
-database is Docker:
+database is still Docker:
 
 ```bash
 docker compose up -d db
@@ -85,6 +135,20 @@ cd web
 npm install
 npm start
 ```
+
+### Configuration
+
+| Variable               | Default                                       | Used by |
+| ---------------------- | --------------------------------------------- | ------- |
+| `DATABASE_URL`         | `jdbc:postgresql://localhost:5451/planner`    | api     |
+| `DATABASE_USER`        | `planner`                                     | api     |
+| `DATABASE_PASSWORD`    | `planner`                                     | api     |
+| `JWT_SECRET`           | a development value (min. 32 bytes)           | api     |
+| `JWT_TTL`              | `P7D` (ISO-8601 duration)                     | api     |
+| `SEED_DEMO`            | `false` (`true` in compose)                   | api     |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
+| `PORT`                 | `8080`                                        | api     |
+| `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
 
 ## Tests and lint
 
