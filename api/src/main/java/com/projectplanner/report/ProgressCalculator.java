@@ -9,8 +9,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Progress and schedule variance from task estimates, using the 0/100 rule: a
- * task's estimate is earned when it is done. Parent tasks are left out when they
+ * Progress and schedule variance from task estimates. Progress counts finished
+ * work only; earned value for the schedule uses the 50/50 rule (half a task's
+ * estimate is earned when work starts, the rest when it is done), which tracks
+ * long tasks better than all-or-nothing. Parent tasks are left out when they
  * have subtasks, so work isn't counted twice.
  */
 public final class ProgressCalculator {
@@ -45,6 +47,8 @@ public final class ProgressCalculator {
                 planned += task.estimateHours() * plannedFraction(task, today);
                 if (task.done()) {
                     earnedScheduled += task.estimateHours();
+                } else if (task.started()) {
+                    earnedScheduled += task.estimateHours() / 2;
                 }
             }
         }

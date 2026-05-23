@@ -11,6 +11,7 @@ import com.projectplanner.report.BudgetCalculator.TimeFacts;
 import com.projectplanner.report.ProgressCalculator.Progress;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.Task;
+import com.projectplanner.task.TaskStatus;
 import com.projectplanner.time.TimeEntry;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -87,7 +88,8 @@ public class ProjectHealthService {
     }
 
     static TaskFacts facts(Task t) {
-        return new TaskFacts(t.id, t.parentId, t.estimate(), t.isDone(), t.startDate, t.dueDate, t.milestone);
+        boolean started = t.status == TaskStatus.IN_PROGRESS || t.status == TaskStatus.IN_REVIEW;
+        return new TaskFacts(t.id, t.parentId, t.estimate(), t.isDone(), started, t.startDate, t.dueDate, t.milestone);
     }
 
     public record OverdueTask(long id, String title, LocalDate dueDate, Long assigneeId, int daysOverdue) {

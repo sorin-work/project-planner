@@ -56,6 +56,16 @@ class ProgressCalculatorTest {
     }
 
     @Test
+    void startedWorkEarnsHalfItsEstimate() {
+        Progress p = calculator.calculate(List.of(
+                new TaskFacts(1, null, 20, false, true, day(0), day(1), false),
+                task(2, 20, false, day(0), day(1))), day(3));
+        assertThat(p.earnedHours()).isEqualTo(10.0);
+        assertThat(p.spi()).isEqualTo(0.25);
+        assertThat(p.progressPct()).isZero();
+    }
+
+    @Test
     void plannedWorkGrowsLinearlyOverWorkingDays() {
         // Five day task, today is the end of day three.
         Progress p = calculator.calculate(List.of(task(1, 50, false, day(0), day(4))), day(2));
