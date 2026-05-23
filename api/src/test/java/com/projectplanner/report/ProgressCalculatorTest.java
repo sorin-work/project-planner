@@ -34,6 +34,16 @@ class ProgressCalculatorTest {
     }
 
     @Test
+    void fallsBackToTaskCountWithoutEstimates() {
+        Progress p = calculator.calculate(List.of(
+                task(1, 0, true, null, null),
+                task(2, 0, false, null, null),
+                task(3, 0, false, null, null),
+                task(4, 0, false, null, null)), day(0));
+        assertThat(p.progressPct()).isEqualTo(25.0);
+    }
+
+    @Test
     void parentsWithSubtasksAreNotCountedTwice() {
         Progress p = calculator.calculate(List.of(
                 task(1, 40, false, null, null),
@@ -97,5 +107,13 @@ class ProgressCalculatorTest {
                 task(2, 5, false, day(0), day(1))), day(5));
         assertThat(p.overdueTasks()).isEqualTo(1);
         assertThat(p.doneTasks()).isEqualTo(1);
+    }
+
+    @Test
+    void milestonesDoNotCarryEstimates() {
+        Progress p = calculator.calculate(List.of(
+                task(1, 10, true, day(0), day(1)),
+                new TaskFacts(2, null, 0, false, day(2), day(2), true)), day(1));
+        assertThat(p.progressPct()).isEqualTo(100.0);
     }
 }
