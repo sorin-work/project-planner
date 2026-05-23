@@ -53,7 +53,7 @@ public class ProjectHealthService {
                     ? WorkCalendar.DEFAULT.workingDaysBetween(plannedEnd.plusDays(1), forecastEnd)
                     : -WorkCalendar.DEFAULT.workingDaysBetween(forecastEnd.plusDays(1), plannedEnd));
 
-        boolean money = true;
+        boolean money = viewer.role.canManage();
         BudgetView budgetView = new BudgetView(budget.budgetHours(), budget.loggedHours(), budget.billableHours(),
                 budget.nonBillableHours(), budget.remainingHours(), budget.hoursBurnPct(),
                 money ? budget.budgetAmount() : null, money ? budget.spentAmount() : null,

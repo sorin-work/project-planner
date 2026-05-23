@@ -42,6 +42,9 @@ class ReportResourceTest {
                 .body("budget.hoursBurnPct", Api.num(10))
                 .body("budget.spentAmount", notNullValue())
                 .body("status", equalTo("OFF_TRACK"));
+        member.as().get("/api/projects/" + projectId + "/health").then().statusCode(200)
+                .body("budget.loggedHours", Api.num(10))
+                .body("budget.spentAmount", nullValue());
     }
 
     @Test
