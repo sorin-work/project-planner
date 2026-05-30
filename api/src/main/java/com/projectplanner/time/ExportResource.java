@@ -61,7 +61,7 @@ public class ExportResource {
             throw ApiException.forbidden("You can only export your own time");
         }
 
-        StringBuilder query = new StringBuilder("organisationId = :org and entryDate between :from and :to");
+        StringBuilder query = new StringBuilder("organisationId = :org and entryDate between :from and :to and (startedAt is null or endedAt is not null)");
         Parameters params = Parameters.with("org", orgId).and("from", from).and("to", to);
         if (user != null) {
             query.append(" and userId = :user");
