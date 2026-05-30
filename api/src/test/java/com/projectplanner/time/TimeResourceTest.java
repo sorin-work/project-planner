@@ -54,6 +54,8 @@ class TimeResourceTest {
         long projectId = Api.createProject(owner, "VAL");
         owner.as().body(entry(projectId, WEEK, 0)).post("/api/orgs/" + owner.orgId() + "/time-entries")
                 .then().statusCode(400).body("errors.field", hasItem("minutes"));
+        owner.as().body(entry(projectId, LocalDate.now().plusDays(30), 60)).post("/api/orgs/" + owner.orgId() + "/time-entries")
+                .then().statusCode(400).body("code", equalTo("date_in_future"));
         Account stranger = Api.signup("Cy");
         long otherProject = Api.createProject(stranger, "OTHER");
         owner.as().body(entry(otherProject, WEEK, 60)).post("/api/orgs/" + owner.orgId() + "/time-entries")

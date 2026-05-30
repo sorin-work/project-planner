@@ -30,6 +30,8 @@ import java.util.Set;
 @ApplicationScoped
 public class TimeService {
 
+    /** How far ahead people may log time, e.g. to book a planned day off against admin. */
+    static final int MAX_DAYS_AHEAD = 7;
 
     private final Clock clock;
     private final ActivityLog activity;
@@ -41,6 +43,7 @@ public class TimeService {
 
     public TimeEntry create(Membership me, TimeEntryRequest request) {
         Target target = target(me.organisationId, request.projectId(), request.taskId());
+        checkDate(me.organisationId, request.date());
         checkUnlocked(me.organisationId, me.userId, request.date());
         TimeEntry entry = new TimeEntry();
         entry.organisationId = me.organisationId;
@@ -60,6 +63,7 @@ public class TimeService {
         checkOwner(me, entry);
         checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
         Target target = target(entry.organisationId, request.projectId(), request.taskId());
+        checkDate(entry.organisationId, request.date());
         checkUnlocked(entry.organisationId, entry.userId, request.date());
         entry.projectId = target.project().id;
         entry.taskId = target.task() == null ? null : target.task().id;
@@ -179,6 +183,13 @@ public class TimeService {
             }
         }
         return new Target(project, task);
+    }
+
+    private void checkDate(long organisationId, LocalDate date) {
+        LocalDate today = organisation(organisationId).today(clock);
+        if (date.isAfter(today.plusDays(MAX_DAYS_AHEAD))) {
+            throw ApiException.badRequest("date_in_future", "Time can be logged at most " + MAX_DAYS_AHEAD + " days ahead");
+        }
     }
 
     static void checkUnlocked(long organisationId, long userId, LocalDate date) {
