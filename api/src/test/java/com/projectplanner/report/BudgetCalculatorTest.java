@@ -34,6 +34,13 @@ class BudgetCalculatorTest {
     }
 
     @Test
+    void roundsPartialHoursToCents() {
+        Budget b = calculator.calculate(null, bd("1000"), List.of(new TimeFacts(50, true, bd("75"))));
+        assertThat(b.spentAmount()).isEqualByComparingTo("62.50");
+        assertThat(b.loggedHours()).isEqualByComparingTo("0.83");
+    }
+
+    @Test
     void noBudgetMeansNoBurnPercentage() {
         Budget b = calculator.calculate(null, null, List.of(new TimeFacts(60, true, bd("50"))));
         assertThat(b.hoursBurnPct()).isNull();
@@ -55,5 +62,11 @@ class BudgetCalculatorTest {
         assertThat(b.remainingHours()).isEqualByComparingTo("-2");
         assertThat(b.hoursBurnPct()).isEqualTo(120.0);
         assertThat(b.remainingAmount()).isEqualByComparingTo("-100");
+    }
+
+    @Test
+    void missingRateCostsNothing() {
+        Budget b = calculator.calculate(null, bd("100"), List.of(new TimeFacts(60, true, null)));
+        assertThat(b.spentAmount()).isEqualByComparingTo("0");
     }
 }
