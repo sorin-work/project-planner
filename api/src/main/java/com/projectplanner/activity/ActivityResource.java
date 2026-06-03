@@ -32,12 +32,15 @@ public class ActivityResource {
         this.access = access;
     }
 
-    /** Organisation-wide feed. */
+    /** Organisation-wide feed for the team. Client viewers use the per-project feed. */
     @GET
     @Path("/orgs/{orgId}/activity")
     public List<ActivityResponse> forOrganisation(@PathParam("orgId") long orgId,
                                                   @QueryParam("limit") @DefaultValue("50") int limit) {
         Membership me = access.member(orgId);
+        if (me.role == Role.CLIENT) {
+            return List.of();
+        }
         List<ActivityEntry> entries = ActivityEntry.find("organisationId", Sort.descending("createdAt", "id"), orgId)
                 .page(Page.ofSize(limit)).list();
         return toResponses(entries);
