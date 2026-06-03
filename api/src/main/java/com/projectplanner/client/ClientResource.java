@@ -43,6 +43,10 @@ public class ClientResource {
     public List<ClientResponse> list(@PathParam("orgId") long orgId,
                                      @QueryParam("archived") @DefaultValue("false") boolean includeArchived) {
         Membership me = access.member(orgId);
+        if (me.role == Role.CLIENT) {
+            Client own = me.clientId == null ? null : Client.findById(me.clientId);
+            return own == null ? List.of() : List.of(ClientResponse.of(own));
+        }
         String query = includeArchived ? "organisationId = ?1 order by name" : "organisationId = ?1 and archived = false order by name";
         return Client.<Client>list(query, orgId).stream().map(ClientResponse::of).toList();
     }

@@ -83,6 +83,10 @@ public class OrgResource {
     public List<MemberResponse> members(@PathParam("orgId") long orgId) {
         Membership me = access.member(orgId);
         List<Membership> memberships = Membership.forOrganisation(orgId);
+        if (me.role == Role.CLIENT) {
+            // Client viewers only need to know who is on the team, not other clients.
+            memberships = memberships.stream().filter(m -> m.role.isTeam() || m.id.equals(me.id)).toList();
+        }
         return memberships.stream()
                 .map(m -> MemberResponse.of(m, User.findById(m.userId), true))
                 .sorted(Comparator.comparing(MemberResponse::role).thenComparing(MemberResponse::name))
