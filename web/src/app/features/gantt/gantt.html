@@ -48,6 +48,9 @@
         }
       </g>
 
+      @if (layout().todayX !== null) {
+        <line class="today" [attr.x1]="layout().todayX" [attr.x2]="layout().todayX" y1="44" [attr.y2]="layout().height" />
+      }
 
       @for (link of layout().links; track link.id) {
         <path [attr.d]="link.path" class="link" [class.critical]="link.critical"
