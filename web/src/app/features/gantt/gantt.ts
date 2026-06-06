@@ -104,4 +104,13 @@ export class Gantt {
       this.opened.emit(bar.task.id);
     }
   }
+
+  onKey(event: KeyboardEvent, bar: GanttBar): void {
+    if (event.key === 'Enter') {
+      this.opened.emit(bar.task.id);
+    } else if (this.editable() && (event.key === 'ArrowRight' || event.key === 'ArrowLeft')) {
+      event.preventDefault();
+      this.moved.emit({ taskId: bar.task.id, days: event.key === 'ArrowRight' ? 1 : -1 });
+    }
+  }
 }

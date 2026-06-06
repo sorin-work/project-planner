@@ -55,7 +55,8 @@
         <g class="bar" [class.critical]="bar.critical" [class.done]="bar.done" [class.editable]="editable()"
           [class.dragging]="drag()?.taskId === bar.task.id" [attr.transform]="'translate(' + offset(bar) + ',0)'"
           tabindex="0" role="button" [attr.aria-label]="bar.task.title + ', ' + formatRange(bar.task.startDate, bar.task.dueDate)"
-          (pointerdown)="onPointerDown($event, bar)" (pointermove)="onPointerMove($event)" (pointerup)="onPointerUp($event, bar)">
+          (pointerdown)="onPointerDown($event, bar)" (pointermove)="onPointerMove($event)" (pointerup)="onPointerUp($event, bar)"
+          (keydown)="onKey($event, bar)">
           <title>{{ bar.task.title }} ({{ formatRange(bar.task.startDate, bar.task.dueDate) }})</title>
           @if (bar.milestone) {
             <polygon [attr.points]="diamond(bar)" class="milestone" />

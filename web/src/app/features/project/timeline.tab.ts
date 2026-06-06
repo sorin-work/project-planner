@@ -20,7 +20,7 @@ import { ProjectStore } from './project.store';
       <span class="spacer"></span>
     </div>
     @if (org.isTeam()) {
-      <p class="muted small">Drag a bar to move it; tasks that depend on it move too.</p>
+      <p class="muted small">Drag a bar (or focus it and use the arrow keys) to move it; tasks that depend on it move too.</p>
     }
     @if (message()) {
       <p class="alert info" role="status">{{ message() }}</p>
