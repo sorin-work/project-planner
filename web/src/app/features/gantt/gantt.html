@@ -27,6 +27,9 @@
         </marker>
       </defs>
 
+      @for (w of layout().weekends; track w.x) {
+        <rect class="weekend" [attr.x]="w.x" y="0" [attr.width]="w.width" [attr.height]="layout().height" />
+      }
       @for (row of layout().rows; track row.kind + (row.task?.id ?? row.phaseId)) {
         @if (row.kind === 'phase') {
           <rect class="phase-row" x="0" [attr.y]="row.y" [attr.width]="layout().width" [attr.height]="rowHeight" />
