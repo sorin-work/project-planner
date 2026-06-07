@@ -60,6 +60,15 @@ class CriticalPathTest {
     }
 
     @Test
+    void lagCountsTowardsThePath() {
+        var a = new ScheduledTask(1, day(0), day(0));
+        var b = new ScheduledTask(2, day(3), day(3));
+        var c = new ScheduledTask(3, day(0), day(2));
+        CriticalPath.Result result = cpm.calculate(List.of(a, b, c), List.of(new Link(1, 2, 2)));
+        assertThat(result.criticalTaskIds()).containsExactly(1L, 2L);
+    }
+
+    @Test
     void plannedStartActsAsStartNoEarlierThan() {
         // B could start right after A, but is planned three days later.
         var a = new ScheduledTask(1, day(0), day(0));
@@ -69,5 +78,14 @@ class CriticalPathTest {
         assertThat(timingA.taskId()).isEqualTo(1L);
         assertThat(timingA.floatDays()).isEqualTo(3);
         assertThat(result.criticalTaskIds()).containsExactly(2L);
+    }
+
+    @Test
+    void unscheduledTasksAreLeftOut() {
+        var a = new ScheduledTask(1, day(0), day(1));
+        var b = new ScheduledTask(2, null, day(3));
+        CriticalPath.Result result = cpm.calculate(List.of(a, b), List.of(new Link(1, 2)));
+        assertThat(result.tasks()).hasSize(1);
+        assertThat(result.criticalTaskIds()).containsExactly(1L);
     }
 }
