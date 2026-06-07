@@ -69,6 +69,26 @@ class ReschedulerTest {
     }
 
     @Test
+    void waitsForTheLatestOfSeveralPredecessors() {
+        var a = new ScheduledTask(1, day(0), day(1));
+        var b = new ScheduledTask(2, day(0), day(3));
+        var c = new ScheduledTask(3, day(0), day(0));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b, c),
+                List.of(new Link(1, 3), new Link(2, 3)), Set.of(1L));
+        assertThat(moved.get(3L).start()).isEqualTo(day(4));
+    }
+
+    @Test
+    void ignoresTasksWithoutDates() {
+        var a = new ScheduledTask(1, day(0), day(4));
+        var b = new ScheduledTask(2, null, null);
+        var c = new ScheduledTask(3, day(1), day(1));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b, c),
+                List.of(new Link(1, 2), new Link(2, 3)), Set.of(1L));
+        assertThat(moved).isEmpty();
+    }
+
+    @Test
     void doesNotTouchTasksOutsideTheMovedTasksChain() {
         // C already violates its link to D, but nothing upstream of it moved.
         var a = new ScheduledTask(1, day(0), day(0));
