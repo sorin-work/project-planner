@@ -77,3 +77,6 @@
     </svg>
   </div>
 </div>
+@if (drag() && dragPreviewDays() !== 0) {
+  <p class="gantt-hint">Move by {{ dragPreviewDays() > 0 ? '+' : '' }}{{ dragPreviewDays() }} days</p>
+}
