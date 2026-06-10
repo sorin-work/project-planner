@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 @Authenticated
 public class ActivityResource {
 
+    private static final int MAX_LIMIT = 200;
 
     private final OrgAccess access;
 
@@ -42,7 +43,7 @@ public class ActivityResource {
             return List.of();
         }
         List<ActivityEntry> entries = ActivityEntry.find("organisationId", Sort.descending("createdAt", "id"), orgId)
-                .page(Page.ofSize(limit)).list();
+                .page(Page.ofSize(clamp(limit))).list();
         return toResponses(entries);
     }
 
@@ -52,8 +53,12 @@ public class ActivityResource {
                                              @QueryParam("limit") @DefaultValue("50") int limit) {
         Project project = access.project(projectId);
         List<ActivityEntry> entries = ActivityEntry.find("projectId", Sort.descending("createdAt", "id"), project.id)
-                .page(Page.ofSize(limit)).list();
+                .page(Page.ofSize(clamp(limit))).list();
         return toResponses(entries);
+    }
+
+    private static int clamp(int limit) {
+        return Math.max(1, Math.min(MAX_LIMIT, limit));
     }
 
     static List<ActivityResponse> toResponses(List<ActivityEntry> entries) {
