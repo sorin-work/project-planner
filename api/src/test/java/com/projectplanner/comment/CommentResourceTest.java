@@ -63,5 +63,8 @@ class CommentResourceTest {
         Number commentId = member.as().body(Map.of("body", "First draft"))
                 .post("/api/tasks/" + taskId + "/comments").then().statusCode(201).extract().path("id");
 
+        owner.as().body(Map.of("body", "Changed")).put("/api/comments/" + commentId).then().statusCode(403);
+        member.as().body(Map.of("body", "Second draft")).put("/api/comments/" + commentId)
+                .then().statusCode(200).body("editedAt", notNullValue());
     }
 }

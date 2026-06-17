@@ -92,6 +92,20 @@ public class CommentResource {
         return toResponse(comment, author);
     }
 
+    @PUT
+    @Path("/comments/{commentId}")
+    @Transactional
+    public CommentResponse update(@PathParam("commentId") long commentId, @Valid @NotNull CommentRequest request) {
+        Comment comment = comment(commentId);
+        access.project(task(comment.taskId).projectId);
+        if (!Objects.equals(comment.authorId, access.userId())) {
+            throw ApiException.forbidden("You can only edit your own comments");
+        }
+        comment.body = request.body().strip();
+        comment.editedAt = Instant.now(clock);
+        return toResponse(comment, User.findById(comment.authorId));
+    }
+
     @DELETE
     @Path("/comments/{commentId}")
     @Transactional
