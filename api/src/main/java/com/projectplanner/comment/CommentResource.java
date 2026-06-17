@@ -58,6 +58,7 @@ public class CommentResource {
         return comments.stream().map(c -> toResponse(c, authors.computeIfAbsent(c.authorId, id -> User.findById(id)))).toList();
     }
 
+    /** Client viewers can comment too: it's how they ask questions about the plan. */
     @POST
     @Path("/tasks/{taskId}/comments")
     @Transactional
@@ -65,7 +66,7 @@ public class CommentResource {
     public CommentResponse create(@PathParam("taskId") long taskId, @Valid @NotNull CommentRequest request) {
         Task task = task(taskId);
         Project project = access.project(task.projectId);
-        Membership me = access.editProject(project);
+        Membership me = access.viewProject(project);
         User author = User.findById(me.userId);
 
         Comment comment = new Comment();
