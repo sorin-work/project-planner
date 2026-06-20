@@ -20,6 +20,7 @@ const ICONS: Record<string, string> = {
     <div class="page-header">
       <h1>Notifications</h1>
       <div>
+        <button type="button" class="link" (click)="toggleUnread()">{{ unreadOnly() ? 'Show all' : 'Only unread' }}</button>
         <button type="button" (click)="markAll()">Mark all as read</button>
       </div>
     </div>
@@ -62,6 +63,10 @@ export class NotificationsPage {
 
   icon(type: string): string {
     return ICONS[type] ?? '•';
+  }
+
+  toggleUnread(): void {
+    this.unreadOnly.update((v) => !v);
   }
 
   markAll(): void {
