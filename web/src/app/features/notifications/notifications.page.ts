@@ -5,6 +5,15 @@ import { Notification } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { timeAgo } from '../../shared/dates';
 
+const ICONS: Record<string, string> = {
+  MENTIONED: '@',
+  ASSIGNED: '→',
+  COMMENTED: '💬',
+  TIMESHEET_SUBMITTED: '⏱',
+  TIMESHEET_APPROVED: '✓',
+  TIMESHEET_REJECTED: '↩',
+};
+
 @Component({
   selector: 'app-notifications-page',
   template: `
@@ -19,6 +28,7 @@ import { timeAgo } from '../../shared/dates';
         @for (n of items(); track n.id) {
           <li [class.unread]="!n.read">
             <button type="button" class="row-button" (click)="open(n)">
+              <span class="icon" aria-hidden="true">{{ icon(n.type) }}</span>
               <span class="grow">{{ n.message }}</span>
               <span class="muted small">{{ timeAgo(n.createdAt) }}</span>
             </button>
@@ -48,6 +58,10 @@ export class NotificationsPage {
         this.api.notifications(orgId, unread).subscribe({ next: (n) => this.items.set(n) });
       }
     });
+  }
+
+  icon(type: string): string {
+    return ICONS[type] ?? '•';
   }
 
   markAll(): void {
