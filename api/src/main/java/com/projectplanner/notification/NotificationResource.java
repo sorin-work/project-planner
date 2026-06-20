@@ -84,6 +84,19 @@ public class NotificationResource {
         }
     }
 
+    @POST
+    @Path("/read-all")
+    @Transactional
+    @ResponseStatus(204)
+    public void markAllRead(@QueryParam("orgId") Long orgId) {
+        Instant now = Instant.now(clock);
+        if (orgId == null) {
+            Notification.update("readAt = ?1 where userId = ?2 and readAt is null", now, currentUser.id());
+        } else {
+            Notification.update("readAt = ?1 where userId = ?2 and organisationId = ?3 and readAt is null", now, currentUser.id(), orgId);
+        }
+    }
+
     public record NotificationResponse(long id, long organisationId, NotificationType type, String message,
                                        String actorName, Long projectId, Long taskId, boolean read, Instant createdAt) {
     }

@@ -11,6 +11,7 @@ import { timeAgo } from '../../shared/dates';
     <div class="page-header">
       <h1>Notifications</h1>
       <div>
+        <button type="button" (click)="markAll()">Mark all as read</button>
       </div>
     </div>
     <section class="card">
@@ -46,6 +47,12 @@ export class NotificationsPage {
       if (orgId !== null) {
         this.api.notifications(orgId, unread).subscribe({ next: (n) => this.items.set(n) });
       }
+    });
+  }
+
+  markAll(): void {
+    this.api.markAllRead(this.org.id()).subscribe({
+      next: () => this.items.update((all) => (this.unreadOnly() ? [] : all.map((n) => ({ ...n, read: true })))),
     });
   }
 

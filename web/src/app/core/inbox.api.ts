@@ -19,6 +19,10 @@ export class InboxApi {
     return this.http.post<void>(`/api/notifications/${id}/read`, {});
   }
 
+  markAllRead(orgId: number): Observable<void> {
+    return this.http.post<void>('/api/notifications/read-all', {}, { params: { orgId } });
+  }
+
   activity(orgId: number, limit = 50): Observable<ActivityEntry[]> {
     return this.http.get<ActivityEntry[]>(`/api/orgs/${orgId}/activity`, { params: { limit } });
   }
