@@ -100,5 +100,8 @@ class OrgResourceTest {
         owner.as().body(Map.of("currency", "GBP", "timezone", "Europe/London", "defaultHourlyRate", 60))
                 .patch("/api/orgs/" + owner.orgId())
                 .then().statusCode(200).body("currency", equalTo("GBP")).body("timezone", equalTo("Europe/London"));
+        owner.as().body(Map.of("timezone", "Mars/Olympus"))
+                .patch("/api/orgs/" + owner.orgId())
+                .then().statusCode(400).body("code", equalTo("invalid_timezone"));
     }
 }

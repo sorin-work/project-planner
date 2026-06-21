@@ -70,7 +70,11 @@ public class OrgResource {
             org.currency = request.currency();
         }
         if (request.timezone() != null) {
-            org.timezone = request.timezone();
+            try {
+                org.timezone = ZoneId.of(request.timezone()).getId();
+            } catch (DateTimeException e) {
+                throw ApiException.badRequest("invalid_timezone", "Unknown time zone " + request.timezone());
+            }
         }
         if (request.defaultHourlyRate() != null) {
             org.defaultHourlyRate = request.defaultHourlyRate();
