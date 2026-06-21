@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 
@@ -62,6 +63,25 @@ class AuthResourceTest {
                 .post("/api/auth/signup")
                 .then().statusCode(409)
                 .body("code", equalTo("email_taken"));
+    }
+
+    @Test
+    void validatesSignup() {
+        given().contentType(ContentType.JSON)
+                .body(Map.of("name", "", "email", "not-an-email", "password", "short"))
+                .post("/api/auth/signup")
+                .then().statusCode(400)
+                .body("code", equalTo("validation_failed"))
+                .body("errors.field", hasItem("email"))
+                .body("errors.field", hasItem("password"))
+                .body("errors.field", hasItem("name"));
+    }
+
+    @Test
+    void rejectsMalformedJson() {
+        given().contentType(ContentType.JSON).body("{not json")
+                .post("/api/auth/login")
+                .then().statusCode(400);
     }
 
     @Test
