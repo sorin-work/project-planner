@@ -101,6 +101,9 @@ public class OrgResource {
         Membership me = access.manager(orgId);
         Membership member = memberIn(orgId, memberId);
         if (request.role() != null && request.role() != member.role) {
+            if (me.role != Role.OWNER && (request.role() == Role.OWNER || member.role == Role.OWNER)) {
+                throw ApiException.forbidden("Only owners can grant or remove the owner role");
+            }
             if (member.role == Role.OWNER && countOwners(orgId) == 1) {
                 throw ApiException.conflict("last_owner", "An organisation needs at least one owner");
             }
