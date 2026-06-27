@@ -18,6 +18,11 @@ import { loadLevel } from './workload-cell';
         <button type="button" (click)="shift(-weeks)" aria-label="Earlier">‹</button>
         <span>{{ formatDate(from()) }} – {{ formatDate(lastDay()) }}</span>
         <button type="button" (click)="shift(weeks)" aria-label="Later">›</button>
+        <select [(ngModel)]="weeks" (ngModelChange)="reload()" aria-label="Weeks to show">
+          <option [ngValue]="4">4 weeks</option>
+          <option [ngValue]="8">8 weeks</option>
+          <option [ngValue]="12">12 weeks</option>
+        </select>
       </div>
     </div>
     <p class="muted small">Open tasks in planned and active projects, each estimate spread evenly over its working days.</p>
