@@ -33,6 +33,7 @@ import { loadLevel } from './workload-cell';
               @for (w of d.members[0]?.weeks ?? []; track w.weekStart) {
                 <th class="num">{{ formatDate(w.weekStart) }}</th>
               }
+              <th class="num" title="Open estimates without dates">Unscheduled</th>
             </tr>
           </thead>
           <tbody>
@@ -48,6 +49,7 @@ import { loadLevel } from './workload-cell';
                     </button>
                   </td>
                 }
+                <td class="num muted">{{ m.unscheduledHours ? formatHours(m.unscheduledHours) : '' }}</td>
               </tr>
             }
           </tbody>
