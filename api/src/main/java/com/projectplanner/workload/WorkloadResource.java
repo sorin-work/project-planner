@@ -71,8 +71,15 @@ public class WorkloadResource {
         }
         List<Task> tasks = Task.list("projectId in ?1 and assigneeId is not null and status <> ?2",
                 projectsById.keySet(), TaskStatus.DONE);
+        // A parent's estimate is the sum of its subtasks when it has any, so only book leaves.
+        Set<Long> parents = new java.util.HashSet<>();
+        tasks.forEach(t -> {
+            if (t.parentId != null) {
+                parents.add(t.parentId);
+            }
+        });
         List<Assignment> assignments = tasks.stream()
-                .filter(t -> !t.milestone)
+                .filter(t -> !parents.contains(t.id) && !t.milestone)
                 .map(t -> new Assignment(t.id, t.assigneeId, t.estimate(), t.startDate, t.dueDate, t.isDone()))
                 .toList();
         List<TaskRef> refs = tasks.stream()
