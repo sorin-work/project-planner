@@ -55,6 +55,10 @@ import { loadLevel } from './workload-cell';
           </tbody>
         </table>
       </div>
+      <p class="legend small">
+        <span class="load-light">under 50%</span> <span class="load-good">50–85%</span> <span class="load-full">85–100%</span>
+        <span class="load-over">over capacity</span>
+      </p>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
