@@ -121,6 +121,14 @@ class TimeResourceTest {
     }
 
     @Test
+    void emptyWeeksCannotBeSubmitted() {
+        Account owner = Api.signup("Ian");
+        owner.as().body(Map.of("weekStart", WEEK.toString()))
+                .post("/api/orgs/" + owner.orgId() + "/timesheets/submit")
+                .then().statusCode(400).body("code", equalTo("empty_timesheet"));
+    }
+
+    @Test
     void membersOnlySeeTheirOwnTime() {
         Account owner = Api.signup("Jo");
         Account member = Api.signup("Kim");

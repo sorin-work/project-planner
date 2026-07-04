@@ -84,6 +84,11 @@ public class TimesheetService {
                 .isPresent()) {
             throw ApiException.conflict("timer_running", "Stop the running timer before submitting this week");
         }
+        long entries = TimeEntry.count("organisationId = ?1 and userId = ?2 and entryDate between ?3 and ?4",
+                me.organisationId, me.userId, weekStart, weekStart.plusDays(6));
+        if (entries == 0) {
+            throw ApiException.badRequest("empty_timesheet", "There is no time logged in this week");
+        }
         Timesheet sheet = Timesheet.find(me.organisationId, me.userId, weekStart).orElseGet(() -> {
             Timesheet created = new Timesheet();
             created.organisationId = me.organisationId;
