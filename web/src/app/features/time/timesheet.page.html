@@ -30,6 +30,9 @@
       @if (w.status === 'DRAFT' || w.status === 'REJECTED') {
         <button type="button" class="primary" [disabled]="!w.entries.length" (click)="submit()">Submit week</button>
       }
+      @if (w.status === 'SUBMITTED') {
+        <button type="button" (click)="withdraw()">Withdraw</button>
+      }
     </div>
   </div>
 

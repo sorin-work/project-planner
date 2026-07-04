@@ -71,6 +71,10 @@ export class TimeApi {
     return this.http.post<Week>(`/api/orgs/${orgId}/timesheets/submit`, { weekStart });
   }
 
+  withdraw(orgId: number, weekStart: string): Observable<Week> {
+    return this.http.post<Week>(`/api/orgs/${orgId}/timesheets/withdraw`, { weekStart });
+  }
+
   timesheets(orgId: number, status: TimesheetStatus = 'SUBMITTED'): Observable<TimesheetSummary[]> {
     return this.http.get<TimesheetSummary[]>(`/api/orgs/${orgId}/timesheets`, { params: { status } });
   }

@@ -166,6 +166,17 @@ export class TimesheetPage {
     });
   }
 
+  withdraw(): void {
+    const w = this.week();
+    if (!w) {
+      return;
+    }
+    this.api.withdraw(this.org.id(), w.weekStart).subscribe({
+      next: (week) => this.week.set(week),
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
   private load(orgId: number, date: string): void {
     this.error.set(null);
     this.api.week(orgId, date).subscribe({
