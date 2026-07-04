@@ -115,6 +115,7 @@ class TimeResourceTest {
         Number sheetId = manager.as().body(Map.of("weekStart", WEEK.toString()))
                 .post("/api/orgs/" + owner.orgId() + "/timesheets/submit").then().statusCode(200).extract().path("timesheetId");
 
+        manager.as().post("/api/orgs/" + owner.orgId() + "/timesheets/" + sheetId + "/approve").then().statusCode(403);
         owner.as().post("/api/orgs/" + owner.orgId() + "/timesheets/" + sheetId + "/approve")
                 .then().statusCode(200).body("status", equalTo("APPROVED")).body("reviewedByName", equalTo("Gus"));
         owner.as().post("/api/orgs/" + owner.orgId() + "/timesheets/" + sheetId + "/approve").then().statusCode(409);

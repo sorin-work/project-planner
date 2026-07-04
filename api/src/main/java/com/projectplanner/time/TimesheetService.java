@@ -190,6 +190,9 @@ public class TimesheetService {
         if (!me.role.canManage()) {
             throw ApiException.forbidden("Only owners and managers review timesheets");
         }
+        if (Objects.equals(sheet.userId, me.userId) && me.role != Role.OWNER) {
+            throw ApiException.forbidden("Ask another manager to review your own timesheet");
+        }
         if (sheet.status != TimesheetStatus.SUBMITTED) {
             throw ApiException.conflict("not_submitted", "Only submitted timesheets can be reviewed");
         }
