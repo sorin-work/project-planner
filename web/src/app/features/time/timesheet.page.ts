@@ -48,6 +48,7 @@ export class TimesheetPage {
     const status = this.week()?.status;
     return status === 'SUBMITTED' || status === 'APPROVED';
   });
+  protected readonly isCurrentWeek = computed(() => this.weekOf() === weekStart(today()));
 
   protected readonly labels = TIMESHEET_LABELS;
   protected readonly formatMinutes = formatMinutes;
@@ -81,6 +82,10 @@ export class TimesheetPage {
 
   shiftWeek(weeks: number): void {
     this.weekOf.update((d) => addDays(d, weeks * 7));
+  }
+
+  thisWeek(): void {
+    this.weekOf.set(weekStart(today()));
   }
 
   projectChanged(projectId: number | null): void {
