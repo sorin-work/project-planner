@@ -56,6 +56,9 @@
             <tr>
               <td>
                 <span class="code">{{ row.projectCode }}</span> {{ row.taskTitle || row.projectName }}
+                @if (!row.billable) {
+                  <span class="badge muted">non-billable</span>
+                }
               </td>
               @for (m of row.days; track $index) {
                 <td class="num" [class.weekend]="$index >= 5">{{ m ? formatMinutes(m) : '' }}</td>
