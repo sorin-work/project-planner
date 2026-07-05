@@ -30,7 +30,8 @@ import { buildGrid } from '../time/timesheet-grid';
             <li>
               <button type="button" class="row-button" [class.selected]="selected()?.timesheetId === s.id" (click)="open(s)">
                 <span class="grow"><strong>{{ s.userName }}</strong><br /><span class="muted small">Week of {{ formatDate(s.weekStart) }}</span></span>
-                <span class="right">{{ formatMinutes(s.totalMinutes) }}</span>
+                <span class="right">{{ formatMinutes(s.totalMinutes) }}<br />
+                  <span class="muted small">{{ money(s.billableAmount) }} billable</span></span>
               </button>
             </li>
           } @empty {
