@@ -14,6 +14,11 @@ import { buildGrid } from '../time/timesheet-grid';
   template: `
     <div class="page-header">
       <h1>Timesheet approvals</h1>
+      <div class="segmented" role="group" aria-label="Status">
+        @for (s of tabs; track s) {
+          <button type="button" [class.active]="status() === s" (click)="setStatus(s)">{{ labels[s] }}</button>
+        }
+      </div>
     </div>
     @if (error()) {
       <p class="alert error" role="alert">{{ error() }}</p>
