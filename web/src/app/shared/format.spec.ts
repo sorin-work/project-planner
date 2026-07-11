@@ -1,4 +1,4 @@
-import { formatHours, formatMinutes, parseDuration } from './format';
+import { formatHours, formatMinutes, formatMoney, formatPercent, initials, parseDuration } from './format';
 
 describe('format', () => {
   it('formats minutes as hours and minutes', () => {
@@ -30,4 +30,17 @@ describe('format', () => {
     expect(parseDuration('1:75')).toBeNull();
   });
 
+  it('formats money and percentages', () => {
+    expect(formatMoney(1234.5, 'EUR')).toBe('€1,235');
+    expect(formatMoney(null, 'EUR')).toBe('–');
+    expect(formatPercent(42.6)).toBe('43%');
+    expect(formatPercent(undefined)).toBe('–');
+  });
+
+  it('makes initials', () => {
+    expect(initials('Maya Collins')).toBe('MC');
+    expect(initials('Cher')).toBe('C');
+    expect(initials('  ana maria pop ')).toBe('AP');
+    expect(initials('')).toBe('?');
+  });
 });
