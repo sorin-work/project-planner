@@ -99,6 +99,7 @@ public class DemoSeeder {
         createClients();
         createProjects();
         logTime();
+        calibrateBudgets();
         createTimesheets();
         createConversation();
         LOG.infof("Seeded demo data in %d ms (%d tasks, %d time entries)", System.currentTimeMillis() - started,
@@ -588,6 +589,36 @@ public class DemoSeeder {
                     entry(user, operations, null, day, Math.max(60, budget), BENCH_WORK[random.nextInt(BENCH_WORK.length)], false);
                 } else if (random.nextInt(5) == 0) {
                     entry(user, operations, null, day, 30, "Studio meeting", false);
+                }
+            }
+        }
+    }
+
+    /**
+     * Sets each project's budget from the time actually logged, so burn tells the
+     * intended story (a finished project slightly over, an active one burning ahead of
+     * progress, ...), and scales task estimates to match the budget.
+     */
+    private void calibrateBudgets() {
+        Map<String, Double> burn = Map.of("INIT-NET", 1.04, "NW-WEB", 0.94, "GLX-PORTAL", 1.06,
+                "ACME-APP", 0.55, "INT-DS", 0.58, "NW-BRAND", 0.45);
+        for (var target : burn.entrySet()) {
+            Project p = project(target.getKey());
+            long minutes = TimeEntry.<TimeEntry>list("projectId", p.id).stream().mapToLong(e -> e.minutes).sum();
+            double budget = Math.max(40, Math.round(minutes / 60.0 / target.getValue() / 10) * 10.0);
+            p.budgetHours = BigDecimal.valueOf(budget);
+            if (p.budgetAmount != null) {
+                p.budgetAmount = BigDecimal.valueOf(Math.round(budget * 88 / 500) * 500L);
+            }
+            List<Task> tasks = Task.list("projectId", p.id);
+            double estimated = tasks.stream().filter(t -> t.parentId == null).mapToDouble(Task::estimate).sum();
+            if (estimated <= 0) {
+                continue;
+            }
+            double factor = budget * 0.9 / estimated;
+            for (Task t : tasks) {
+                if (t.estimateHours != null) {
+                    t.estimateHours = BigDecimal.valueOf(Math.max(1, Math.round(t.estimate() * factor * 2) / 2.0));
                 }
             }
         }
