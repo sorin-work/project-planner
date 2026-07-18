@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, input, output, signal, viewChild } from '@angular/core';
 import { Phase, Task } from '../../core/models';
 import { formatRange } from '../../shared/dates';
 import { GanttBar, ROW_HEIGHT, Zoom, dragDays, layoutGantt } from './gantt-layout';
@@ -41,11 +41,27 @@ export class Gantt {
     }),
   );
 
+  private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
+  private scrolledFor: string | null = null;
 
   protected readonly dragPreviewDays = computed(() => {
     const d = this.drag();
     return d ? dragDays(d.dx, this.layout().dayWidth) : 0;
   });
+
+  constructor() {
+    // Open the timeline around today rather than at the project start, once per zoom level.
+    afterRenderEffect(() => {
+      const el = this.scroller()?.nativeElement;
+      const layout = this.layout();
+      const key = `${this.zoom()}:${layout.start}`;
+      if (!el || layout.todayX === null || this.scrolledFor === key) {
+        return;
+      }
+      this.scrolledFor = key;
+      el.scrollLeft = Math.max(0, layout.todayX - el.clientWidth / 3);
+    });
+  }
 
   toggle(phaseId: number | null | undefined): void {
     const key = phaseId ?? 0;
