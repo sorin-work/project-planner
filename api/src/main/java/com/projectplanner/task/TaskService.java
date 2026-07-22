@@ -56,6 +56,9 @@ public class TaskService {
                 throw ApiException.badRequest("nested_subtask", "Subtasks can't have subtasks of their own");
             }
             task.parentId = parent.id;
+            if (task.phaseId == null) {
+                task.phaseId = parent.phaseId;
+            }
         }
         task.priority = request.priority() != null ? request.priority() : Priority.MEDIUM;
         task.estimateHours = request.estimateHours();
