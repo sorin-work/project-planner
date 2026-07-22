@@ -65,6 +65,13 @@ public class TaskResource {
         return mapper.toResponse(find(taskId));
     }
 
+    @GET
+    @Path("/tasks/{taskId}/subtasks")
+    public List<TaskResponse> subtasks(@PathParam("taskId") long taskId) {
+        Task task = find(taskId);
+        return mapper.toResponses(Task.list("parentId = ?1 order by position, id", task.id));
+    }
+
     @PATCH
     @Path("/tasks/{taskId}")
     @Transactional

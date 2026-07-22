@@ -33,6 +33,7 @@ class TaskResourceTest {
                 .body("subtaskCount", equalTo(1))
                 .body("assigneeName", equalTo("Kai"))
                 .body("priority", equalTo("HIGH"));
+        owner.as().get("/api/tasks/" + parent + "/subtasks").then().body("$", hasSize(1));
     }
 
     @Test
