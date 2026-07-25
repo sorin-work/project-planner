@@ -1,7 +1,14 @@
 <div class="layout" [class.menu-open]="menuOpen()">
   <aside class="sidebar">
     <a class="brand" routerLink="/">project-planner</a>
-    @if (org.current(); as current) {
+    @if (org.memberships().length > 1) {
+      <label class="sr-only" for="org-switch">Organisation</label>
+      <select id="org-switch" class="org-switch" [value]="org.orgId()" (change)="switchOrg($event)">
+        @for (m of org.memberships(); track m.organisationId) {
+          <option [value]="m.organisationId">{{ m.organisationName }}</option>
+        }
+      </select>
+    } @else if (org.current(); as current) {
       <p class="org-name">{{ current.organisationName }}</p>
     }
     <nav aria-label="Main">

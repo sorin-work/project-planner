@@ -52,6 +52,11 @@ export class Shell {
     });
   }
 
+  switchOrg(event: Event): void {
+    this.org.select(Number((event.target as HTMLSelectElement).value));
+    void this.router.navigate(['/']);
+  }
+
   stopTimer(): void {
     const orgId = this.org.orgId();
     if (orgId !== null) {
