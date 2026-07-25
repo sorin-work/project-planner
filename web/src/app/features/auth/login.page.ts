@@ -30,6 +30,7 @@ import { messageOf } from '../../core/errors';
         }
         <button class="primary wide" type="submit" [disabled]="busy()">{{ busy() ? 'Signing in…' : 'Sign in' }}</button>
         <p class="muted small">No account yet? <a routerLink="/signup">Create one</a></p>
+        <p class="muted small demo-hint">Demo: demo&#64;example.com / demo-password</p>
       </form>
     </main>
   `,
