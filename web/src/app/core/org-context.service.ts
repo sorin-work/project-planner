@@ -2,12 +2,13 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AuthService } from './auth.service';
 import { MembershipSummary, Role } from './models';
 
+const ORG_KEY = 'pp.orgId';
 
 /** Which organisation the user is working in, and what they may do there. */
 @Injectable({ providedIn: 'root' })
 export class OrgContext {
   private readonly auth = inject(AuthService);
-  private readonly selectedId = signal<number | null>(null);
+  private readonly selectedId = signal<number | null>(readSelected());
 
   readonly memberships = computed<MembershipSummary[]>(() => this.auth.me()?.organisations ?? []);
 
@@ -25,6 +26,11 @@ export class OrgContext {
 
   select(orgId: number): void {
     this.selectedId.set(orgId);
+    try {
+      localStorage.setItem(ORG_KEY, String(orgId));
+    } catch {
+      // Private mode: the choice just isn't remembered.
+    }
   }
 
   /** The current org id; only call this where the shell has made sure there is one. */
@@ -34,5 +40,14 @@ export class OrgContext {
       throw new Error('No organisation selected');
     }
     return id;
+  }
+}
+
+function readSelected(): number | null {
+  try {
+    const value = localStorage.getItem(ORG_KEY);
+    return value ? Number(value) : null;
+  } catch {
+    return null;
   }
 }
