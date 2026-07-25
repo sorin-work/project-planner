@@ -11,6 +11,7 @@ import { fieldErrors, messageOf } from '../../core/errors';
     <main class="auth-page">
       <form class="card auth-card" [formGroup]="form" (ngSubmit)="submit()" novalidate>
         <h1 class="brand">Create your account</h1>
+        <p class="muted">If a teammate invited you, use the email they invited and you'll join their team.</p>
 
         <label for="name">Your name</label>
         <input id="name" formControlName="name" autocomplete="name" />
