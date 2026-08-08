@@ -92,7 +92,7 @@ public class OrgResource {
             memberships = memberships.stream().filter(m -> m.role.isTeam() || m.id.equals(me.id)).toList();
         }
         return memberships.stream()
-                .map(m -> MemberResponse.of(m, User.findById(m.userId), true))
+                .map(m -> MemberResponse.of(m, User.findById(m.userId), me.role.canManage()))
                 .sorted(Comparator.comparing(MemberResponse::role).thenComparing(MemberResponse::name))
                 .toList();
     }

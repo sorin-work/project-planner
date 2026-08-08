@@ -89,6 +89,9 @@ class OrgResourceTest {
                 .then().statusCode(200)
                 .body("hourlyRate", Api.num(85))
                 .body("weeklyCapacityHours", Api.num(32));
+        member.as().get("/api/orgs/" + owner.orgId() + "/members")
+                .then().body("find { it.email == '" + member.email() + "' }.hourlyRate", nullValue())
+                .body("find { it.email == '" + member.email() + "' }.weeklyCapacityHours", notNullValue());
     }
 
     @Test
