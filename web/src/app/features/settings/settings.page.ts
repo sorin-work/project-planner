@@ -52,6 +52,10 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
               <select id="o-tz" name="timezone" [(ngModel)]="o.timezone" [disabled]="!org.isOwner()">
                 @for (z of timezones(o.timezone); track z) { <option [value]="z">{{ z }}</option> }
               </select></div>
+            @if (org.canManage()) {
+              <div class="field"><label for="o-rate">Default hourly rate</label>
+                <input id="o-rate" name="rate" type="number" min="0" [(ngModel)]="o.defaultHourlyRate" [disabled]="!org.isOwner()" /></div>
+            }
             @if (org.isOwner()) {
               <div class="actions span-2"><button type="submit" class="primary">Save organisation</button></div>
             } @else {
