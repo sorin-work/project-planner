@@ -30,7 +30,7 @@ public final class OrgDtos {
     public record OrganisationResponse(long id, String name, String currency, String timezone,
                                        BigDecimal defaultHourlyRate, Role role) {
         public static OrganisationResponse of(Organisation org, Membership membership) {
-            BigDecimal rate = org.defaultHourlyRate;
+            BigDecimal rate = membership.role.canManage() ? org.defaultHourlyRate : null;
             return new OrganisationResponse(org.id, org.name, org.currency, org.timezone, rate, membership.role);
         }
     }
