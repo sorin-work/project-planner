@@ -61,6 +61,13 @@ import { groupTasks } from './task-groups';
             }
           </tbody>
         </table>
+        @if (org.isTeam()) {
+          <form class="quick-add" (ngSubmit)="add(group.phase?.id ?? null)">
+            <input [name]="'new-' + (group.phase?.id ?? 0)" placeholder="Add a task…" [(ngModel)]="drafts[group.phase?.id ?? 0]"
+              [attr.aria-label]="'New task in ' + (group.phase?.name ?? 'no phase')" />
+            <button type="submit" class="small">Add</button>
+          </form>
+        }
       </section>
     } @empty {
       <p class="muted">No tasks yet.</p>
@@ -76,6 +83,7 @@ export class ListTab {
 
   protected hideDone = false;
   protected mineOnly = false;
+  protected drafts: Record<number, string> = {};
   protected readonly error = signal<string | null>(null);
 
   protected readonly groups = computed(() => groupTasks(this.store.tasks(), this.store.phases()));
@@ -91,6 +99,18 @@ export class ListTab {
 
   setStatus(id: number, status: TaskStatus): void {
     this.store.updateTask(id, { status }).subscribe({ error: (err: unknown) => this.error.set(messageOf(err)) });
+  }
+
+  add(phaseId: number | null): void {
+    const key = phaseId ?? 0;
+    const title = (this.drafts[key] ?? '').trim();
+    if (!title) {
+      return;
+    }
+    this.store.createTask({ title, phaseId }).subscribe({
+      next: () => (this.drafts[key] = ''),
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
   }
 
   private isMine(assigneeId: number | undefined): boolean {
