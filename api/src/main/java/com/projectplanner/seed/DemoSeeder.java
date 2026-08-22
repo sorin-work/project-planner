@@ -100,6 +100,7 @@ public class DemoSeeder {
         createProjects();
         logTime();
         calibrateBudgets();
+        createLooseEnds();
         createTimesheets();
         createConversation();
         LOG.infof("Seeded demo data in %d ms (%d tasks, %d time entries)", System.currentTimeMillis() - started,
@@ -622,6 +623,32 @@ public class DemoSeeder {
                 }
             }
         }
+    }
+
+    /** A few things on the owner's own plate, so the dashboard has something to say. */
+    private void createLooseEnds() {
+        Project globex = project("GLX-PORTAL");
+        Project ops = project("INT-OPS");
+        Project acme = project("ACME-APP");
+        looseEnd(globex, "Send change request for the extra lab integration", CAL.addWorkingDays(today, -3), 3, Priority.HIGH);
+        looseEnd(ops, "Prepare quarterly review for the team", CAL.addWorkingDays(today, 2), 4, Priority.MEDIUM);
+        looseEnd(acme, "Agree beta test group with Ruth", CAL.addWorkingDays(today, 4), 2, Priority.MEDIUM);
+    }
+
+    private void looseEnd(Project project, String title, LocalDate due, int estimate, Priority priority) {
+        Task t = new Task();
+        t.projectId = project.id;
+        t.title = title;
+        t.assigneeId = users.get("maya").id;
+        t.priority = priority;
+        t.estimateHours = BigDecimal.valueOf(estimate);
+        t.startDate = CAL.addWorkingDays(due, -1);
+        t.dueDate = due;
+        t.status = due.isBefore(today) ? TaskStatus.IN_PROGRESS : TaskStatus.TODO;
+        t.position = 99;
+        t.createdAt = now.minusSeconds(6 * 86400L);
+        t.updatedAt = t.createdAt;
+        t.persist();
     }
 
     private static final String[] BENCH_WORK = {"Training and research", "Pitch preparation", "Internal tooling", "Portfolio write-up"};
