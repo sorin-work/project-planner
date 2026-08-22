@@ -29,7 +29,7 @@ import { groupTasks } from './task-groups';
         <table class="table tasks-table">
           <thead>
             <tr>
-              <th>Task</th><th>Status</th><th>Assignee</th><th>Dates</th><th class="num">Estimate</th><th>Priority</th>
+              <th>Task</th><th>Status</th><th>Assignee</th><th>Dates</th><th class="num">Estimate</th><th class="num">Logged</th><th>Priority</th>
             </tr>
           </thead>
           <tbody>
@@ -56,6 +56,7 @@ import { groupTasks } from './task-groups';
                 <td>{{ row.task.assigneeName || '–' }}</td>
                 <td class="nowrap">{{ formatRange(row.task.startDate, row.task.dueDate) }}</td>
                 <td class="num">{{ row.task.milestone ? '' : formatHours(row.task.estimateHours) }}</td>
+                <td class="num">{{ row.task.loggedHours ? formatHours(row.task.loggedHours) : '' }}</td>
                 <td><span [class]="'priority priority-' + row.task.priority.toLowerCase()">{{ priorityLabels[row.task.priority] }}</span></td>
               </tr>
             }
