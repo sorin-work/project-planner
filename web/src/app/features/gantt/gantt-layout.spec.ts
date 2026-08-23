@@ -57,4 +57,23 @@ describe('gantt layout', () => {
     expect(layout.weekends.length).toBeGreaterThan(0);
   });
 
+  it('hides the tasks of collapsed phases', () => {
+    const phases: Phase[] = [{ id: 7, projectId: 1, name: 'Build', position: 0 }];
+    const layout = layoutGantt([task(1, '2026-03-02', '2026-03-03', { phaseId: 7 })], phases, {
+      zoom: 'week', critical: new Set(), collapsed: new Set([7]), today: '2026-03-04',
+    });
+    expect(layout.rows.map((r) => r.kind)).toEqual(['phase']);
+    expect(layout.bars).toHaveLength(0);
+  });
+
+  it('shows parent progress from finished subtasks', () => {
+    const parent = task(1, '2026-03-02', '2026-03-06');
+    const subs = [
+      task(2, '2026-03-02', '2026-03-03', { parentId: 1, status: 'DONE' }),
+      task(3, '2026-03-04', '2026-03-06', { parentId: 1 }),
+    ];
+    const layout = layoutGantt([parent, ...subs], [], { zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-04' });
+    expect(layout.bars.find((b) => b.task.id === 1)!.progress).toBe(50);
+    expect(layout.rows.filter((r) => r.depth === 1)).toHaveLength(2);
+  });
 });
