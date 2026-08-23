@@ -35,10 +35,13 @@ export function dropIndex(cardMiddles: number[], y: number): number {
               <div class="card-meta">
                 <span [class]="'priority priority-' + task.priority.toLowerCase()">{{ task.priority.toLowerCase() }}</span>
                 @if (task.dueDate) {
-                  <span class="small">{{ formatDate(task.dueDate) }}</span>
+                  <span class="small" [class.danger]="task.status !== 'DONE' && task.dueDate < todayIso">{{ formatDate(task.dueDate) }}</span>
                 }
                 @if (task.estimateHours) {
                   <span class="small muted">{{ formatHours(task.estimateHours) }}</span>
+                }
+                @if (task.subtaskCount) {
+                  <span class="small muted">☑ {{ task.subtaskCount }}</span>
                 }
                 <span class="spacer"></span>
               </div>
@@ -61,6 +64,7 @@ export class BoardTab {
   protected readonly labels = TASK_STATUS_LABELS;
   protected readonly formatDate = formatDate;
   protected readonly formatHours = formatHours;
+  protected readonly todayIso = new Date().toISOString().slice(0, 10);
 
   protected readonly columns = computed(() =>
     TASK_STATUSES.map((status) => ({
