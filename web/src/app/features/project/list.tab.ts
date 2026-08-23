@@ -4,7 +4,7 @@ import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
 import { TaskStatus } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
-import { formatRange } from '../../shared/dates';
+import { formatRange, today } from '../../shared/dates';
 import { PRIORITY_LABELS, TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/format';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
@@ -54,7 +54,7 @@ import { groupTasks } from './task-groups';
                   }
                 </td>
                 <td>{{ row.task.assigneeName || '–' }}</td>
-                <td class="nowrap">{{ formatRange(row.task.startDate, row.task.dueDate) }}</td>
+                <td class="nowrap" [class.danger]="isOverdue(row.task)">{{ formatRange(row.task.startDate, row.task.dueDate) }}</td>
                 <td class="num">{{ row.task.milestone ? '' : formatHours(row.task.estimateHours) }}</td>
                 <td class="num">{{ row.task.loggedHours ? formatHours(row.task.loggedHours) : '' }}</td>
                 <td><span [class]="'priority priority-' + row.task.priority.toLowerCase()">{{ priorityLabels[row.task.priority] }}</span></td>
@@ -93,9 +93,14 @@ export class ListTab {
   protected readonly priorityLabels = PRIORITY_LABELS;
   protected readonly formatRange = formatRange;
   protected readonly formatHours = formatHours;
+  private readonly todayIso = today();
 
   visibleRows<T extends { task: { status: TaskStatus; assigneeId?: number } }>(rows: T[]): T[] {
     return rows.filter((r) => (!this.hideDone || r.task.status !== 'DONE') && (!this.mineOnly || this.isMine(r.task.assigneeId)));
+  }
+
+  isOverdue(task: { status: TaskStatus; dueDate?: string }): boolean {
+    return task.status !== 'DONE' && !!task.dueDate && task.dueDate < this.todayIso;
   }
 
   setStatus(id: number, status: TaskStatus): void {
