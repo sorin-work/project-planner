@@ -59,6 +59,9 @@ export class CommentBox {
   onKeydown(event: KeyboardEvent): void {
     const list = this.suggestions();
     if (!list.length) {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        this.send();
+      }
       return;
     }
     if (event.key === 'ArrowDown') {
