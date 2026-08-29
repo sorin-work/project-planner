@@ -51,9 +51,13 @@ export class TaskPanel {
     const existing = new Set(task.predecessors.map((d) => d.predecessorId));
     return this.store.tasks().filter((t) => t.id !== task.id && !existing.has(t.id));
   });
+  protected readonly dependants = computed(() =>
+    this.store.tasks().filter((t) => t.predecessors.some((d) => d.predecessorId === this.taskId())),
+  );
   protected readonly handles = computed(() => new Set(this.store.members().map((m) => m.handle)));
   protected readonly canEdit = computed(() => this.org.isTeam());
   protected readonly isCritical = computed(() => this.store.criticalIds().has(this.taskId()));
+  protected readonly timing = computed(() => this.store.criticalPath()?.tasks.find((t) => t.taskId === this.taskId()));
   protected readonly timerHere = computed(() => this.timer.running()?.taskId === this.taskId());
 
   protected readonly statuses = TASK_STATUSES;
@@ -74,6 +78,7 @@ export class TaskPanel {
     });
   }
 
+  protected readonly taskTitleOf = (t: Task) => t.title;
 
   taskTitle(id: number): string {
     return this.store.byId().get(id)?.title ?? `#${id}`;

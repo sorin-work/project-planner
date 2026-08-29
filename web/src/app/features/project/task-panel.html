@@ -16,6 +16,8 @@
         }
         @if (isCritical()) {
           <span class="badge critical-badge" title="Any delay here delays the project end">Critical path</span>
+        } @else if (timing(); as timing) {
+          <span class="badge" title="How long this can slip without moving the project end">{{ timing.floatDays }} days float</span>
         }
       </div>
     </header>
@@ -136,6 +138,9 @@
           <label class="small">lag <input name="lag" type="number" min="0" max="365" [(ngModel)]="newLag" class="lag-input" /></label>
           <button type="submit" class="small" [disabled]="newPredecessor === null">Add</button>
         </form>
+      }
+      @if (dependants().length) {
+        <p class="muted small">Blocks: {{ dependants().map(taskTitleOf).join(', ') }}</p>
       }
     </section>
 
