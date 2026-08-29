@@ -25,6 +25,11 @@ describe('buildGrid', () => {
     expect(grid.total).toBe(225);
   });
 
+  it('ignores entries outside the week', () => {
+    const grid = buildGrid('2026-03-02', [entry(1, '2026-03-09', 60)]);
+    expect(grid.rows).toHaveLength(0);
+    expect(grid.total).toBe(0);
+  });
 });
 
 describe('formatElapsed', () => {
