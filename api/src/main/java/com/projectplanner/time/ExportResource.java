@@ -55,6 +55,9 @@ public class ExportResource {
         if (from == null || to == null || to.isBefore(from)) {
             throw ApiException.badRequest("invalid_range", "Pass a from and to date, with to on or after from");
         }
+        if (from.plusYears(2).isBefore(to)) {
+            throw ApiException.badRequest("invalid_range", "Export at most two years at a time");
+        }
         boolean manager = me.role.canManage();
         Long user = manager ? userId : Long.valueOf(me.userId);
         if (!manager && userId != null && !Objects.equals(userId, me.userId)) {

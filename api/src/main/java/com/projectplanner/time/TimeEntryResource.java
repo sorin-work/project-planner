@@ -50,8 +50,8 @@ public class TimeEntryResource {
         if (from == null || to == null) {
             throw ApiException.badRequest("range_required", "Pass a from and to date");
         }
-        if (to.isBefore(from)) {
-            throw ApiException.badRequest("invalid_range", "The range must run forwards");
+        if (to.isBefore(from) || from.plusDays(400).isBefore(to)) {
+            throw ApiException.badRequest("invalid_range", "The range must run forwards and cover at most 400 days");
         }
         Long user = userId;
         if (!me.role.canManage()) {
