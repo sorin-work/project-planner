@@ -40,6 +40,9 @@ import { groupTasks } from './task-groups';
                     @if (row.task.milestone) { <span class="diamond">◆</span> }
                     {{ row.task.title }}
                   </button>
+                  @if (row.task.predecessors.length) {
+                    <span class="muted small" title="Waits for other tasks">⛓ {{ row.task.predecessors.length }}</span>
+                  }
                 </td>
                 <td>
                   @if (org.isTeam()) {
