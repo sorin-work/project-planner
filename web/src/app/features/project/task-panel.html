@@ -67,6 +67,9 @@
       <label for="tp-due">{{ t.milestone ? 'Date' : 'Due' }}</label>
       <div class="inline">
         <input id="tp-due" type="date" [disabled]="!canEdit()" [value]="t.dueDate ?? ''" (change)="setDue($any($event.target).value)" />
+        @if (canEdit() && (t.startDate || t.dueDate)) {
+          <button type="button" class="link small" (click)="clearDates()">clear</button>
+        }
       </div>
 
       @if (!t.milestone) {

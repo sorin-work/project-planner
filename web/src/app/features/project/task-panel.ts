@@ -147,6 +147,10 @@ export class TaskPanel {
     }
   }
 
+  clearDates(): void {
+    this.save({ clearDates: true });
+  }
+
   addSubtask(): void {
     const title = this.newSubtask.trim();
     const task = this.task();
