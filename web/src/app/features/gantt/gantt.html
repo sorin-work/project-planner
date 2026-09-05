@@ -68,6 +68,10 @@
             <polygon [attr.points]="diamond(bar)" class="milestone" />
           } @else {
             <rect [attr.x]="bar.x + 1" [attr.y]="bar.y" [attr.width]="bar.width - 2" [attr.height]="bar.height" rx="4" class="bar-bg" />
+            @if (bar.progress > 0) {
+              <rect [attr.x]="bar.x + 1" [attr.y]="bar.y" [attr.width]="(bar.width - 2) * bar.progress / 100" [attr.height]="bar.height"
+                rx="4" class="bar-progress" />
+            }
             @if (bar.width > 60) {
               <text [attr.x]="bar.x + 6" [attr.y]="bar.y + 13" class="bar-label">{{ bar.task.assigneeName ?? '' }}</text>
             }
