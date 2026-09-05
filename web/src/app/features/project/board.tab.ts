@@ -4,6 +4,7 @@ import { Task, TaskStatus } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { formatDate } from '../../shared/dates';
 import { TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/format';
+import { Avatar } from '../../shared/avatar';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
 
@@ -15,7 +16,8 @@ export function dropIndex(cardMiddles: number[], y: number): number {
 
 @Component({
   selector: 'app-board-tab',
-    template: `
+  imports: [Avatar],
+  template: `
     @if (error()) {
       <p class="alert error">{{ error() }}</p>
     }
@@ -44,6 +46,9 @@ export function dropIndex(cardMiddles: number[], y: number): number {
                   <span class="small muted">☑ {{ task.subtaskCount }}</span>
                 }
                 <span class="spacer"></span>
+                @if (task.assigneeName) {
+                  <app-avatar [name]="task.assigneeName" [small]="true" />
+                }
               </div>
             </article>
           }
