@@ -178,6 +178,7 @@
 
     @if (canEdit()) {
       <footer class="panel-footer">
+        <span class="muted small">Created {{ formatDate(t.createdAt.slice(0, 10)) }}</span>
         <button type="button" class="danger small" (click)="remove()">Delete task</button>
       </footer>
     }
