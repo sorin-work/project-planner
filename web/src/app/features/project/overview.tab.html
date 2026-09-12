@@ -6,11 +6,15 @@
     <div class="card stat">
       <span class="stat-label">Health</span>
       <app-health-badge [status]="h.status" />
+      @if (h.progress.spi !== null && h.progress.spi !== undefined) {
+        <span class="muted small">SPI {{ h.progress.spi.toFixed(2) }}</span>
+      }
     </div>
     <div class="card stat">
       <span class="stat-label">Progress (by estimate)</span>
       <span class="stat-value">{{ formatPercent(h.progress.progressPct) }}</span>
-      <app-progress-bar [value]="h.progress.progressPct" label="Progress" />
+      <app-progress-bar [value]="h.progress.progressPct" [marker]="h.progress.plannedPct" label="Progress against plan" />
+      <span class="muted small">planned by today: {{ formatPercent(h.progress.plannedPct) }}</span>
     </div>
     <div class="card stat">
       <span class="stat-label">Schedule variance</span>
