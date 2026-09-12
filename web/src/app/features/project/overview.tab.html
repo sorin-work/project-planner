@@ -26,6 +26,11 @@
     <div class="card stat">
       <span class="stat-label">End date</span>
       <span class="stat-value small-value">{{ formatDate(h.forecastEnd) }}</span>
+      @if (h.endVarianceDays !== null && h.endVarianceDays !== undefined && h.plannedEnd) {
+        <span class="small" [class.danger]="h.endVarianceDays > 0">
+          {{ h.endVarianceDays > 0 ? h.endVarianceDays + ' working days late' : 'on or before ' + formatDate(h.plannedEnd) }}
+        </span>
+      }
     </div>
   </section>
 
