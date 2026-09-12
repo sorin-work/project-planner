@@ -93,6 +93,19 @@
     </section>
   </div>
 
+  @if (activity().length) {
+    <section class="card">
+      <h2>Recent activity</h2>
+      <ul class="activity">
+        @for (a of activity(); track a.id) {
+          <li>
+            <span><strong>{{ a.actorName || 'Someone' }}</strong> · {{ a.summary }}</span>
+            <span class="muted small">{{ timeAgo(a.createdAt) }}</span>
+          </li>
+        }
+      </ul>
+    </section>
+  }
 } @else if (!error()) {
   <p class="muted">Loading…</p>
 }
