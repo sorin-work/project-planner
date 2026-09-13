@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { messageOf } from '../../core/errors';
 import { OrgContext } from '../../core/org-context.service';
+import { formatDate } from '../../shared/dates';
 import { Gantt } from '../gantt/gantt';
 import { Zoom } from '../gantt/gantt-layout';
 import { injectOpenTask } from './open-task';
@@ -18,6 +19,11 @@ import { ProjectStore } from './project.store';
         }
       </div>
       <span class="spacer"></span>
+      @if (store.criticalPath(); as cp) {
+        @if (cp.finish) {
+          <span class="muted small">Plan ends {{ formatDate(cp.finish) }} · {{ cp.durationDays }} working days</span>
+        }
+      }
     </div>
     @if (org.isTeam()) {
       <p class="muted small">Drag a bar (or focus it and use the arrow keys) to move it; tasks that depend on it move too.</p>
@@ -46,6 +52,7 @@ export class TimelineTab {
   protected showCritical = true;
   protected readonly message = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
+  protected readonly formatDate = formatDate;
 
   move(taskId: number, days: number): void {
     this.error.set(null);
