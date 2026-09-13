@@ -18,6 +18,7 @@ import { ProjectStore } from './project.store';
           <button type="button" [class.active]="zoom() === z" (click)="zoom.set(z)">{{ z }}</button>
         }
       </div>
+      <label><input type="checkbox" [(ngModel)]="showCritical" /> Highlight critical path</label>
       <span class="spacer"></span>
       @if (store.criticalPath(); as cp) {
         @if (cp.finish) {
