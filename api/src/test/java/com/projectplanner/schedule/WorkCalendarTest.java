@@ -56,6 +56,12 @@ class WorkCalendarTest {
     }
 
     @Test
+    void workingDaysBetweenOverLongRanges() {
+        assertThat(cal.workingDaysBetween(MONDAY, MONDAY.plusWeeks(52).minusDays(1))).isEqualTo(260);
+        assertThat(cal.workingDaysBetween(MONDAY.plusDays(2), MONDAY.plusWeeks(3).plusDays(1))).isEqualTo(15);
+    }
+
+    @Test
     void durationIsAtLeastOneDay() {
         assertThat(cal.duration(SATURDAY, SATURDAY)).isEqualTo(1);
         assertThat(cal.duration(MONDAY, FRIDAY)).isEqualTo(5);

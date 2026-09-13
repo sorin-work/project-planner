@@ -42,6 +42,12 @@ class DependencyGraphTest {
     }
 
     @Test
+    void pathFindsTheChain() {
+        assertThat(graph.path(1, 3)).containsExactly(1L, 2L, 3L);
+        assertThat(graph.path(3, 1)).isEmpty();
+    }
+
+    @Test
     void topologicalOrderPutsPredecessorsFirst() {
         List<Long> order = graph.topologicalOrder();
         assertThat(order).hasSize(5);
