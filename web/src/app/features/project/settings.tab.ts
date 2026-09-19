@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { messageOf } from '../../core/errors';
 import { Client, Phase } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
@@ -39,6 +40,11 @@ import { ProjectStore } from './project.store';
       </form>
     </section>
 
+    <section class="card danger-zone">
+      <h2>Delete project</h2>
+      <p class="muted">Deletes the project with all of its tasks, comments and logged time. This can't be undone.</p>
+      <button type="button" class="danger" (click)="remove()">Delete project</button>
+    </section>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -47,6 +53,7 @@ export class SettingsTab {
   private readonly api = inject(ProjectApi);
   private readonly orgApi = inject(OrgApi);
   private readonly org = inject(OrgContext);
+  private readonly router = inject(Router);
 
   protected readonly clients = signal<Client[]>([]);
   protected readonly busy = signal(false);
@@ -129,6 +136,17 @@ export class SettingsTab {
         this.store.refreshPhases();
         this.store.reloadTasks();
       },
+    });
+  }
+
+  remove(): void {
+    const project = this.store.project();
+    if (!project || !confirm(`Delete ${project.name}? This can't be undone.`)) {
+      return;
+    }
+    this.api.delete(project.id).subscribe({
+      next: () => void this.router.navigate(['/projects']),
+      error: (err: unknown) => this.error.set(messageOf(err)),
     });
   }
 }
