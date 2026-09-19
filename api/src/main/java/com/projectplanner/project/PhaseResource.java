@@ -81,6 +81,9 @@ public class PhaseResource {
     }
 
     private static void apply(Phase phase, PhaseRequest request) {
+        if (request.startDate() != null && request.endDate() != null && request.endDate().isBefore(request.startDate())) {
+            throw ApiException.badRequest("invalid_dates", "The end date can't be before the start date");
+        }
         phase.name = request.name().trim();
         phase.startDate = request.startDate();
         phase.endDate = request.endDate();
