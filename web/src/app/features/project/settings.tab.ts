@@ -24,9 +24,11 @@ import { ProjectStore } from './project.store';
     <section class="card">
       <h2>Phases</h2>
       <ul class="phase-list">
-        @for (phase of store.phases(); track phase.id) {
+        @for (phase of store.phases(); track phase.id; let first = $first; let last = $last) {
           <li>
             <input [ngModel]="phase.name" (change)="rename(phase, $any($event.target).value)" [attr.aria-label]="'Name of ' + phase.name" />
+            <button type="button" class="small" [disabled]="first" (click)="move(phase, -1)" aria-label="Move up">↑</button>
+            <button type="button" class="small" [disabled]="last" (click)="move(phase, 1)" aria-label="Move down">↓</button>
             <button type="button" class="small danger" (click)="removePhase(phase)">Remove</button>
           </li>
         }
@@ -105,6 +107,17 @@ export class SettingsTab {
       return;
     }
     this.api.updatePhase(phase.id, { ...phase, name }).subscribe({ next: () => this.store.refreshPhases() });
+  }
+
+  move(phase: Phase, delta: number): void {
+    const phases = [...this.store.phases()];
+    const index = phases.findIndex((p) => p.id === phase.id);
+    const other = phases[index + delta];
+    if (!other) {
+      return;
+    }
+    this.api.updatePhase(phase.id, { ...phase, position: index + delta }).subscribe();
+    this.api.updatePhase(other.id, { ...other, position: index }).subscribe({ next: () => this.store.refreshPhases() });
   }
 
   removePhase(phase: Phase): void {
