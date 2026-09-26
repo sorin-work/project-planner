@@ -63,6 +63,16 @@ export class TeamPage {
     this.updateMember(member, value === '' ? { clearHourlyRate: true } : { hourlyRate: Number(value) });
   }
 
+  remove(member: Member): void {
+    if (!confirm(`Remove ${member.name} from the team? Their logged time stays.`)) {
+      return;
+    }
+    this.api.removeMember(this.org.id(), member.id).subscribe({
+      next: () => this.members.update((all) => all.filter((m) => m.id !== member.id)),
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
   sendInvite(): void {
     this.error.set(null);
     this.notice.set(null);
