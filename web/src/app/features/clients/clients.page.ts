@@ -11,6 +11,7 @@ import { OrgContext } from '../../core/org-context.service';
   template: `
     <div class="page-header">
       <h1>Clients</h1>
+      <label><input type="checkbox" [(ngModel)]="showArchived" (ngModelChange)="load()" /> Show archived</label>
     </div>
     @if (error()) {
       <p class="alert error" role="alert">{{ error() }}</p>
