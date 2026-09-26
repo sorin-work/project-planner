@@ -182,6 +182,10 @@ public class OrgResource {
             activity.record(orgId, null, null, me.userId, "member.added", "Added " + user.name + " as " + request.role().label());
             return new InviteResult(MemberResponse.of(membership, user, true), null);
         }
+        boolean pending = Invitation.pendingIn(orgId).stream().anyMatch(i -> i.email.equals(email));
+        if (pending) {
+            throw ApiException.conflict("already_invited", email + " has already been invited");
+        }
         Invitation invitation = new Invitation();
         invitation.organisationId = orgId;
         invitation.email = email;
