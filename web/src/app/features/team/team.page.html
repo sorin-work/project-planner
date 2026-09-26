@@ -96,6 +96,15 @@
           <button type="submit" class="primary" [disabled]="!invite.email">Invite</button>
         </div>
       </form>
+      @if (invitations().length) {
+        <h3>Pending</h3>
+        <ul class="task-lines">
+          @for (i of invitations(); track i.id) {
+            <li>{{ i.email }} <span class="muted small">{{ roleLabels[i.role] }}</span>
+              <button type="button" class="link small" (click)="cancelInvite(i)">cancel</button></li>
+          }
+        </ul>
+      }
     </section>
 
     <section class="card">

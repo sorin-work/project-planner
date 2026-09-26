@@ -81,6 +81,12 @@ export class TeamPage {
     });
   }
 
+  cancelInvite(invitation: Invitation): void {
+    this.api.cancelInvitation(this.org.id(), invitation.id).subscribe({
+      next: () => this.invitations.update((all) => all.filter((i) => i.id !== invitation.id)),
+    });
+  }
+
   saveRates(): void {
     const rates: RoleRate[] = Object.entries(this.rates())
       .filter(([, v]) => v !== null && v !== undefined && `${v}` !== '')
