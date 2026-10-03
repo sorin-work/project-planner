@@ -67,4 +67,12 @@ class CommentResourceTest {
         member.as().body(Map.of("body", "Second draft")).put("/api/comments/" + commentId)
                 .then().statusCode(200).body("editedAt", notNullValue());
     }
+
+    @Test
+    void blankCommentsAreRejected() {
+        Account owner = Api.signup("Uri");
+        long projectId = Api.createProject(owner, "BLANK");
+        long taskId = Api.createTask(owner, projectId, Map.of("title", "x"));
+        owner.as().body(Map.of("body", "   ")).post("/api/tasks/" + taskId + "/comments").then().statusCode(400);
+    }
 }

@@ -93,6 +93,17 @@ class ProjectResourceTest {
     }
 
     @Test
+    void phases() {
+        Account owner = Api.signup("Ivy");
+        long projectId = Api.createProject(owner, "PH");
+        owner.as().body(Map.of("name", "Design")).post("/api/projects/" + projectId + "/phases")
+                .then().statusCode(201).body("position", equalTo(0));
+        owner.as().body(Map.of("name", "Build")).post("/api/projects/" + projectId + "/phases")
+                .then().statusCode(201).body("position", equalTo(1));
+        owner.as().get("/api/projects/" + projectId + "/phases").then().body("name", hasItem("Build"));
+    }
+
+    @Test
     void deletingAClientWithProjectsArchivesIt() {
         Account owner = Api.signup("Jade");
         long clientId = Api.createClient(owner, "Keep me");

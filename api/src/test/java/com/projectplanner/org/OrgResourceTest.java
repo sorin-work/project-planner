@@ -51,6 +51,14 @@ class OrgResourceTest {
     }
 
     @Test
+    void clientViewersNeedAClient() {
+        Account owner = Api.signup("Sara");
+        owner.as().body(Map.of("email", Api.uniqueEmail("client"), "role", "CLIENT"))
+                .post("/api/orgs/" + owner.orgId() + "/invitations")
+                .then().statusCode(400).body("code", equalTo("client_required"));
+    }
+
+    @Test
     void membersCannotManageTheTeam() {
         Account owner = Api.signup("Tara");
         Account member = Api.signup("Uma");
