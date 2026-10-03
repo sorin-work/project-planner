@@ -28,6 +28,11 @@ class MentionParserTest {
     }
 
     @Test
+    void mentionsAtLineStarts() {
+        assertThat(MentionParser.handles("first line\n@dan second")).containsExactly("dan");
+    }
+
+    @Test
     void nothingToFind() {
         assertThat(MentionParser.handles(null)).isEmpty();
         assertThat(MentionParser.handles("no mentions @ here")).isEmpty();
