@@ -40,6 +40,11 @@ export function downloadBlob(blob: Blob, filename: string, doc: Document = docum
           <label for="ex-to">To</label>
           <input id="ex-to" name="to" type="date" [(ngModel)]="to" required />
         </div>
+        <div class="presets span-2">
+          <button type="button" class="link small" (click)="preset('lastWeek')">Last week</button>
+          <button type="button" class="link small" (click)="preset('lastMonth')">Last month</button>
+          <button type="button" class="link small" (click)="preset('thisYear')">This year</button>
+        </div>
         @if (org.canManage()) {
           <div class="field">
             <label for="ex-user">Person</label>
@@ -97,6 +102,21 @@ export class ReportsPage {
       this.projectApi.list(orgId).subscribe({ next: (p) => this.projects.set(p) });
       this.orgApi.members(orgId).subscribe({ next: (m) => this.members.set(m.filter((x) => x.role !== 'CLIENT')) });
     });
+  }
+
+  preset(kind: 'lastWeek' | 'lastMonth' | 'thisYear'): void {
+    const now = today();
+    if (kind === 'lastWeek') {
+      this.from = addDays(weekStart(now), -7);
+      this.to = addDays(weekStart(now), -1);
+    } else if (kind === 'lastMonth') {
+      const firstOfThisMonth = `${now.slice(0, 8)}01`;
+      this.to = addDays(firstOfThisMonth, -1);
+      this.from = `${this.to.slice(0, 8)}01`;
+    } else {
+      this.from = `${now.slice(0, 4)}-01-01`;
+      this.to = now;
+    }
   }
 
   export(): void {
