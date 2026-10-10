@@ -69,6 +69,20 @@ class WorkloadCalculatorTest {
     }
 
     @Test
+    void singleDateTasksAreBookedOnThatDay() {
+        List<MemberLoad> loads = calculator.calculate(List.of(ana),
+                List.of(new Assignment(1, 1, 6, null, day(8), false)), day(0), 2);
+        assertThat(loads.getFirst().weeks()).extracting(WorkloadCalculator.WeekLoad::allocatedHours).containsExactly(0.0, 6.0);
+    }
+
+    @Test
+    void weekendOnlyTasksMoveToMonday() {
+        List<MemberLoad> loads = calculator.calculate(List.of(ana),
+                List.of(new Assignment(1, 1, 4, day(5), day(6), false)), day(0), 2);
+        assertThat(loads.getFirst().weeks()).extracting(WorkloadCalculator.WeekLoad::allocatedHours).containsExactly(0.0, 4.0);
+    }
+
+    @Test
     void windowStartsOnMonday() {
         List<MemberLoad> loads = calculator.calculate(List.of(ana), List.of(), day(3), 1);
         assertThat(loads.getFirst().weeks().getFirst().weekStart()).isEqualTo(day(0));
