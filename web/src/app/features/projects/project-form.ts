@@ -43,6 +43,15 @@ const COLORS = ['#4f6bed', '#2f9e72', '#c2410c', '#7c3aed', '#0e7490', '#d97706'
         </select>
       </div>
       <div class="field">
+        <span class="label">Colour</span>
+        <div class="swatches" role="radiogroup" aria-label="Colour">
+          @for (c of colors; track c) {
+            <button type="button" class="swatch-button" [style.background]="c" [class.selected]="form.controls.color.value === c"
+              [attr.aria-label]="c" (click)="form.controls.color.setValue(c)"></button>
+          }
+        </div>
+      </div>
+      <div class="field">
         <label for="pf-start">Start</label>
         <input id="pf-start" type="date" formControlName="startDate" />
       </div>
@@ -57,6 +66,10 @@ const COLORS = ['#4f6bed', '#2f9e72', '#c2410c', '#7c3aed', '#0e7490', '#d97706'
       <div class="field">
         <label for="pf-amount">Budget (money)</label>
         <input id="pf-amount" type="number" min="0" step="100" formControlName="budgetAmount" />
+      </div>
+      <div class="field">
+        <label for="pf-rate">Fixed hourly rate <span class="muted">(optional)</span></label>
+        <input id="pf-rate" type="number" min="0" step="1" formControlName="hourlyRate" />
       </div>
       <div class="field span-2">
         <label for="pf-description">Description</label>
