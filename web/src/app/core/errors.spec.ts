@@ -16,4 +16,13 @@ describe('errors', () => {
     expect(fieldErrors(err)).toEqual({ email: 'must be a well-formed email address' });
   });
 
+  it('explains network failures', () => {
+    expect(messageOf(new HttpErrorResponse({ status: 0 }))).toContain('Cannot reach the server');
+    expect(messageOf(new HttpErrorResponse({ status: 502, error: '<html>' }))).toBe('Request failed (502)');
+  });
+
+  it('handles plain errors', () => {
+    expect(messageOf(new Error('boom'))).toBe('boom');
+    expect(messageOf('??')).toBe('Something went wrong');
+  });
 });
