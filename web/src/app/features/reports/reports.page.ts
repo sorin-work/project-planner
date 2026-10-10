@@ -65,6 +65,14 @@ export function downloadBlob(blob: Blob, filename: string, doc: Document = docum
             }
           </select>
         </div>
+        <div class="field">
+          <label for="ex-billable">Billable</label>
+          <select id="ex-billable" name="billable" [(ngModel)]="billable">
+            <option [ngValue]="null">All time</option>
+            <option [ngValue]="true">Billable only</option>
+            <option [ngValue]="false">Non-billable only</option>
+          </select>
+        </div>
         @if (error()) {
           <p class="alert error span-2">{{ error() }}</p>
         }
