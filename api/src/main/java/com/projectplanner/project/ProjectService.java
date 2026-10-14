@@ -13,6 +13,8 @@ import java.time.Instant;
 import java.util.Locale;
 import java.util.Objects;
 
+import static com.projectplanner.common.Text.blankToNull;
+
 @ApplicationScoped
 public class ProjectService {
 
@@ -62,7 +64,7 @@ public class ProjectService {
         }
         project.name = request.name().trim();
         project.code = code;
-        project.description = request.description() == null || request.description().isBlank() ? null : request.description().trim();
+        project.description = blankToNull(request.description());
         project.clientId = request.clientId();
         if (request.status() != null) {
             project.status = request.status();

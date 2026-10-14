@@ -27,6 +27,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import static com.projectplanner.common.Text.blankToNull;
+
 @ApplicationScoped
 public class TaskService {
 
@@ -285,9 +287,5 @@ public class TaskService {
 
     static String label(TaskStatus status) {
         return status.name().toLowerCase(Locale.ROOT).replace('_', ' ');
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 }

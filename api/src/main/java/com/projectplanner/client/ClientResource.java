@@ -27,6 +27,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
+import static com.projectplanner.common.Text.blankToNull;
+
 @Path("/api/orgs/{orgId}/clients")
 @Authenticated
 public class ClientResource {
@@ -106,10 +108,6 @@ public class ClientResource {
         client.contactEmail = blankToNull(request.contactEmail());
         client.notes = blankToNull(request.notes());
         client.archived = request.archived();
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static Client find(long orgId, long clientId) {

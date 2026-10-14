@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.projectplanner.common.Text.blankToNull;
+
 @ApplicationScoped
 public class TimesheetService {
 
@@ -150,7 +152,7 @@ public class TimesheetService {
         sheet.status = TimesheetStatus.REJECTED;
         sheet.reviewedAt = Instant.now(clock);
         sheet.reviewedBy = me.userId;
-        sheet.reviewNote = note == null || note.isBlank() ? null : note.trim();
+        sheet.reviewNote = blankToNull(note);
         User reviewer = User.findById(me.userId);
         String message = reviewer.name + " sent back your timesheet for the week of " + sheet.weekStart
                 + (sheet.reviewNote == null ? "" : ": " + sheet.reviewNote);

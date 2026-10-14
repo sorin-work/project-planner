@@ -27,6 +27,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.projectplanner.common.Text.blankToNull;
+
 @ApplicationScoped
 public class TimeService {
 
@@ -214,10 +216,6 @@ public class TimeService {
 
     private static Organisation organisation(long organisationId) {
         return Organisation.findById(organisationId);
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private record Target(Project project, Task task) {
