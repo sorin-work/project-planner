@@ -64,6 +64,7 @@ class ReportResourceTest {
                 .body("members[0].weeks[1].allocatedHours", Api.num(30))
                 .body("members[0].weeks[1].overallocated", equalTo(true))
                 .body("tasks[0].title", equalTo("Big job"));
+        owner.as().get("/api/orgs/" + owner.orgId() + "/workload?weeks=99").then().statusCode(400);
     }
 
     @Test

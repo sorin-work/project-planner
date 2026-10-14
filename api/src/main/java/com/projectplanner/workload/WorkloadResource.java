@@ -52,6 +52,9 @@ public class WorkloadResource {
                                 @QueryParam("weeks") @DefaultValue("8") int weeks,
                                 @QueryParam("projectId") Long projectId) {
         access.team(orgId);
+        if (weeks < 1 || weeks > MAX_WEEKS) {
+            throw ApiException.badRequest("invalid_weeks", "Show between 1 and " + MAX_WEEKS + " weeks");
+        }
         LocalDate start = WorkCalendar.weekStart(from != null ? from : Organisation.<Organisation>findById(orgId).today(clock));
 
         List<Membership> team = Membership.forOrganisation(orgId).stream().filter(m -> m.role.isTeam()).toList();
