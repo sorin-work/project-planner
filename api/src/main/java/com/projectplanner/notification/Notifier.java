@@ -26,7 +26,7 @@ public class Notifier {
         notification.organisationId = organisationId;
         notification.actorId = actorId;
         notification.type = type;
-        notification.message = message;
+        notification.message = message.length() > 500 ? message.substring(0, 499) + "…" : message;
         notification.projectId = projectId;
         notification.taskId = taskId;
         notification.createdAt = Instant.now(clock);

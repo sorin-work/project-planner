@@ -9,6 +9,7 @@ import java.time.Instant;
 @ApplicationScoped
 public class ActivityLog {
 
+    private static final int MAX_SUMMARY = 500;
 
     private final Clock clock;
 
@@ -23,7 +24,7 @@ public class ActivityLog {
         entry.taskId = taskId;
         entry.actorId = actorId;
         entry.action = action;
-        entry.summary = summary;
+        entry.summary = summary.length() > MAX_SUMMARY ? summary.substring(0, MAX_SUMMARY - 1) + "…" : summary;
         entry.createdAt = Instant.now(clock);
         entry.persist();
         return entry;
