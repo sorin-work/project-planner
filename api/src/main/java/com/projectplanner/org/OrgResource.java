@@ -138,6 +138,9 @@ public class OrgResource {
     public void removeMember(@PathParam("orgId") long orgId, @PathParam("memberId") long memberId) {
         Membership me = access.manager(orgId);
         Membership member = memberIn(orgId, memberId);
+        if (member.role == Role.OWNER && me.role != Role.OWNER) {
+            throw ApiException.forbidden("Only owners can remove an owner");
+        }
         if (member.role == Role.OWNER && countOwners(orgId) == 1) {
             throw ApiException.conflict("last_owner", "An organisation needs at least one owner");
         }
