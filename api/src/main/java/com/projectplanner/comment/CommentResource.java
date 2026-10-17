@@ -114,7 +114,7 @@ public class CommentResource {
         Comment comment = comment(commentId);
         Project project = access.project(task(comment.taskId).projectId);
         Membership me = access.viewProject(project);
-        if (!Objects.equals(comment.authorId, me.userId)) {
+        if (!Objects.equals(comment.authorId, me.userId) && !me.role.canManage()) {
             throw ApiException.forbidden("You can only delete your own comments");
         }
         comment.delete();

@@ -66,6 +66,9 @@ class CommentResourceTest {
         owner.as().body(Map.of("body", "Changed")).put("/api/comments/" + commentId).then().statusCode(403);
         member.as().body(Map.of("body", "Second draft")).put("/api/comments/" + commentId)
                 .then().statusCode(200).body("editedAt", notNullValue());
+        // Managers can remove anything, e.g. a comment posted by mistake.
+        owner.as().delete("/api/comments/" + commentId).then().statusCode(204);
+        owner.as().get("/api/tasks/" + taskId + "/comments").then().body("$", hasSize(0));
     }
 
     @Test
