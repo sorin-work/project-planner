@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@ang
 import { ActivityEntry } from '../../core/models';
 import { ProjectApi } from '../../core/project.api';
 import { timeAgo } from '../../shared/dates';
+import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
 
 @Component({
@@ -13,6 +14,9 @@ import { ProjectStore } from './project.store';
           <li>
             <span>
               <strong>{{ a.actorName || 'Someone' }}</strong> · {{ a.summary }}
+              @if (a.taskId) {
+                <button type="button" class="link small" (click)="openTask(a.taskId)">open</button>
+              }
             </span>
             <span class="muted small" [title]="a.createdAt">{{ timeAgo(a.createdAt) }}</span>
           </li>
@@ -27,6 +31,7 @@ import { ProjectStore } from './project.store';
 export class ActivityTab {
   private readonly store = inject(ProjectStore);
   private readonly api = inject(ProjectApi);
+  protected readonly openTask = injectOpenTask();
   protected readonly entries = signal<ActivityEntry[]>([]);
   protected readonly timeAgo = timeAgo;
 
