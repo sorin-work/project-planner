@@ -69,6 +69,15 @@
             <tr><td colspan="9" class="muted">No time logged this week.</td></tr>
           }
         </tbody>
+        <tfoot>
+          <tr>
+            <th>Total</th>
+            @for (m of g.dayTotals; track $index) {
+              <th class="num" [class.weekend]="$index >= 5">{{ m ? formatMinutes(m) : '' }}</th>
+            }
+            <th class="num">{{ formatMinutes(g.total) }}</th>
+          </tr>
+        </tfoot>
       </table>
     </div>
   }
