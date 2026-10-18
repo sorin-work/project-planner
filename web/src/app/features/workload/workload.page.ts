@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { InboxApi } from '../../core/inbox.api';
 import { messageOf } from '../../core/errors';
 import { MemberWorkload, WeekLoad, Workload, WorkloadTask } from '../../core/models';
@@ -10,7 +11,7 @@ import { loadLevel } from './workload-cell';
 
 @Component({
   selector: 'app-workload-page',
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="page-header">
       <h1>Workload</h1>
@@ -64,6 +65,21 @@ import { loadLevel } from './workload-cell';
         <span class="load-light">under 50%</span> <span class="load-good">50–85%</span> <span class="load-full">85–100%</span>
         <span class="load-over">over capacity</span>
       </p>
+      @if (selection(); as s) {
+        <section class="card">
+          <h2>{{ s.member.name }} · week of {{ formatDate(s.week.weekStart) }}</h2>
+          <p class="muted">{{ formatHours(s.week.allocatedHours) }} allocated of {{ formatHours(s.week.capacityHours) }}</p>
+          <ul class="task-lines">
+            @for (t of s.tasks; track t.id) {
+              <li>
+                <span class="swatch" [style.background]="t.projectColor"></span>
+                <a [routerLink]="['/projects', t.projectId, 'timeline']" [queryParams]="{ task: t.id }">{{ t.title }}</a>
+                <span class="muted small">{{ t.projectCode }} · {{ formatDate(t.startDate) }} – {{ formatDate(t.dueDate) }} · {{ formatHours(t.estimateHours) }}</span>
+              </li>
+            }
+          </ul>
+        </section>
+      }
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
