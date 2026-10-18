@@ -86,9 +86,15 @@ import { ProjectForm } from './project-form';
               </td>
               <td class="num">
                 {{ formatPercent(item.health.hoursBurnPct) }}
+                @if (item.project.budgetHours) {
+                  <span class="muted small">of {{ formatHours(item.project.budgetHours) }}</span>
+                }
               </td>
               <td>
                 <app-health-badge [status]="item.health.status" />
+                @if (item.health.overdueTasks) {
+                  <span class="danger small">{{ item.health.overdueTasks }} overdue</span>
+                }
               </td>
             </tr>
           } @empty {
