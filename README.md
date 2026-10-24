@@ -55,9 +55,54 @@ the point is knowing whether a project will land on time and on budget.
 | -------- | --------------------------------------------------------------------------------------- |
 | API      | Java 21, Quarkus 3 (REST + Jackson, Hibernate ORM with Panache, Hibernate Validator, SmallRye JWT, SmallRye Health) |
 | Database | PostgreSQL 17, Flyway migrations                                                        |
-| Web      | Angular 21 (standalone components, signals, router), TypeScript, plain CSS              |
+| Web      | Angular 22 (standalone components, signals, router), TypeScript, plain CSS              |
 | Tests    | JUnit 5, AssertJ, `@QuarkusTest` + REST Assured on H2; Vitest (Angular unit-test builder, jsdom) |
 | Tooling  | Maven wrapper, ESLint with angular-eslint, Docker Compose, nginx, GitHub Actions        |
+
+## Architecture
+
+```
+browser ──> web (nginx :80) ──/api──> api (Quarkus :8080) ──> db (Postgres :5432)
+             Angular build              JWT auth, Flyway on start
+```
+
+The browser only talks to the web container: nginx serves the Angular build and
+forwards `/api` to the API. In development, the Angular dev server does the same
+proxying (`web/proxy.conf.json`).
+
+The API is organised by feature under `api/src/main/java/com/projectplanner`:
+`auth`, `org` (organisations, members, invitations, rates), `client`, `project`
+(projects and phases), `task` (tasks, dependencies, critical path endpoint), `time`
+(entries, timers, timesheets, CSV export), `workload`, `report` (project health),
+`comment`, `notification`, `activity`, `dashboard` and `seed`. Resources are thin;
+permission checks live in `OrgAccess`.
+
+The scheduling and reporting rules are plain Java classes without any framework
+dependencies, so they are tested in isolation:
+
+| Class                 | What it does                                                         |
+| --------------------- | -------------------------------------------------------------------- |
+| `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
+| `DependencyGraph`     | Cycle detection, reachability, topological order                     |
+| `Rescheduler`         | Pushes dependants later when a task moves, keeping durations         |
+| `CriticalPath`        | Early/late start and finish, float and the critical tasks            |
+| `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
+| `BudgetCalculator`    | Hours and money burn against the budgets                             |
+| `HealthStatus`        | Turns progress and burn into on track / at risk / off track          |
+| `WorkloadCalculator`  | Allocated hours per person per week vs capacity                      |
+| `RateResolver`        | Picks the hourly rate for a piece of time                            |
+| `MentionParser`       | Finds @handles in comments (and ignores email addresses)             |
+| `CsvWriter`           | RFC 4180 CSV that neutralises spreadsheet formulas                   |
+
+Authentication is stateless: `POST /api/auth/login` returns an HS256 JWT signed with
+`JWT_SECRET`, which the web app keeps in `localStorage` and sends as
+`Authorization: Bearer …`. Roles are per organisation, so they are looked up on each
+request rather than stored in the token.
+
+On the web side, `core/` holds the API clients, auth and the current-organisation
+context; `features/` has one folder per page; the timeline lives in
+`features/gantt` with its layout maths (`gantt-layout.ts`) separate from the
+component so it can be unit tested.
 
 ## Running with Docker
 
@@ -162,6 +207,29 @@ The scheduling, critical path, cycle detection, budget, progress and workload te
 are plain JUnit tests and need no database. The `@QuarkusTest` API tests start the
 application against H2 in PostgreSQL mode and run the same Flyway migrations as
 production.
+
+## API overview
+
+All endpoints are under `/api` and, apart from sign-up and login, need a bearer
+token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
+
+| Area          | Endpoints                                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Auth          | `POST /auth/signup`, `POST /auth/login`, `GET/PATCH /me`, `POST /me/password`                    |
+| Organisation  | `GET/PATCH /orgs/{org}`, `/orgs/{org}/members`, `/orgs/{org}/invitations`, `/orgs/{org}/role-rates` |
+| Clients       | `/orgs/{org}/clients`                                                                           |
+| Projects      | `GET/POST /orgs/{org}/projects`, `GET/PUT/DELETE /projects/{id}`, `/projects/{id}/phases`, `/phases/{id}` |
+| Tasks         | `GET/POST /projects/{id}/tasks`, `GET/PATCH/DELETE /tasks/{id}`, `POST /tasks/{id}/shift`, `GET /tasks/{id}/subtasks` |
+| Dependencies  | `GET /projects/{id}/dependencies`, `POST /tasks/{id}/dependencies`, `DELETE /dependencies/{id}`   |
+| Planning      | `GET /projects/{id}/critical-path`, `GET /projects/{id}/health`, `GET /orgs/{org}/workload`       |
+| Time          | `/orgs/{org}/time-entries`, `GET /orgs/{org}/timer`, `POST /orgs/{org}/timer/start\|stop`         |
+| Timesheets    | `GET /orgs/{org}/timesheets/week`, `POST .../submit\|withdraw`, `GET /orgs/{org}/timesheets`, `POST .../{id}/approve\|reject` |
+| Export        | `GET /orgs/{org}/exports/timesheets.csv?from&to&userId&projectId&billable`                        |
+| Collaboration | `/tasks/{id}/comments`, `/comments/{id}`, `/notifications`, `/orgs/{org}/activity`, `/projects/{id}/activity` |
+| Dashboard     | `GET /orgs/{org}/dashboard`                                                                     |
+
+Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
+show which dependants were pushed back.
 
 ## License
 
