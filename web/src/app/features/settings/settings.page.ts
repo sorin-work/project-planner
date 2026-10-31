@@ -26,7 +26,7 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
         <h2>Profile</h2>
         <form class="form-grid" (ngSubmit)="saveProfile()">
           <div class="field span-2"><label for="s-name">Name</label><input id="s-name" name="name" [(ngModel)]="name" required /></div>
-          <p class="muted small span-2">Email {{ auth.user()?.email }}</p>
+          <p class="muted small span-2">Email {{ auth.user()?.email }} · mention handle &#64;{{ auth.user()?.handle }}</p>
           <div class="actions span-2"><button type="submit" class="primary">Save profile</button></div>
         </form>
         <h3>Change password</h3>

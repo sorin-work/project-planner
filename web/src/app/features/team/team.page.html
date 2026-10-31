@@ -23,7 +23,7 @@
         <tr>
           <td class="person">
             <app-avatar [name]="m.name" [small]="true" />
-            <span><strong>{{ m.name }}</strong><br /><span class="muted small">{{ m.email }}</span></span>
+            <span><strong>{{ m.name }}</strong><br /><span class="muted small">{{ m.email }} · &#64;{{ m.handle }}</span></span>
           </td>
           <td>
             @if (org.canManage()) {
