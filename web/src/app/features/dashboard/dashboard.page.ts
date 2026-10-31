@@ -5,7 +5,7 @@ import { InboxApi } from '../../core/inbox.api';
 import { ActivityEntry, Dashboard } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { formatDate, timeAgo } from '../../shared/dates';
-import { formatMinutes, formatPercent } from '../../shared/format';
+import { TIMESHEET_LABELS, formatMinutes, formatPercent } from '../../shared/format';
 import { HealthBadge } from '../../shared/health-badge';
 import { ProgressBar } from '../../shared/progress-bar';
 import { StatusPill } from '../../shared/status-pill';
@@ -28,6 +28,7 @@ export class DashboardPage {
   protected readonly formatMinutes = formatMinutes;
   protected readonly formatPercent = formatPercent;
   protected readonly timeAgo = timeAgo;
+  protected readonly timesheetLabels = TIMESHEET_LABELS;
 
   constructor() {
     effect(() => {

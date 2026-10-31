@@ -24,6 +24,11 @@
           <span class="stat-label">Timesheets to approve</span>
           <span class="stat-value">{{ d.pendingApprovals }}</span>
         </a>
+      } @else if (d.lastWeekTimesheet) {
+        <a class="card stat" routerLink="/time">
+          <span class="stat-label">Last week's timesheet</span>
+          <span class="stat-value small-value">{{ timesheetLabels[d.lastWeekTimesheet] }}</span>
+        </a>
       }
     </section>
   }
