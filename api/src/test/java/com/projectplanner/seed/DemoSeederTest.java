@@ -84,6 +84,17 @@ class DemoSeederTest {
                 .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
                 .body("$", hasSize(2));
 
+        // The Acme plan has the baseline it was signed off with. Build and release are a week behind it,
+        // and the loose end on the owner's plate came after it.
+        Number baseline = given().auth().oauth2(token).get("/api/projects/" + booking + "/baselines").then().statusCode(200)
+                .body("$", hasSize(1)).body("[0].reference", equalTo(true)).extract().path("[0].id");
+        given().auth().oauth2(token).get("/api/baselines/" + baseline + "/comparison").then().statusCode(200)
+                .body("tasks.find { it.title == 'Launch' }.change", equalTo("SLIPPED"))
+                .body("tasks.find { it.title == 'Launch' }.finishSlipDays", equalTo(5))
+                .body("tasks.find { it.title == 'Kick-off and goals' }.change", equalTo("UNCHANGED"))
+                .body("tasks.find { it.title == 'Agree beta test group with Ruth' }.change", equalTo("ADDED"))
+                .body("planEnd.slipDays", equalTo(5));
+
         // Copies of the two plans, moved to next summer, say the same about their dates as the
         // originals: one task too early for its dependency, and two past the project's end.
         Number bookingCopy = given().auth().oauth2(token).contentType(ContentType.JSON)

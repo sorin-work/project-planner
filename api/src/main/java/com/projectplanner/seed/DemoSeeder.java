@@ -3,6 +3,9 @@ package com.projectplanner.seed;
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.PasswordHasher;
 import com.projectplanner.auth.User;
+import com.projectplanner.baseline.Baseline;
+import com.projectplanner.baseline.BaselinePhase;
+import com.projectplanner.baseline.BaselineTask;
 import com.projectplanner.client.Client;
 import com.projectplanner.comment.Comment;
 import com.projectplanner.notification.Notification;
@@ -102,6 +105,7 @@ public class DemoSeeder {
         logTime();
         calibrateBudgets();
         createLooseEnds();
+        createBaseline();
         createTimesheets();
         createConversation();
         LOG.infof("Seeded demo data in %d ms (%d tasks, %d time entries)", System.currentTimeMillis() - started,
@@ -646,6 +650,62 @@ public class DemoSeeder {
         looseEnd(globex, "Send change request for the extra lab integration", CAL.addWorkingDays(today, -3), 3, Priority.HIGH);
         looseEnd(ops, "Prepare quarterly review for the team", CAL.addWorkingDays(today, 2), 4, Priority.MEDIUM);
         looseEnd(acme, "Agree beta test group with Ruth", CAL.addWorkingDays(today, 4), 2, Priority.MEDIUM);
+    }
+
+    /**
+     * The Acme plan as it was signed off at the kick-off: build and release were planned a
+     * week earlier than they are now, so the timeline has grey bars to the left of the real
+     * ones and the overview a launch that is late. Written as rows, the way a baseline that
+     * was taken back then would have stored them. The loose ends are newer, so they are added since.
+     */
+    private void createBaseline() {
+        Project acme = project("ACME-APP");
+        Instant takenAt = now.minusSeconds(100 * 86400L);
+        Baseline baseline = new Baseline();
+        baseline.projectId = acme.id;
+        baseline.name = "Signed off at kick-off";
+        baseline.reference = true;
+        baseline.projectStart = acme.startDate;
+        baseline.projectEnd = acme.endDate;
+        baseline.createdBy = users.get("maya").id;
+        baseline.createdAt = takenAt;
+        baseline.persist();
+
+        Map<Long, String> phaseNames = new HashMap<>();
+        for (Phase phase : Phase.forProject(acme.id)) {
+            phaseNames.put(phase.id, phase.name);
+            BaselinePhase then = new BaselinePhase();
+            then.baselineId = baseline.id;
+            then.phaseId = phase.id;
+            then.name = phase.name;
+            then.startDate = planned(phase.name, phase.startDate);
+            then.endDate = planned(phase.name, phase.endDate);
+            then.persist();
+        }
+        for (Task task : Task.<Task>list("projectId", acme.id)) {
+            if (task.createdAt.isAfter(takenAt)) {
+                continue;
+            }
+            String phase = phaseNames.get(task.phaseId);
+            BaselineTask then = new BaselineTask();
+            then.baselineId = baseline.id;
+            then.taskId = task.id;
+            then.parentTaskId = task.parentId;
+            then.phaseId = task.phaseId;
+            then.phaseName = phase;
+            then.title = task.title;
+            then.startDate = planned(phase, task.startDate);
+            then.dueDate = planned(phase, task.dueDate);
+            then.estimateHours = task.estimateHours;
+            then.milestone = task.milestone;
+            then.persist();
+        }
+    }
+
+    /** A date as the signed-off plan had it: a week earlier in build and release, the same before. */
+    private static LocalDate planned(String phase, LocalDate date) {
+        boolean slipped = "Build".equals(phase) || "Release".equals(phase);
+        return date == null || !slipped ? date : CAL.addWorkingDays(date, -5);
     }
 
     private void looseEnd(Project project, String title, LocalDate due, int estimate, Priority priority) {
