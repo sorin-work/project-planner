@@ -4,13 +4,17 @@
   --surface-2: #f0f2f7;
   --border: #dfe3ec;
   --text: #1c2233;
-  --muted: #667085;
-  --primary: #4f6bed;
-  --primary-dark: #3a53c7;
-  --danger: #c0392b;
-  --warning: #b7791f;
-  --good: #2f855a;
-  --critical: #d9480f;
+  /* Each colour that text is set in holds 4.5:1 on every background it is set on (contrast.spec.ts). */
+  --muted: #545c6d;
+  --primary: #3d52b6;
+  --primary-dark: #2f4091;
+  --danger: #a53125;
+  --warning: #7e5315;
+  --good: #246645;
+  --critical: #a1350b;
+  /* Text on a primary or a danger background. */
+  --on-primary: #ffffff;
+  --on-danger: #ffffff;
   --radius: 8px;
   --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 8%);
   --sidebar: 220px;
@@ -31,10 +35,12 @@
     --muted: #98a0b3;
     --primary: #7088ff;
     --primary-dark: #8b9dff;
-    --danger: #f06b5d;
+    --danger: #f49086;
     --warning: #e0a43a;
     --good: #4fbf85;
     --critical: #ff8a4c;
+    --on-primary: #12151d;
+    --on-danger: #12151d;
     color-scheme: dark;
   }
 }
@@ -93,14 +99,55 @@ input[type='checkbox'] {
   width: auto;
 }
 
+/*
+ * Whatever takes the keyboard's focus shows it: every form field, button and link, and
+ * everything made focusable with tabindex (cards, bars, rows, the task panel). The ring
+ * is the primary colour, which contrast.spec.ts holds to 3:1 against every background.
+ */
 input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible,
 a:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
 .bar:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
+}
+
+/* The page itself, focused by "Skip to content", needs no ring around all of it. */
+main[tabindex='-1']:focus {
+  outline: none;
+}
+
+/* Hidden until it has the focus: the first thing Tab reaches on every page. */
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  z-index: 100;
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+/* Less motion for whoever asked their system for it: no pulse, no smooth scrolling, no transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 button {
@@ -123,7 +170,7 @@ button:disabled {
 button.primary {
   background: var(--primary);
   border-color: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 button.primary:hover:not(:disabled) {
@@ -203,6 +250,7 @@ label.checkbox,
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .spacer,
@@ -300,7 +348,7 @@ label.checkbox,
   top: -4px;
   right: -6px;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   font-size: 0.7rem;
   border-radius: 999px;
   padding: 0 5px;
@@ -761,7 +809,7 @@ select.compact {
 .segmented button.active {
   background: var(--primary);
   border-color: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 /* Auth */
@@ -1403,9 +1451,13 @@ select.compact {
   fill: var(--good);
 }
 
+/* The name on a bar sits on the bar and on its progress: a halo in the surface colour keeps it readable on both. */
 .gantt-svg .bar-label {
   font-size: 10px;
-  fill: #fff;
+  fill: var(--text);
+  stroke: var(--surface);
+  stroke-width: 3px;
+  paint-order: stroke;
   pointer-events: none;
 }
 
