@@ -112,7 +112,8 @@ public class TimesheetService {
         String message = user.name + " submitted their timesheet for the week of " + weekStart;
         for (Membership m : Membership.forOrganisation(me.organisationId)) {
             if (m.role.canManage()) {
-                notifier.notify(m.userId, me.organisationId, me.userId, NotificationType.TIMESHEET_SUBMITTED, message, null, null);
+                notifier.notifyAboutWeek(m.userId, me.organisationId, me.userId, NotificationType.TIMESHEET_SUBMITTED,
+                        message, weekStart);
             }
         }
         activity.record(me.organisationId, null, null, me.userId, "timesheet.submitted", message);
@@ -139,8 +140,8 @@ public class TimesheetService {
         sheet.reviewedBy = me.userId;
         sheet.reviewNote = null;
         User reviewer = User.findById(me.userId);
-        notifier.notify(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_APPROVED,
-                reviewer.name + " approved your timesheet for the week of " + sheet.weekStart, null, null);
+        notifier.notifyAboutWeek(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_APPROVED,
+                reviewer.name + " approved your timesheet for the week of " + sheet.weekStart, sheet.weekStart);
         User owner = User.findById(sheet.userId);
         activity.record(sheet.organisationId, null, null, me.userId, "timesheet.approved",
                 "Approved " + owner.name + "'s timesheet for the week of " + sheet.weekStart);
@@ -156,7 +157,8 @@ public class TimesheetService {
         User reviewer = User.findById(me.userId);
         String message = reviewer.name + " sent back your timesheet for the week of " + sheet.weekStart
                 + (sheet.reviewNote == null ? "" : ": " + sheet.reviewNote);
-        notifier.notify(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_REJECTED, message, null, null);
+        notifier.notifyAboutWeek(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_REJECTED,
+                message, sheet.weekStart);
         User owner = User.findById(sheet.userId);
         activity.record(sheet.organisationId, null, null, me.userId, "timesheet.rejected",
                 "Sent back " + owner.name + "'s timesheet for the week of " + sheet.weekStart);
