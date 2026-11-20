@@ -45,9 +45,10 @@ services:
       APP_URL: ${APP_URL:-}
       INVITE_LINK_REQUIRED: ${INVITE_LINK_REQUIRED:-false}
       # Requests come through the web container, which sets X-Forwarded-For. The header is
-      # only believed when the request comes from that container.
+      # only believed from that container's fixed address: a name would be looked up on
+      # every request, and a failed lookup would count every client as one.
       BEHIND_PROXY: 'true'
-      TRUSTED_PROXIES: web
+      TRUSTED_PROXIES: ${WEB_ADDRESS:-172.28.40.10}
       # Files attached to tasks, on their own volume. The backup service archives it with every dump.
       ATTACHMENTS_DIR: /data/attachments
     volumes:
@@ -67,6 +68,9 @@ services:
 
   web:
     build: ./web
+    networks:
+      default:
+        ipv4_address: ${WEB_ADDRESS:-172.28.40.10}
     depends_on:
       api:
         condition: service_healthy
@@ -119,3 +123,10 @@ services:
 volumes:
   db-data:
   attachments:
+
+# A subnet of its own, so that the web container has the fixed address the api trusts.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${COMPOSE_SUBNET:-172.28.40.0/24}
