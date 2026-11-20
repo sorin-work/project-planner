@@ -83,6 +83,28 @@ describe('TimelineTab edits', () => {
     expect(el.querySelector('path.link.broken')).not.toBeNull();
   });
 
+  it('shows no warnings rather than old ones when they cannot be refreshed after a drag', async () => {
+    store.issues.set([{ type: 'STARTS_TOO_EARLY', taskId: 2, relatedTaskId: 1, days: 3, suggestedStart: '2026-03-09', suggestedDue: '2026-03-11' }]);
+    await fixture.whenStable();
+    expect(el.querySelector('path.link.broken')).not.toBeNull();
+
+    gantt.moved.emit({ taskId: 1, days: 5 });
+    http.expectOne('/api/tasks/1/shift').flush({ task: { ...design, startDate: '2026-03-09', dueDate: '2026-03-13' }, rescheduled: [] });
+    http.expectOne('/api/projects/7/critical-path').flush(noPath);
+    http.expectOne('/api/projects/7/schedule-issues').flush('down', { status: 503, statusText: 'Service Unavailable' });
+    await fixture.whenStable();
+    expect(el.querySelector('path.link.broken')).toBeNull();
+    expect(el.querySelector('.toolbar button.danger')).toBeNull();
+    const alert = el.querySelector('[role=alert]')!;
+    expect(alert.textContent).toContain('The schedule could not be checked after the last change');
+    expect(alert.textContent).toContain('Request failed (503)');
+
+    alert.querySelector('button')!.click();
+    refetch([]);
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')).toBeNull();
+  });
+
   it('leaves the bar where it was when the API refuses a resize, and says why', async () => {
     gantt.resized.emit({ taskId: 2, dueDate: '2026-03-05' });
     http.expectOne('/api/tasks/2').flush(
