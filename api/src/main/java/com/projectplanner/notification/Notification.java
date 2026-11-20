@@ -52,4 +52,15 @@ public class Notification extends PanacheEntityBase {
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
+
+    /** When the mail outbox was done with it: mailed, or found to need no mail. Null while it waits. */
+    @Column(name = "emailed_at")
+    public Instant emailedAt;
+
+    @Column(name = "email_attempts", nullable = false)
+    public int emailAttempts;
+
+    /** After a failed attempt, the earliest time of the next one. */
+    @Column(name = "email_retry_at")
+    public Instant emailRetryAt;
 }
