@@ -1,11 +1,25 @@
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { map } from 'rxjs';
+import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
 import { Client, Invitation, Member, Role, RoleRate } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { Avatar } from '../../shared/avatar';
 import { ROLE_LABELS, formatMoney } from '../../shared/format';
+
+/** What the manager is told after inviting somebody. */
+export function inviteNotice(res: { member?: Member; invitation?: Invitation }, email: string): string {
+  if (res.member) {
+    return `${res.member.name} already had an account and has been added.`;
+  }
+  if (res.invitation?.linkExpiresAt) {
+    return `Invitation sent to ${email}. The link in it works for seven days.`;
+  }
+  return `Invitation saved. ${email} joins automatically when they sign up with that address.`;
+}
 
 @Component({
   selector: 'app-team-page',
@@ -16,6 +30,8 @@ import { ROLE_LABELS, formatMoney } from '../../shared/format';
 export class TeamPage {
   private readonly api = inject(OrgApi);
   protected readonly org = inject(OrgContext);
+  /** Whether the server mails invitations. Without mail there is nothing to resend. */
+  protected readonly mail = toSignal(inject(AuthService).options$.pipe(map((options) => options.mail)), { initialValue: false });
 
   protected readonly members = signal<Member[]>([]);
   protected readonly invitations = signal<Invitation[]>([]);
@@ -79,16 +95,29 @@ export class TeamPage {
     const orgId = this.org.id();
     this.api.invite(orgId, { ...this.invite, clientId: this.invite.role === 'CLIENT' ? this.invite.clientId : null }).subscribe({
       next: (res) => {
-        this.notice.set(
-          res.member
-            ? `${res.member.name} already had an account and has been added.`
-            : `Invitation saved. ${this.invite.email} joins automatically when they sign up with that address.`,
-        );
+        this.notice.set(inviteNotice(res, this.invite.email));
         this.invite = { email: '', role: 'MEMBER', clientId: null };
         this.load(orgId);
       },
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
+  }
+
+  resendInvite(invitation: Invitation): void {
+    this.error.set(null);
+    this.notice.set(null);
+    this.api.resendInvitation(this.org.id(), invitation.id).subscribe({
+      next: (updated) => {
+        this.invitations.update((all) => all.map((i) => (i.id === updated.id ? updated : i)));
+        this.notice.set(`Invitation sent to ${updated.email} again. The link sent before no longer works.`);
+      },
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  /** A link that has run out: the person needs a new mail to join. */
+  linkExpired(invitation: Invitation): boolean {
+    return !!invitation.linkExpiresAt && Date.parse(invitation.linkExpiresAt) <= Date.now();
   }
 
   cancelInvite(invitation: Invitation): void {

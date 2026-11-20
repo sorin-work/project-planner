@@ -103,7 +103,13 @@
         <ul class="task-lines">
           @for (i of invitations(); track i.id) {
             <li>{{ i.email }} <span class="muted small">{{ roleLabels[i.role] }}</span>
-              <button type="button" class="link small" (click)="cancelInvite(i)">cancel</button></li>
+              @if (linkExpired(i)) {
+                <span class="muted small">link expired</span>
+              }
+              @if (mail()) {
+                <button type="button" class="link small" (click)="resendInvite(i)" [attr.aria-label]="'Resend the invitation to ' + i.email">resend</button>
+              }
+              <button type="button" class="link small" (click)="cancelInvite(i)" [attr.aria-label]="'Cancel the invitation to ' + i.email">cancel</button></li>
           }
         </ul>
       }

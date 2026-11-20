@@ -103,9 +103,10 @@ export class SettingsPage {
   }
 
   changePassword(): void {
+    // The answer carries a new token: the old one, and every other session, stops working.
     this.flash(
-      this.http.post('/api/me/password', { currentPassword: this.currentPassword, newPassword: this.newPassword }),
-      'Password changed.',
+      this.auth.changePassword(this.currentPassword, this.newPassword),
+      'Password changed. Everywhere else you were signed in, you are signed out.',
       () => {
         this.currentPassword = '';
         this.newPassword = '';
