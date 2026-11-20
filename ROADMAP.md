@@ -25,7 +25,7 @@ couple of weekends, **L** several weeks of spare time.
 | 2   | Type hours into the weekly grid            | Shipped | both     | M    | -          |
 | 3   | Missing timesheets and reminders           | Shipped | both     | S    | -          |
 | 4   | Search and quick switcher                  | Shipped | both     | M    | -          |
-| 5   | Accessibility pass                         | Next  | frontend | M    | -          |
+| 5   | Accessibility pass                         | Shipped | frontend | M    | -          |
 | 6   | Scheduled backups and a tested restore     | Shipped | infra    | S    | -          |
 | 7   | API reference built from the code          | Shipped | backend  | S    | -          |
 | 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
@@ -121,54 +121,6 @@ A few things hold for every item:
   `Notifier.notifyAboutWeek` instead and opens `/time?week=`.
 
 ## Next
-
-### 5. Accessibility pass
-
-The basics are there: labels on form fields, focus outlines, `role="alert"` on
-errors, arrow keys for moving bars on the timeline, and the angular-eslint
-accessibility rules in CI. But I have never gone through the whole app with
-only a keyboard or with a screen reader. Gaps I already know about:
-
-- Board: cards move between columns by HTML drag and drop only
-  (`BoardTab.onDragStart`, `onDrop`). Enter opens a card and nothing moves it.
-  Add keyboard moves, say `Alt` plus the arrow keys (left and right change the
-  status, up and down the `position`), through the same
-  `store.updateTask(id, { status, position })`, and announce the result.
-- Timeline: the SVG in `gantt.html` has `role="img"`, and the bars inside it
-  are focusable with `role="button"`. A screen reader treats an image as one
-  thing and hides what is inside, so the bars take focus without being
-  announced. The arrow keys also save on every press (`Gantt.onKey` emits
-  `moved` at once) and say nothing unless dependants moved.
-- Task panel: it opens from `?task=` as an `aside`. Focus stays where it was,
-  Escape does not close it, and closing does not return focus to the row or
-  bar that opened it.
-- Mentions: the suggestion list in `CommentBox` has `role="listbox"`, but the
-  textarea does not point at it (`aria-controls`, `aria-expanded`,
-  `aria-activedescendant`) and the options have no ids, so the highlighted
-  name is not read out.
-- Shell: there is no "skip to content" link before the sidebar. The menu
-  button has no `aria-expanded`. The navigation and the project tabs mark the
-  current page with a class only (`routerLinkActive="active"` without
-  `ariaCurrentWhenActive`). The bell is labelled "Notifications" whatever the
-  count. The running timer chip has `role="status"` and its text changes every
-  second, which a screen reader may try to read out every second.
-- Page titles: no route has a `title`, so every page is "project-planner" in
-  the tab, in the history and in what a screen reader announces on navigation.
-- Motion: `styles.css` has no `prefers-reduced-motion` rule. The one animation
-  is the pulsing dot of the timer (`@keyframes pulse`).
-- Add an automated check: `axe-core`, directly or through `vitest-axe`, run
-  against rendered pages in the specs so that regressions fail CI. jsdom
-  cannot work out colour contrast, so that rule stays off and both themes
-  (`prefers-color-scheme: dark` in `styles.css`) need checking by hand. I
-  would look at `--muted` text and the workload cell colours first.
-- Tricky: this touches templates all over `features/`, where every other item
-  also works. Keep the changes small and local: attributes and handlers, not
-  restructured markup.
-- Undecided: `@angular/cdk` has a live announcer, a focus trap and a drag and
-  drop that works from the keyboard, at the price of a dependency. I lean
-  towards a small live-region service of my own and plain key handlers.
-
-## Later
 
 ### 11. Invitation and password reset emails
 
@@ -435,6 +387,28 @@ ones in progress, so a to-do task due in three weeks shows up nowhere
 outside its project. The page would call the search endpoint with new
 `assigneeId` and `status` parameters and no text. Neither the page nor the
 parameters are built here.
+
+### 5. Accessibility pass
+
+The gaps the item listed are closed. The shell has a skip link, `aria-expanded` on the
+menu, `aria-current` on the navigation and the project tabs, a bell that says how many
+notifications are unread, and no live region on the ticking timer (starting and
+stopping it is read out instead). Every route has a title, and a project page puts the
+project's name in it. The task panel takes the focus, closes on Escape and gives the
+focus back to the row, card or bar that opened it. Board cards move with Alt and the
+arrow keys through the same update as a drag. The timeline is a group of controls
+instead of an image, and every move made with the keyboard is read out. The comment
+box points at its suggestions and at the highlighted person. Two live regions in the
+shell come from a small `Announcer` service, not from `@angular/cdk`: saves, moves and
+errors in the timeline, the board, the weekly grid and the settings pages go through
+it. axe runs over every page rendered inside the shell, with only colour contrast off,
+and contrast is worked out from `styles.css` for every text colour and background in
+both themes, which darkened six colours of the light theme and gave the dark theme dark
+text on primary and danger. `prefers-reduced-motion` stops the timer's pulse.
+Differences from the design: contrast is computed, not checked by hand; the arrow keys
+on the timeline still save on every press, now read out each time, since the API
+already orders them. Still open: a session with a real screen reader, and drawing a
+link on the timeline from the keyboard (the task panel's form does it today).
 
 ### 6. Scheduled backups and a tested restore
 

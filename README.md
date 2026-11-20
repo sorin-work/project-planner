@@ -447,6 +447,52 @@ file somewhat over the limit gets the API's own answer.
 are kept and `BACKUP_INTERVAL_SECONDS` the time from one dump to the next. See
 [Backup and restore](#backup-and-restore).
 
+## Accessibility
+
+Everything works from the keyboard, and what changes out of sight is read out:
+
+- **Every page**: Tab first reaches "Skip to content", which jumps past the navigation.
+  The current page is marked in the navigation and the project tabs (`aria-current`),
+  the menu button says whether the menu is open, and the bell says how many
+  notifications are unread. Every page has a title of its own ("Timeline · Website ·
+  project-planner"). Saves, moves and errors are read out through two live regions in
+  the shell, one polite and one for errors, so a screen reader hears them wherever the
+  focus is. Whatever has the focus shows a ring.
+- **Task panel**: it takes the focus when a task opens, Escape closes it, and the focus
+  goes back to the row, card or bar that opened it.
+- **Search**: Ctrl+K (Cmd+K on a Mac) opens it as a modal dialog. The focus stays in it,
+  and goes back where it was when it closes.
+- **Board**: focus a card and press Alt with the arrow keys. Left and right change the
+  status, up and down the place in the column. Each move is read out.
+- **Timeline**: the arrow keys move the focused bar by a working day, Shift with the
+  arrow keys moves its due date, Delete removes a focused arrow and Escape gives up a
+  drag. Each change is read out with the task's new dates. Every bar says in its label how
+  it compares with the baseline being compared against, and every arrow says how its
+  task waits.
+- **Weekly grid**: the arrow keys move between cells, and Enter saves and moves down.
+  Each save, and each refusal, is read out.
+- **Files**: "Attach files" is a button that opens the file picker, so dropping is not the
+  only way. **Baselines** are a select and buttons. **Mentions**: the comment box points
+  at its list of suggestions and at the person who is highlighted.
+- `prefers-reduced-motion` turns the pulse of the running timer and the transitions off.
+
+Three specs check this in CI:
+
+- `a11y.spec.ts` renders every page inside the shell, with an API that answers from
+  fixtures (`src/testing/fixtures.ts`), and runs axe over it (`src/testing/axe.ts`). The
+  only rule that is off is colour contrast, because jsdom computes no colours.
+- `contrast.spec.ts` reads `styles.css`, works out every text colour against its
+  background in the light and the dark theme, hover and focus states included, and holds
+  each to 4.5:1. The focus ring has to reach 3:1 on every background. A rule is only left
+  out with a reason written next to it: the shapes that hold no text, and the avatar,
+  whose colours are measured on their own. That check is why `--muted`, `--primary`,
+  `--good`, `--warning`, `--danger` and `--critical` are darker in the light theme than
+  they were, and why text on a primary or danger background is dark in the dark theme
+  (`--on-primary`, `--on-danger`).
+- `keyboard.spec.ts` uses the keyboard on rendered pages: the skip link, the states of the
+  menu and the bell, the titles, the task panel's focus, a card moved with Alt and an
+  arrow, and a move on the timeline being read out.
+
 ## Tests and lint
 
 ```bash
