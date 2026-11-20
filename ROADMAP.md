@@ -733,8 +733,8 @@ request, and every place that counted working days with
 `WorkCalendar.DEFAULT` now asks it: the rescheduler in `TaskService` (moves,
 shifts and the cascade), the critical path and the schedule check in
 `ScheduleResource`, progress and the three counts in `ProjectHealthService`,
-`ProjectDuplicator` with `PlanShift`, `WorkloadResource` and the capacity in
-`TimeReportService`. `DEFAULT` is left for the tests and the seeder. Capacity
+`ProjectDuplicator` with `PlanShift`, the slips of item 16 in `BaselineService`,
+`WorkloadResource` and the capacity in `TimeReportService`. `DEFAULT` is left for the tests and the seeder. Capacity
 is per week (`WeekLoad.holidays`, `daysOff`): every working day is a fifth of
 the weekly hours, so a holiday takes a fifth off for everybody and a day off a
 fifth off for one person, and a task is still spread over its own working
