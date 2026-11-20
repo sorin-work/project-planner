@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, viewChild } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
@@ -7,13 +7,15 @@ import { InboxApi } from '../../core/inbox.api';
 import { OrgContext } from '../../core/org-context.service';
 import { Avatar } from '../../shared/avatar';
 import { ROLE_LABELS } from '../../shared/format';
+import { SearchDialog } from '../search/search-dialog';
+import { isApplePlatform, listenForSearchShortcut, shortcutLabel } from '../search/shortcut';
 import { TimerService, formatElapsed } from '../time/timer.service';
 
 const UNREAD_POLL_MS = 60_000;
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Avatar],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Avatar, SearchDialog],
   templateUrl: './shell.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -29,6 +31,11 @@ export class Shell {
   protected readonly menuOpen = signal(false);
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly formatElapsed = formatElapsed;
+
+  protected readonly search = viewChild.required(SearchDialog);
+  private readonly apple = isApplePlatform(navigator.platform || navigator.userAgent);
+  protected readonly searchKey = shortcutLabel(this.apple);
+  protected readonly searchShortcut = this.apple ? 'Meta+K' : 'Control+K';
 
   constructor() {
     this.auth.loadMe().subscribe({ error: (err: unknown) => this.loadError.set(messageOf(err)) });
@@ -46,9 +53,11 @@ export class Shell {
       this.menuOpen.set(false);
       this.refreshUnread();
     });
+    const stopListening = listenForSearchShortcut(document, this.apple, () => this.search().open());
     inject(DestroyRef).onDestroy(() => {
       clearInterval(poll);
       navigation.unsubscribe();
+      stopListening();
     });
   }
 

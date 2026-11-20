@@ -1518,3 +1518,131 @@ select.compact {
   text-align: center;
   padding: 2rem;
 }
+
+/* Search */
+
+.search-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+}
+
+kbd {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.search-dialog {
+  width: min(640px, calc(100vw - 2rem));
+  max-height: min(70vh, 560px);
+  margin: 12vh auto auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgb(16 24 40 / 30%);
+}
+
+.search-dialog[open] {
+  display: flex;
+}
+
+.search-dialog::backdrop {
+  background: rgb(16 24 40 / 45%);
+}
+
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
+.search-field {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-field input {
+  flex: 1;
+  font-size: 1.05rem;
+}
+
+.search-results {
+  overflow-y: auto;
+}
+
+.search-results.stale {
+  opacity: 0.55;
+}
+
+.search-group {
+  margin: 0.5rem 0.75rem 0.15rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.search-option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+
+.search-option:hover,
+.search-option.active {
+  background: var(--surface-2);
+}
+
+.search-option.active {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.search-title {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-message {
+  margin: 0;
+  padding: 0.9rem 0.75rem;
+  color: var(--muted);
+}
+
+.search-message.error {
+  color: var(--danger);
+}
+
+.search-hint {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 860px) {
+  .search-label,
+  .search-button kbd,
+  .search-hint {
+    display: none;
+  }
+}

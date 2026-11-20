@@ -32,6 +32,11 @@
   <div class="main">
     <header class="topbar">
       <button class="icon-button menu-toggle" type="button" aria-label="Menu" (click)="menuOpen.set(!menuOpen())">☰</button>
+      <button type="button" class="search-button" (click)="search().open()" [attr.aria-keyshortcuts]="searchShortcut">
+        <span aria-hidden="true">🔍</span>
+        <span class="search-label">Search</span>
+        <kbd aria-hidden="true">{{ searchKey }}</kbd>
+      </button>
       <div class="spacer"></div>
       @if (timer.running(); as running) {
         <div class="timer-chip" role="status">
@@ -74,4 +79,5 @@
       }
     </main>
   </div>
+  <app-search-dialog />
 </div>
