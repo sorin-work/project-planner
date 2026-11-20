@@ -18,8 +18,9 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 
 @QuarkusTest
@@ -158,9 +159,10 @@ class TimeReportResourceTest {
         member.as().get(reports(owner) + "/time" + week + "&groupBy=member").then().statusCode(200)
                 .body("rows.label", contains("Zeno"))
                 .body("rows.minutes", contains(150))
-                .body("rows[0].billableAmount", nullValue())
+                // No amount, and no field for one either.
+                .body("rows[0]", not(hasKey("billableAmount")))
                 .body("total.minutes", equalTo(150)).body("total.billableMinutes", equalTo(90))
-                .body("total.billableAmount", nullValue());
+                .body("total", not(hasKey("billableAmount")));
         member.as().get(reports(owner) + "/time" + week + "&userId=" + member.userId()).then().statusCode(200)
                 .body("total.minutes", equalTo(150));
         // Somebody else's time is refused whether or not that person exists.
@@ -249,7 +251,7 @@ class TimeReportResourceTest {
             TestClock.fix(Instant.parse("2026-03-11T12:00:00Z"));
             owner.as().get(reports(owner) + "/utilisation?preset=this_week").then().statusCode(200)
                     .body("from", equalTo("2026-03-09")).body("to", equalTo("2026-03-15"))
-                    .body("capacityTo", equalTo("2026-03-11")).body("workingDays", equalTo(3))
+                    .body("countedTo", equalTo("2026-03-11")).body("workingDays", equalTo(3))
                     // Client viewers log no time and are not listed.
                     .body("rows.name", contains("Gwen", "Hugo"))
                     .body("rows.userId", contains((int) owner.userId(), (int) member.userId()))
@@ -258,18 +260,18 @@ class TimeReportResourceTest {
                     .body("rows.capacityMinutes", contains(1440, 1152))
                     .body("rows[0].utilisationPct", Api.num(20.8))
                     .body("rows[1].utilisationPct", Api.num(25.0))
-                    .body("total.name", equalTo("Total")).body("total.userId", nullValue())
+                    .body("total.name", equalTo("Total")).body("total", not(hasKey("userId")))
                     .body("total.minutes", equalTo(708)).body("total.billableMinutes", equalTo(588))
                     .body("total.capacityMinutes", equalTo(2592)).body("total.utilisationPct", Api.num(22.7));
 
             // A range that is over counts all of its working days.
             owner.as().get(reports(owner) + "/utilisation" + range(monday.minusDays(7), monday.minusDays(1))).then().statusCode(200)
-                    .body("capacityTo", equalTo("2026-03-08")).body("workingDays", equalTo(5))
+                    .body("countedTo", equalTo("2026-03-08")).body("workingDays", equalTo(5))
                     .body("rows.capacityMinutes", contains(2400, 1920)).body("rows.utilisationPct", contains(0.0f, 0.0f));
             // One that has not begun has no capacity to compare with yet.
             owner.as().get(reports(owner) + "/utilisation" + range(monday.plusDays(7), monday.plusDays(13))).then().statusCode(200)
-                    .body("capacityTo", nullValue()).body("workingDays", equalTo(0))
-                    .body("rows.capacityMinutes", contains(0, 0)).body("total.utilisationPct", nullValue());
+                    .body("$", not(hasKey("countedTo"))).body("workingDays", equalTo(0))
+                    .body("rows.capacityMinutes", contains(0, 0)).body("total", not(hasKey("utilisationPct")));
 
             String csv = owner.as().get(reports(owner) + "/utilisation.csv?preset=this_week").then().statusCode(200)
                     .contentType(startsWith("text/csv"))
@@ -282,6 +284,69 @@ class TimeReportResourceTest {
         } finally {
             TestClock.reset();
         }
+    }
+
+    @Test
+    void utilisationLeavesOutTimeThatIsLoggedAhead() {
+        Account owner = Api.signup("Lior");
+        long projectId = Api.createProject(owner, "AHEAD", Api.createClient(owner, "Vandelay"));
+        // 2026-03-09 is a Monday.
+        LocalDate monday = LocalDate.of(2026, 3, 9);
+        try {
+            // Monday morning, and the whole week is filled in already: eight billable hours a day.
+            TestClock.fix(Instant.parse("2026-03-09T08:00:00Z"));
+            for (int day = 0; day < 5; day++) {
+                log(owner, owner, entry(projectId, monday.plusDays(day), 480));
+            }
+            // Only Monday has happened. Its eight hours against its eight hours, not forty against eight.
+            owner.as().get(reports(owner) + "/utilisation?preset=this_week").then().statusCode(200)
+                    .body("to", equalTo("2026-03-15")).body("countedTo", equalTo("2026-03-09")).body("workingDays", equalTo(1))
+                    .body("rows.minutes", contains(480)).body("rows.billableMinutes", contains(480))
+                    .body("rows.capacityMinutes", contains(480))
+                    .body("rows[0].utilisationPct", Api.num(100.0))
+                    .body("total.minutes", equalTo(480)).body("total.utilisationPct", Api.num(100.0));
+            assertThat(owner.as().get(reports(owner) + "/utilisation.csv?preset=this_week").then().statusCode(200)
+                    .extract().asString().split("\r\n")[1]).isEqualTo("2026-03-09,2026-03-15,Lior,480,480,480,100.0");
+            // The summary still shows everything that was logged in the week.
+            owner.as().get(reports(owner) + "/time?preset=this_week").then().statusCode(200).body("total.minutes", equalTo(2400));
+
+            // On Wednesday three days count, time and capacity alike.
+            TestClock.fix(Instant.parse("2026-03-11T08:00:00Z"));
+            owner.as().get(reports(owner) + "/utilisation?preset=this_week").then().statusCode(200)
+                    .body("countedTo", equalTo("2026-03-11"))
+                    .body("rows.minutes", contains(1440)).body("rows.capacityMinutes", contains(1440));
+        } finally {
+            TestClock.reset();
+        }
+    }
+
+    @Test
+    void somebodyWhoHasLeftCanStillBeAskedFor() {
+        Agency a = agency("Mona", "Nico", "Wonka");
+        Account owner = a.owner();
+        Account former = a.member();
+        String week = reports(owner) + "/time" + range(WEEK, WEEK.plusDays(6));
+        Number membershipId = owner.as().get("/api/orgs/" + owner.orgId() + "/members").then()
+                .extract().path("find { it.userId == " + former.userId() + " }.id");
+        owner.as().delete("/api/orgs/" + owner.orgId() + "/members/" + membershipId).then().statusCode(204);
+
+        // Their time is still in the summary, under their name, with their id as the key.
+        owner.as().get(week + "&groupBy=member").then().statusCode(200)
+                .body("rows.label", contains("Nico", "Mona"))
+                .body("rows.key", contains(String.valueOf(former.userId()), String.valueOf(owner.userId())));
+        // So that key can be asked for, as the export of entries allows too.
+        owner.as().get(week + "&userId=" + former.userId()).then().statusCode(200)
+                .body("rows.minutes", contains(90, 60)).body("total.minutes", equalTo(150));
+        assertThat(owner.as().get(week.replace("/time?", "/time.csv?") + "&userId=" + former.userId()).then().statusCode(200)
+                .extract().asString().split("\r\n")).hasSize(3);
+        // Utilisation is about the team as it is now.
+        owner.as().get(reports(owner) + "/utilisation" + range(WEEK, WEEK.plusDays(6))).then().statusCode(200)
+                .body("rows.name", contains("Mona")).body("total.minutes", equalTo(90));
+
+        // Somebody who never had anything to do with the organisation is still not found,
+        // and the one who left has no way in any more.
+        owner.as().get(week + "&userId=" + Api.signup("Otto").userId()).then().statusCode(404);
+        former.as().get(week).then().statusCode(404);
     }
 
     @Test
