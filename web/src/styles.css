@@ -1320,6 +1320,8 @@ select.compact {
 
 .gantt-svg .bar.editable {
   cursor: grab;
+  /* Otherwise a drag on a touch screen scrolls the timeline instead of moving the bar. */
+  touch-action: none;
 }
 
 .gantt-svg .bar.dragging {
@@ -1364,6 +1366,57 @@ select.compact {
   pointer-events: none;
 }
 
+/* Editing on the timeline: resize strips at both ends of a bar, a dot to draw a link from. */
+.gantt-svg .handle {
+  fill: transparent;
+  cursor: ew-resize;
+}
+
+.gantt-svg .connector {
+  fill: var(--surface);
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  cursor: crosshair;
+  opacity: 0;
+}
+
+.gantt-svg .bar:hover .connector,
+.gantt-svg .bar:focus .connector,
+.gantt-svg .bar.dragging .connector {
+  opacity: 1;
+}
+
+.gantt-svg .bar.link-target .bar-bg,
+.gantt-svg .bar.link-target .milestone {
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
+.gantt-svg .link-draft {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.gantt-svg .link-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.gantt-svg .link-group.selected .link,
+.gantt-svg .link-group:focus-visible .link {
+  stroke-width: 2.6;
+}
+
+.gantt-svg .link-group:focus {
+  outline: none;
+}
+
 .gantt-hint {
   position: fixed;
   bottom: 1rem;
@@ -1373,6 +1426,12 @@ select.compact {
   color: var(--surface);
   padding: 0.4rem 0.8rem;
   border-radius: 6px;
+}
+
+.gantt-selection {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }
 
 /* Time */
