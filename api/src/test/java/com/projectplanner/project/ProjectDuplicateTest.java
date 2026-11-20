@@ -15,7 +15,9 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -460,7 +462,7 @@ class ProjectDuplicateTest {
         Account designer = Api.signup("Fox");
         Website source = website(owner, designer, "SPLIT");
         long whole = duplicate(owner, source.projectId(), Map.of("name", "In one go", "code", "SPLIT-2", "startDate", "2026-06-10", "keepAssignees", true));
-        long wholeStatements = statementsFor(() -> duplicate(owner, source.projectId(),
+        long wholeStatements = BigPlan.statementsFor(em, () -> duplicate(owner, source.projectId(),
                 Map.of("name", "Counted", "code", "SPLIT-3", "startDate", "2026-06-10", "keepAssignees", true)));
 
         // Two rows to a statement: three phases, four tasks, two subtasks and two links need 2 + 2 + 1 + 1 of them instead of 4.
@@ -469,7 +471,7 @@ class ProjectDuplicateTest {
         long splitStatements;
         Map<String, Long> ids = new HashMap<>();
         try {
-            splitStatements = statementsFor(() -> ids.put("split", duplicate(owner, source.projectId(),
+            splitStatements = BigPlan.statementsFor(em, () -> ids.put("split", duplicate(owner, source.projectId(),
                     Map.of("name", "In pieces", "code", "SPLIT-4", "startDate", "2026-06-10", "keepAssignees", true))));
         } finally {
             ProjectDuplicator.rowsPerStatement = usual;
