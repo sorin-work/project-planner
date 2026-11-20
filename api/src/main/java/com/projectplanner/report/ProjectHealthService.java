@@ -20,8 +20,11 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @ApplicationScoped
 public class ProjectHealthService {
@@ -38,7 +41,7 @@ public class ProjectHealthService {
         LocalDate today = Organisation.<Organisation>findById(project.organisationId).today(clock);
         List<Task> tasks = Task.forProject(project.id);
         Progress progress = progressCalculator.calculate(tasks.stream().map(ProjectHealthService::facts).toList(), today);
-        Budget budget = budget(project);
+        Budget budget = budget(project, RateBook.load(project.organisationId));
         HealthStatus status = HealthStatus.of(progress, budget, project.status == ProjectStatus.DONE, started(project, tasks, today));
 
         List<OverdueTask> overdue = tasks.stream()
@@ -71,12 +74,39 @@ public class ProjectHealthService {
                 h.progress().scheduleVarianceHours());
     }
 
-    Budget budget(Project project) {
-        RateBook rates = RateBook.load(project.organisationId);
-        List<TimeFacts> entries = TimeEntry.<TimeEntry>list("projectId", project.id).stream()
-                .map(e -> new TimeFacts(e.minutes, e.billable, rates.rate(project.hourlyRate, e.userId)))
-                .toList();
-        return budgetCalculator.calculate(project.budgetHours, project.budgetAmount, entries);
+    /**
+     * Hours and money burned on a project. The entries are grouped in the database by
+     * person, billable flag and length, with a count: that is all the calculator needs, and
+     * it keeps the rounding per entry. Without {@code rates} nothing has a price, which is
+     * enough for a project without a money budget.
+     */
+    Budget budget(Project project, RateBook rates) {
+        return budgets(List.of(project), rates).get(project.id);
+    }
+
+    /** The same for several projects of one organisation, in one grouped query. */
+    Map<Long, Budget> budgets(List<Project> projects, RateBook rates) {
+        Map<Long, List<TimeFacts>> entries = new HashMap<>();
+        Map<Long, Project> byId = new HashMap<>();
+        for (Project project : projects) {
+            byId.put(project.id, project);
+            entries.put(project.id, new ArrayList<>());
+        }
+        TimeEntry.getEntityManager()
+                .createQuery("select e.projectId, e.userId, e.billable, e.minutes, count(e.id) from TimeEntry e"
+                        + " where e.projectId in :projects group by e.projectId, e.userId, e.billable, e.minutes", Object[].class)
+                .setParameter("projects", byId.keySet())
+                .getResultList()
+                .forEach(r -> {
+                    Project project = byId.get((Long) r[0]);
+                    entries.get(project.id).add(new TimeFacts(((Number) r[3]).longValue(), (Boolean) r[2],
+                            rates == null ? null : rates.rate(project.hourlyRate, (Long) r[1]), ((Number) r[4]).longValue()));
+                });
+        Map<Long, Budget> budgets = new HashMap<>();
+        for (Project project : projects) {
+            budgets.put(project.id, budgetCalculator.calculate(project.budgetHours, project.budgetAmount, entries.get(project.id)));
+        }
+        return budgets;
     }
 
     private static boolean started(Project project, List<Task> tasks, LocalDate today) {

@@ -1,0 +1,199 @@
+<div class="page-header">
+  <h1>Reports</h1>
+  <div class="segmented" role="group" aria-label="Report">
+    @for (t of tabs(); track t.id) {
+      <button type="button" [class.active]="tab() === t.id" [attr.aria-pressed]="tab() === t.id" (click)="tab.set(t.id)">{{ t.label }}</button>
+    }
+  </div>
+</div>
+
+@if (tab() === 'export') {
+  <section class="card narrow">
+    <h2>Export timesheets</h2>
+    <p class="muted small">
+      One row per time entry as CSV, ready for invoicing or payroll.
+      @if (org.canManage()) { Includes rates and amounts. } @else { Only your own time. }
+    </p>
+    <form class="form-grid" (ngSubmit)="export()">
+      <div class="field">
+        <label for="ex-from">From</label>
+        <input id="ex-from" name="from" type="date" [(ngModel)]="exportFrom" required />
+      </div>
+      <div class="field">
+        <label for="ex-to">To</label>
+        <input id="ex-to" name="to" type="date" [(ngModel)]="exportTo" required />
+      </div>
+      <div class="presets span-2">
+        <button type="button" class="link small" (click)="exportPreset('lastWeek')">Last week</button>
+        <button type="button" class="link small" (click)="exportPreset('lastMonth')">Last month</button>
+        <button type="button" class="link small" (click)="exportPreset('thisYear')">This year</button>
+      </div>
+      @if (org.canManage()) {
+        <div class="field">
+          <label for="ex-user">Person</label>
+          <select id="ex-user" name="user" [(ngModel)]="userId">
+            <option [ngValue]="null">Everyone</option>
+            @for (m of members(); track m.userId) {
+              <option [ngValue]="m.userId">{{ m.name }}</option>
+            }
+          </select>
+        </div>
+      }
+      <div class="field">
+        <label for="ex-project">Project</label>
+        <select id="ex-project" name="project" [(ngModel)]="projectId">
+          <option [ngValue]="null">All projects</option>
+          @for (p of projects(); track p.project.id) {
+            <option [ngValue]="p.project.id">{{ p.project.code }} · {{ p.project.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="ex-billable">Billable</label>
+        <select id="ex-billable" name="billable" [(ngModel)]="billable">
+          <option [ngValue]="null">All time</option>
+          <option [ngValue]="true">Billable only</option>
+          <option [ngValue]="false">Non-billable only</option>
+        </select>
+      </div>
+      @if (error()) {
+        <p class="alert error span-2">{{ error() }}</p>
+      }
+      <div class="actions span-2">
+        <button type="submit" class="primary" [disabled]="busy()">{{ busy() ? 'Preparing…' : 'Download CSV' }}</button>
+      </div>
+    </form>
+  </section>
+} @else {
+  <section class="card">
+    <div class="report-tools">
+      <div class="segmented" role="group" aria-label="Range">
+        @for (p of presets; track p.value) {
+          <button type="button" [class.active]="preset() === p.value" [attr.aria-pressed]="preset() === p.value" (click)="choosePreset(p.value)">
+            {{ p.label }}
+          </button>
+        }
+      </div>
+      <label for="rep-from">From</label>
+      <input id="rep-from" name="repFrom" type="date" [(ngModel)]="from" (change)="chooseDates()" />
+      <label for="rep-to">To</label>
+      <input id="rep-to" name="repTo" type="date" [(ngModel)]="to" (change)="chooseDates()" />
+      @if (tab() === 'summary') {
+        <label for="rep-group">Group by</label>
+        <select id="rep-group" name="repGroup" [ngModel]="groupBy()" (ngModelChange)="regroup($event)">
+          @for (g of groups; track g.value) {
+            <option [ngValue]="g.value">{{ g.label }}</option>
+          }
+        </select>
+      }
+      <span class="spacer"></span>
+      <button type="button" [disabled]="busy() || !shown()" (click)="download()">{{ busy() ? 'Preparing…' : 'Download CSV' }}</button>
+    </div>
+    @if (reportError()) {
+      <p class="alert error" role="alert">{{ reportError() }}</p>
+    }
+
+    @if (tab() === 'summary') {
+      @if (drill(); as d) {
+        <p class="report-drill">
+          Tasks in <strong>{{ d.label }}</strong>
+          <button type="button" class="link" (click)="allProjects()">All projects</button>
+        </p>
+      }
+      @if (summary(); as report) {
+        <div class="table-wrap">
+          <table class="table report">
+            <thead>
+              <tr>
+                <th>{{ groupLabel() }}</th>
+                <th class="bar-cell"><span class="sr-only">Share of the longest row</span></th>
+                <th class="num">Time</th>
+                <th class="num">Billable</th>
+                @if (org.canManage()) {
+                  <th class="num">Billable amount</th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of report.rows; track row.key) {
+                <tr>
+                  <td>
+                    @if (report.groupBy === 'PROJECT') {
+                      <button type="button" class="link" (click)="openProject(row)" [attr.aria-label]="'Tasks in ' + row.label">{{ row.label }}</button>
+                    } @else {
+                      {{ row.label }}
+                    }
+                  </td>
+                  <td class="bar-cell"><app-progress-bar [value]="barWidth(row, report.rows)" [label]="row.label + ', share of the longest row'" /></td>
+                  <td class="num">{{ formatMinutes(row.minutes) }}</td>
+                  <td class="num">{{ formatMinutes(row.billableMinutes) }}</td>
+                  @if (org.canManage()) {
+                    <td class="num">{{ money(row.billableAmount) }}</td>
+                  }
+                </tr>
+              } @empty {
+                <tr><td [attr.colspan]="org.canManage() ? 5 : 4" class="muted">No time logged from {{ formatDate(report.from) }} to {{ formatDate(report.to) }}.</td></tr>
+              }
+            </tbody>
+            <tfoot>
+              <tr>
+                <th>Total</th>
+                <th></th>
+                <th class="num">{{ formatMinutes(report.total.minutes) }}</th>
+                <th class="num">{{ formatMinutes(report.total.billableMinutes) }}</th>
+                @if (org.canManage()) {
+                  <th class="num">{{ money(report.total.billableAmount) }}</th>
+                }
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="muted small">
+          {{ org.canManage() ? 'Everybody\'s time' : 'Your own time' }} from {{ formatDate(report.from) }} to {{ formatDate(report.to) }}, both days
+          included, without running timers.
+          @if (org.canManage()) {
+            Amounts are billable time at each person's rate, priced entry by entry and rounded to the cent like the CSV export of entries.
+          }
+        </p>
+      }
+    } @else if (utilisation(); as report) {
+      <div class="table-wrap">
+        <table class="table report">
+          <thead>
+            <tr>
+              <th>Person</th>
+              <th class="num">Logged</th>
+              <th class="num">Billable</th>
+              <th class="num">Capacity</th>
+              <th class="bar-cell"><span class="sr-only">Utilisation as a bar</span></th>
+              <th class="num">Utilisation</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of report.rows; track row.userId) {
+              <tr>
+                <td>{{ row.name }}</td>
+                <td class="num">{{ formatMinutes(row.minutes) }}</td>
+                <td class="num">{{ formatMinutes(row.billableMinutes) }}</td>
+                <td class="num">{{ formatMinutes(row.capacityMinutes) }}</td>
+                <td class="bar-cell"><app-progress-bar [value]="row.utilisationPct" [label]="row.name + ', billable time against capacity'" /></td>
+                <td class="num">{{ formatShare(row.utilisationPct) }}</td>
+              </tr>
+            }
+          </tbody>
+          <tfoot>
+            <tr>
+              <th>Total</th>
+              <th class="num">{{ formatMinutes(report.total.minutes) }}</th>
+              <th class="num">{{ formatMinutes(report.total.billableMinutes) }}</th>
+              <th class="num">{{ formatMinutes(report.total.capacityMinutes) }}</th>
+              <th></th>
+              <th class="num">{{ formatShare(report.total.utilisationPct) }}</th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="muted small">{{ capacityNote(report) }}</p>
+    }
+  </section>
+}

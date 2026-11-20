@@ -15,6 +15,7 @@ import com.projectplanner.org.OrgDtos.RoleRatesRequest;
 import com.projectplanner.org.OrgDtos.UpdateMemberRequest;
 import com.projectplanner.org.OrgDtos.UpdateOrganisationRequest;
 import io.quarkus.security.Authenticated;
+import jakarta.enterprise.event.Event;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -47,11 +48,14 @@ public class OrgResource {
     private final OrgAccess access;
     private final ActivityLog activity;
     private final Clock clock;
+    /** A rate decides what logged time costs, so a change of one is told to whoever watches budgets. */
+    private final Event<RatesChanged> ratesChanged;
 
-    public OrgResource(OrgAccess access, ActivityLog activity, Clock clock) {
+    public OrgResource(OrgAccess access, ActivityLog activity, Clock clock, Event<RatesChanged> ratesChanged) {
         this.access = access;
         this.activity = activity;
         this.clock = clock;
+        this.ratesChanged = ratesChanged;
     }
 
     @GET
@@ -85,7 +89,12 @@ public class OrgResource {
             }
         }
         if (request.defaultHourlyRate() != null) {
+            // The settings page always sends the rate, so only a different one counts as a change.
+            boolean changed = !sameRate(org.defaultHourlyRate, request.defaultHourlyRate());
             org.defaultHourlyRate = request.defaultHourlyRate();
+            if (changed) {
+                ratesChanged.fire(new RatesChanged(orgId));
+            }
         }
         return OrganisationResponse.of(org, membership);
     }
@@ -118,6 +127,8 @@ public class OrgResource {
                                        @Valid @NotNull UpdateMemberRequest request) {
         Membership me = access.manager(orgId);
         Membership member = memberIn(orgId, memberId);
+        Role roleBefore = member.role;
+        BigDecimal rateBefore = member.hourlyRate;
         if (request.role() != null && request.role() != member.role) {
             if (me.role != Role.OWNER && (request.role() == Role.OWNER || member.role == Role.OWNER)) {
                 throw ApiException.forbidden("Only owners can grant or remove the owner role");
@@ -142,6 +153,10 @@ public class OrgResource {
         } else {
             member.clientId = null;
         }
+        if (roleBefore != member.role || !sameRate(rateBefore, member.hourlyRate)) {
+            // Their time is priced by their own rate, or else by the rate of their role.
+            ratesChanged.fire(new RatesChanged(orgId, member.id));
+        }
         return MemberResponse.of(member, User.findById(member.userId), true);
     }
 
@@ -164,6 +179,8 @@ public class OrgResource {
         User user = User.findById(member.userId);
         member.delete();
         activity.record(orgId, null, null, me.userId, "member.removed", "Removed " + user.name + " from the team");
+        // The time they logged stays, and is priced at the organisation's default rate from now on.
+        ratesChanged.fire(new RatesChanged(orgId));
     }
 
     @GET
@@ -259,6 +276,7 @@ public class OrgResource {
             description = "For owners. Roles that are left out lose their rate.")
     public List<RoleRateEntry> setRoleRates(@PathParam("orgId") long orgId, @Valid @NotNull RoleRatesRequest request) {
         access.require(orgId, Role.OWNER);
+        Map<Role, BigDecimal> before = RoleRate.forOrganisation(orgId);
         RoleRate.delete("organisationId", orgId);
         RoleRate.flush();
         Map<Role, BigDecimal> byRole = new java.util.EnumMap<>(Role.class);
@@ -270,7 +288,17 @@ public class OrgResource {
             rate.hourlyRate = hourlyRate;
             rate.persist();
         });
+        boolean changed = !before.keySet().equals(byRole.keySet())
+                || byRole.entrySet().stream().anyMatch(e -> !sameRate(before.get(e.getKey()), e.getValue()));
+        if (changed) {
+            ratesChanged.fire(new RatesChanged(orgId));
+        }
         return roleRates(orgId);
+    }
+
+    /** 50 and 50.00 are the same rate. */
+    private static boolean sameRate(BigDecimal a, BigDecimal b) {
+        return a == null ? b == null : b != null && a.compareTo(b) == 0;
     }
 
     private long countOwners(long orgId) {

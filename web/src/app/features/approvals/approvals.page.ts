@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, linkedSignal, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -163,10 +163,15 @@ export class ApprovalsPage {
   protected readonly tab = toSignal(this.route.queryParamMap.pipe(map((q) => tabOfParam(q.get('tab')))), {
     initialValue: tabOfParam(this.route.snapshot.queryParamMap.get('tab')),
   });
-  protected readonly sheets = signal<TimesheetSummary[]>([]);
+  // The lists and the chosen week belong to one organisation. They start empty again when it
+  // changes, since the switcher changes it without leaving the page.
+  protected readonly sheets = linkedSignal<number | null, TimesheetSummary[]>({ source: this.org.orgId, computation: () => [] });
   /** The week of the "Not submitted" tab; null is the last week that is over, which only the API knows. */
-  protected readonly missingWeek = signal<string | null>(null);
-  protected readonly missing = signal<MissingTimesheets | null>(null);
+  protected readonly missingWeek = linkedSignal<number | null, string | null>({ source: this.org.orgId, computation: () => null });
+  protected readonly missing = linkedSignal<number | null, MissingTimesheets | null>({
+    source: this.org.orgId,
+    computation: () => null,
+  });
   protected readonly notice = signal<string | null>(null);
   protected readonly sending = signal(false);
   protected readonly selected = signal<Week | null>(null);
@@ -175,6 +180,8 @@ export class ApprovalsPage {
   protected note = '';
   /** Goes up whenever the list changes or another week is opened, so that an answer that comes late is dropped. */
   private opened = 0;
+  /** The same for the list itself. */
+  private listed = 0;
 
   protected readonly myId = computed(() => this.auth.user()?.id ?? null);
   protected readonly remindAll = computed(() => remindAllIds(this.missing()?.people ?? [], this.myId()));
@@ -215,12 +222,24 @@ export class ApprovalsPage {
       if (orgId === null) {
         return;
       }
+      this.error.set(null);
       if (tab === 'MISSING') {
         this.loadMissing(orgId, week);
       } else {
+        const listed = ++this.listed;
         this.api.timesheets(orgId, tab).subscribe({
-          next: (s) => this.sheets.set(s),
-          error: (err: unknown) => this.error.set(messageOf(err)),
+          next: (s) => {
+            if (listed === this.listed) {
+              this.sheets.set(s);
+            }
+          },
+          error: (err: unknown) => {
+            if (listed === this.listed) {
+              // The sheets on screen are those of another tab or organisation.
+              this.sheets.set([]);
+              this.error.set(messageOf(err));
+            }
+          },
         });
       }
     });
@@ -274,6 +293,9 @@ export class ApprovalsPage {
     this.api.remind(orgId, shown.weekStart, userIds).subscribe({
       next: (result) => {
         this.sending.set(false);
+        if (this.org.orgId() !== orgId) {
+          return;
+        }
         this.notice.set(remindSummary(result, shown.people));
         this.loadMissing(orgId, this.missingWeek());
       },
@@ -310,14 +332,21 @@ export class ApprovalsPage {
   }
 
   private loadMissing(orgId: number, week: string | null): void {
+    const listed = ++this.listed;
     this.api.missing(orgId, week).subscribe({
       next: (m) => {
-        // An answer for a week that is no longer the one asked for would put the wrong people on screen.
-        if (this.missingWeek() === week) {
+        // An answer for a week or an organisation that is no longer the one asked for would
+        // put the wrong people on screen.
+        if (listed === this.listed) {
           this.missing.set(m);
         }
       },
-      error: (err: unknown) => this.error.set(messageOf(err)),
+      error: (err: unknown) => {
+        if (listed === this.listed) {
+          this.missing.set(null);
+          this.error.set(messageOf(err));
+        }
+      },
     });
   }
 

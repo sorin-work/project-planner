@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { AuthService } from '../../core/auth.service';
+import { OrgContext } from '../../core/org-context.service';
 import { MissingTimesheet, MissingTimesheets } from '../../core/models';
 import { ApprovalsPage } from './approvals.page';
 
@@ -31,7 +32,10 @@ describe('ApprovalsPage', () => {
     });
     TestBed.inject(AuthService).me.set({
       user: { id: 5, email: 'maya@example.com', name: 'Maya Collins', handle: 'maya' },
-      organisations: [{ organisationId: 7, organisationName: 'Brightline Studio', role: 'OWNER', currency: 'EUR' }],
+      organisations: [
+        { organisationId: 7, organisationName: 'Brightline Studio', role: 'OWNER', currency: 'EUR' },
+        { organisationId: 8, organisationName: 'Side Project', role: 'OWNER', currency: 'USD' },
+      ],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -110,6 +114,32 @@ describe('ApprovalsPage', () => {
 
     expect(el.textContent).toContain('Choose a person to see their week.');
     expect(el.textContent).not.toContain('Tom Becker');
+  });
+
+  it('starts over in another organisation, and takes the list away when it can not be loaded', async () => {
+    const { harness, el } = await openNotSubmitted([person(1, 'Tom Becker', 2250)]);
+    el.querySelector<HTMLButtonElement>('[aria-label="Previous week"]')!.click();
+    await harness.fixture.whenStable();
+    http.expectOne((r) => r.url === MISSING_URL).flush(missing('2026-02-23', [person(1, 'Tom Becker', 600)]));
+    await harness.fixture.whenStable();
+    el.querySelector<HTMLButtonElement>('.missing-row .row-button')!.click();
+    const week = http.expectOne((r) => r.url === '/api/orgs/7/timesheets/week');
+
+    // The switcher in the side bar changes the organisation without leaving the page.
+    TestBed.inject(OrgContext).select(8);
+    await harness.fixture.whenStable();
+    const other = http.expectOne((r) => r.url === '/api/orgs/8/timesheets/missing');
+    // Neither the week that was chosen nor the people of the first organisation come along.
+    expect(other.request.params.has('weekStart')).toBe(false);
+    expect(el.textContent).not.toContain('Tom Becker');
+    week.flush({ userId: 1, userName: 'Tom Becker', weekStart: '2026-02-23', status: 'DRAFT', entries: [], days: [], totalMinutes: 0, billableMinutes: 0 });
+    await harness.fixture.whenStable();
+    expect(el.textContent).not.toContain('Tom Becker');
+
+    other.flush({ status: 500, code: 'internal_error', message: 'Something went wrong on our side' }, { status: 500, statusText: 'Server Error' });
+    await harness.fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Something went wrong on our side');
+    expect(el.querySelectorAll('.missing-row')).toHaveLength(0);
   });
 
   it('goes back through earlier weeks but not past the last one that is over', async () => {

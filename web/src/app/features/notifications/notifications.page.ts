@@ -13,6 +13,7 @@ const ICONS: Record<string, string> = {
   TIMESHEET_APPROVED: '✓',
   TIMESHEET_REJECTED: '↩',
   TIMESHEET_REMINDER: '!',
+  BUDGET_ALERT: '%',
 };
 
 export interface NotificationTarget {
@@ -21,12 +22,17 @@ export interface NotificationTarget {
 }
 
 /**
- * Where a notification leads: the task it is about, the approval queue for a submitted
- * week, or the person's own timesheet on the week in question. Null when there is nowhere to go.
+ * Where a notification leads: the task it is about, the overview of the project when it is
+ * about the project as a whole (its budget), the approval queue for a submitted week, or
+ * the person's own timesheet on the week in question. Null when there is nowhere to go.
  */
 export function notificationTarget(n: Pick<Notification, 'type' | 'projectId' | 'taskId' | 'weekStart'>): NotificationTarget | null {
   if (n.projectId && n.taskId) {
     return { commands: ['/projects', n.projectId, 'list'], queryParams: { task: n.taskId } };
+  }
+  if (n.projectId) {
+    // A budget alert: the overview is where the hours and the money burned are shown.
+    return { commands: ['/projects', n.projectId, 'overview'] };
   }
   if (n.type === 'TIMESHEET_SUBMITTED') {
     return { commands: ['/approvals'] };
