@@ -66,6 +66,30 @@ export interface GanttLayout {
   todayX: number | null;
 }
 
+/** The room a month label takes in the header: "Sep 2027" in bold 11 pixel type, with its padding. */
+export const MONTH_LABEL_WIDTH = 64;
+
+/**
+ * The month labels of the header: one where each month begins, and one at the left
+ * edge for the month the chart begins in. That first month can be a single day (the
+ * chart begins on a Monday, which may be the 31st), and its label would then be
+ * printed over the next one. So it is left out when the next month begins before the
+ * label ends. Every month after it is whole and wide enough at every zoom.
+ */
+export function monthLabels(start: string, days: number, dayWidth: number): GanttTick[] {
+  const months: GanttTick[] = [];
+  for (let i = 0; i < days; i++) {
+    const date = addDays(start, i);
+    if (i === 0 || toDate(date).getUTCDate() === 1) {
+      months.push({ x: i * dayWidth, label: `${monthName(date)} ${date.slice(0, 4)}`, major: true });
+    }
+  }
+  if (months.length > 1 && months[1].x - months[0].x < MONTH_LABEL_WIDTH) {
+    months.shift();
+  }
+  return months;
+}
+
 /** Visible date range: the plan plus some breathing room, starting on a Monday. */
 export function dateRange(tasks: Task[], reference: string = today()): { start: string; end: string } {
   const first = minDate(tasks.flatMap((t) => [t.startDate, t.dueDate])) ?? reference;
@@ -195,14 +219,11 @@ export function layoutGantt(
   }
 
   const ticks: GanttTick[] = [];
-  const months: GanttTick[] = [];
+  const months = monthLabels(start, days, dayWidth);
   const weekends: { x: number; width: number }[] = [];
   for (let i = 0; i < days; i++) {
     const date = addDays(start, i);
     const x = i * dayWidth;
-    if (toDate(date).getUTCDate() === 1 || i === 0) {
-      months.push({ x, label: `${monthName(date)} ${date.slice(0, 4)}`, major: true });
-    }
     if (options.zoom === 'day') {
       ticks.push({ x, label: String(toDate(date).getUTCDate()), major: !isWeekend(date) });
     } else if (options.zoom === 'week' && i % 7 === 0) {
