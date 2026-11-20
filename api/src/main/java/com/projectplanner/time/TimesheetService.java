@@ -2,6 +2,7 @@ package com.projectplanner.time;
 
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.User;
+import com.projectplanner.calendar.Holiday;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Money;
 import com.projectplanner.notification.Notification;
@@ -73,9 +74,14 @@ public class TimesheetService {
                 billable += entry.minutes;
             }
         }
+        // The grid marks the holidays of the week in its header. Time can still be logged on them.
+        Map<LocalDate, String> holidays = new HashMap<>();
+        Holiday.<Holiday>list("organisationId = ?1 and date between ?2 and ?3", organisationId, weekStart, weekEnd)
+                .forEach(h -> holidays.put(h.date, h.name));
         List<DayTotal> days = new ArrayList<>();
         for (int i = 0; i < 7; i++) {
-            days.add(new DayTotal(weekStart.plusDays(i), perDay[i]));
+            LocalDate day = weekStart.plusDays(i);
+            days.add(new DayTotal(day, perDay[i], holidays.get(day)));
         }
         Timesheet sheet = Timesheet.find(organisationId, userId, weekStart).orElse(null);
         User user = User.findById(userId);

@@ -132,6 +132,7 @@ components schemas Dashboard properties pendingApprovals type = integer
 components schemas Dashboard properties today $ref = #/components/schemas/LocalDate
 components schemas Dashboard type = object
 components schemas DayTotal properties date $ref = #/components/schemas/LocalDate
+components schemas DayTotal properties holiday type = string
 components schemas DayTotal properties minutes format = int32
 components schemas DayTotal properties minutes type = integer
 components schemas DayTotal type = object
