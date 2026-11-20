@@ -41,10 +41,15 @@ the point is knowing whether a project will land on time and on budget.
 - **Phases, tasks, subtasks and milestones** with estimates, assignees, start and due
   dates, priority and status. Subtasks are one level deep; milestones are single-day
   markers.
-- **Dependencies** (finish-to-start, with an optional lag in working days). Links that
-  would create a loop are rejected with the chain that causes it. When a task moves,
-  every task downstream of it that would now start too early is pushed back,
-  keeping its length in working days.
+- **Dependencies** of four types: finish-to-start ("starts after Design ends"),
+  start-to-start ("starts with Design"), finish-to-finish ("ends with Design") and
+  start-to-finish, each with a lag in working days, or a lead when it is negative
+  ("QA starts two days before development ends"). Links that would create a loop are
+  rejected with the chain that causes it, whatever their types. When a task moves,
+  every task downstream of it that would now come too early is pushed back, keeping
+  its length in working days. The type and the lag are picked in the task panel and
+  can be changed there; the timeline draws each arrow from and to the bar ends its
+  type names, with the type and lag beside it.
 - **Schedule issues**: moving a task in front of a task it waits for is allowed,
   because planners overlap work on purpose, but the plan says so. Each project has a
   list of what does not fit: tasks that start too early for a dependency, links to
@@ -171,6 +176,7 @@ dependencies, so they are tested in isolation:
 | --------------------- | -------------------------------------------------------------------- |
 | `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
+| `LinkRule`            | The one rule for what a link of each type asks of its successor, in dates and in critical-path offsets |
 | `Rescheduler`         | Pushes dependants later when a task moves and shifts a task by working days, keeping durations |
 | `PlanShift`           | Moves a whole plan to a new start, every date at its distance in working days |
 | `BaselineComparison`  | Compares a plan with a baseline: slip of start and finish per task and phase, the ends, the estimates |
@@ -604,13 +610,25 @@ exists then and now is decided first, so a task created or deleted since is `ADD
 issues and the critical path look at the plan only, never at a baseline, and duplicating
 a project does not copy its baselines.
 
+`POST /tasks/{id}/dependencies` takes `{ "predecessorId", "lagDays"?, "type"? }`, and
+`PATCH /dependencies/{id}` changes `type` and `lagDays` of an existing link. `type` is
+`FS` (the default), `SS`, `FF` or `SF`, and `lagDays` runs from -365 to 365 working days.
+Every check of a link goes through `LinkRule`: FS lets the successor start the working
+day after the predecessor is due plus the lag, SS when the predecessor starts plus the
+lag, FF lets it be due when the predecessor is due plus the lag, and SF when the
+predecessor starts plus the lag. A link on the finish moves the successor whole, so it
+keeps its length. A lead longer than the predecessor puts the successor before it,
+which is allowed. Changing a link pushes the successor later when it now comes too
+early, and never pulls anything earlier. Links that existed before were all
+finish-to-start, and are that still.
+
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
-returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses? }`,
+returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses?, linkType? }`,
 ordered by the date of the task:
 
 | Type                    | Meaning                                                                  | `relatedTaskId` | `days` (working days)   |
 | ----------------------- | ------------------------------------------------------------------------ | --------------- | ----------------------- |
-| `STARTS_TOO_EARLY`      | The task starts before a task it waits for is due, plus the lag          | the predecessor | how many days too early |
+| `STARTS_TOO_EARLY`      | The task is earlier than a link allows (`linkType` says which end counts) | the predecessor | how many days too early |
 | `WAITS_FOR_UNSCHEDULED` | The task waits for a task without a due date, so the link is not enforced | the predecessor | -                       |
 | `AFTER_PROJECT_END`     | The task is due after the project's end date                             | -               | how many days late      |
 | `OUTSIDE_PARENT`        | The subtask has days before its parent starts or after it is due         | the parent      | how many days outside   |
