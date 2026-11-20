@@ -55,7 +55,7 @@ public final class TaskDtos {
             @Min(0) Integer position) {
     }
 
-    /** Moves a task by whole days, keeping its length. Used by timeline drags. */
+    /** Moves a task by working days (negative is earlier), keeping its length in working days. Used by timeline drags. */
     public record ShiftRequest(@NotNull @Min(-3650) @Max(3650) Integer days) {
     }
 
