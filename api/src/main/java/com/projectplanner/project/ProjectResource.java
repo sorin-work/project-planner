@@ -1,5 +1,7 @@
 package com.projectplanner.project;
 
+import com.projectplanner.attachment.Attachment;
+import com.projectplanner.attachment.AttachmentFiles;
 import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
@@ -44,7 +46,11 @@ public class ProjectResource {
     private final ProjectHealthService health;
     private final ProjectDuplicator duplicator;
 
-    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health, ProjectDuplicator duplicator) {
+    private final AttachmentFiles attachmentFiles;
+
+    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health, ProjectDuplicator duplicator,
+                           AttachmentFiles attachmentFiles) {
+        this.attachmentFiles = attachmentFiles;
         this.access = access;
         this.projects = projects;
         this.health = health;
@@ -130,6 +136,8 @@ public class ProjectResource {
     public void delete(@PathParam("projectId") long projectId) {
         Project project = access.project(projectId);
         access.manageProject(project);
+        // The rows go by the foreign keys; the files of the attachments go once the deletion is committed.
+        attachmentFiles.deleteAfterCommit(Attachment.keysOfProject(project.id));
         project.delete();
     }
 
@@ -156,11 +164,13 @@ public class ProjectResource {
             description = "For owners and managers. Phases, tasks, subtasks, milestones and links are copied, with every date at "
                     + "the same distance in working days from the first day of the plan, which lands on startDate. The new project "
                     + "is planned and every task is to do. Logged time, comments, notifications and activity are not copied. "
-                    + "Without clientId the copy is internal, and without keepAssignees nobody is assigned.")
+                    + "Without clientId the copy is internal, and without keepAssignees nobody is assigned. The files attached to the tasks "
+                    + "are only copied with copyAttachments.")
     @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
     @Fails(status = 400, code = "date_out_of_range", when = "a date of the copied plan would lie outside the years 1 to 9999")
     @Fails(status = 409, code = "code_taken", when = "another project in the organisation already uses the code")
     @Fails(status = 409, code = "source_changed", when = "a task or phase of the source was deleted while it was being copied")
+    @Fails(status = 413, code = "storage_full", when = "copyAttachments is set and the copied files do not fit in the organisation's limit")
     public ProjectResponse duplicate(@PathParam("projectId") long projectId, @Valid @NotNull DuplicateRequest request) {
         Project source = access.project(projectId);
         Membership me = access.manageProject(source);

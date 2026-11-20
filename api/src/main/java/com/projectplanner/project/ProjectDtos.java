@@ -57,11 +57,18 @@ public final class ProjectDtos {
             @NotBlank @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9-]{0,15}", message = "use up to 16 letters, digits or dashes") String code,
             Long clientId,
             @NotNull LocalDate startDate,
-            boolean keepAssignees) {
+            boolean keepAssignees,
+            @Schema(description = "Copy the files attached to the tasks as well. Left out, they are not copied.") boolean copyAttachments) {
+
+        public DuplicateRequest(String name, String code, Long clientId, LocalDate startDate, boolean keepAssignees) {
+            this(name, code, clientId, startDate, keepAssignees, false);
+        }
     }
 
     /** What to offer before a project is copied: a name, a code that is free, a start date, and how much there is to copy. */
-    public record DuplicateDefaults(String name, String code, LocalDate startDate, long phases, long tasks, long dependencies) {
+    /** {@code attachments} and {@code attachmentBytes}: the files on the tasks, which are only copied when asked for. */
+    public record DuplicateDefaults(String name, String code, LocalDate startDate, long phases, long tasks, long dependencies,
+                                    long attachments, long attachmentBytes) {
     }
 
     public record PhaseRequest(

@@ -1,6 +1,7 @@
 package com.projectplanner.project;
 
 import com.projectplanner.activity.ActivityLog;
+import com.projectplanner.attachment.AttachmentService;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
@@ -65,7 +66,10 @@ public class ProjectDuplicator {
     // The organisation's own calendar belongs here once there is one (roadmap item 15).
     private final WorkCalendar calendar = WorkCalendar.DEFAULT;
 
-    public ProjectDuplicator(ProjectService projects, ActivityLog activity, EntityManager em, Clock clock) {
+    private final AttachmentService attachments;
+
+    public ProjectDuplicator(ProjectService projects, ActivityLog activity, EntityManager em, Clock clock, AttachmentService attachments) {
+        this.attachments = attachments;
         this.projects = projects;
         this.activity = activity;
         this.em = em;
@@ -83,7 +87,9 @@ public class ProjectDuplicator {
                 calendar.onOrAfter(organisation.today(clock)),
                 Phase.count("projectId", source.id),
                 count("select count(t) from Task t where t.projectId = ?1", source.id),
-                count("select count(d) from TaskDependency d, Task t where t.id = d.successorId and t.projectId = ?1", source.id));
+                count("select count(d) from TaskDependency d, Task t where t.id = d.successorId and t.projectId = ?1", source.id),
+                count("select count(a) from Attachment a, Task t where t.id = a.taskId and t.projectId = ?1", source.id),
+                count("select coalesce(sum(a.sizeBytes), 0) from Attachment a, Task t where t.id = a.taskId and t.projectId = ?1", source.id));
     }
 
     public Project duplicate(Membership me, Project source, DuplicateRequest request) {
@@ -106,13 +112,16 @@ public class ProjectDuplicator {
         Map<Long, Long> newPhase = copyPhases(phases, copy.id, shift);
         Map<Long, Long> newTask = copyTasks(tasks, copy.id, newPhase, shift, team, now);
         int links = copyDependencies(dependencies, newTask, now);
+        // Files only when asked for: they take room, and a template rarely wants the old project's papers.
+        int files = request.copyAttachments() ? attachments.copy(copy.organisationId, newTask) : 0;
 
         // The entry is read by everybody who sees the copy, and not all of them may see the source:
         // a copy can be made for another client. So the text does not name it. Its id is kept next
         // to the entry, and the name is added for the readers who may know it.
         activity.record(copy.organisationId, copy.id, null, me.userId, "project.duplicated",
                 "Copied the plan from another project: " + count(phases.size(), "phase") + ", "
-                        + count(tasks.size(), "task") + " and " + count(links, "link"), source.id);
+                        + count(tasks.size(), "task") + " and " + count(links, "link")
+                        + (files > 0 ? ", with " + count(files, "file") : ""), source.id);
         return copy;
     }
 

@@ -7,7 +7,12 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Response;
+import com.projectplanner.common.Fails;
 import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.enums.SchemaType;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.net.URLEncoder;
@@ -36,7 +41,12 @@ public class AttachmentContentResource {
     @GET
     @Path("/attachments/{attachmentId}/content")
     @Operation(summary = "The bytes of a file, through a link",
-            description = "Takes the query of a link from POST /attachments/{attachmentId}/link and needs no token.")
+            description = "Takes the query of a link from POST /attachments/{attachmentId}/link and needs no token. The answer is "
+                    + "always sent with Content-Disposition, X-Content-Type-Options: nosniff and a Content-Security-Policy that lets "
+                    + "nothing in it run.")
+    @APIResponse(responseCode = "200", description = "The file, as the type the server found it to be.",
+            content = @Content(mediaType = "application/octet-stream", schema = @Schema(type = SchemaType.STRING, format = "binary")))
+    @Fails(status = 403, code = "link_invalid", when = "the link has expired or its signature does not match")
     public Response content(@PathParam("attachmentId") long attachmentId, @QueryParam("user") long user,
                             @QueryParam("expires") long expires, @QueryParam("inline") boolean inline,
                             @QueryParam("signature") String signature) {

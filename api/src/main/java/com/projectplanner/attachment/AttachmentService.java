@@ -19,8 +19,10 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @ApplicationScoped
@@ -98,6 +100,45 @@ public class AttachmentService {
         activity.record(project.organisationId, project.id, task.id, me.userId, "attachment.added",
                 "Attached " + name + " to " + task.title);
         return attachment;
+    }
+
+    /**
+     * Copies the attachments of the tasks in {@code newTask} (source id to copy id) onto
+     * the copies, each file under a key of its own. The copies are written now and go
+     * again if the copy of the project is not committed. Gives how many there were.
+     */
+    public int copy(long organisationId, Map<Long, Long> newTask) {
+        if (newTask.isEmpty()) {
+            return 0;
+        }
+        List<Attachment> sources = Attachment.list("taskId in ?1 order by id", newTask.keySet());
+        long bytes = sources.stream().mapToLong(a -> a.sizeBytes).sum();
+        long used = Attachment.bytesOf(organisationId);
+        if (bytes > 0 && used + bytes > maxOrganisationBytes) {
+            throw new ApiException(413, "storage_full", "The copied files would take the organisation's attachments to "
+                    + megabytes(used + bytes) + " of " + megabytes(maxOrganisationBytes) + ". Copy the project without them.");
+        }
+        Instant now = Instant.now(clock);
+        List<String> written = new ArrayList<>();
+        try {
+            for (Attachment source : sources) {
+                String key = store.copy(source.storageKey);
+                written.add(key);
+                Attachment copy = new Attachment();
+                copy.organisationId = organisationId;
+                copy.taskId = newTask.get(source.taskId);
+                copy.uploaderId = source.uploaderId;
+                copy.fileName = source.fileName;
+                copy.contentType = source.contentType;
+                copy.sizeBytes = source.sizeBytes;
+                copy.storageKey = key;
+                copy.createdAt = now;
+                copy.persist();
+            }
+        } finally {
+            files.deleteUnlessCommitted(written);
+        }
+        return sources.size();
     }
 
     public void delete(Membership me, Project project, Task task, Attachment attachment) {
