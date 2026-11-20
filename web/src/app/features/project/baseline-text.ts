@@ -125,3 +125,25 @@ export function countsText(counts: BaselineComparison['counts']): string {
   const text = parts.filter(([n]) => n > 0).map(([n, what]) => `${n} ${what}`).join(', ');
   return text || 'Every task is where it was';
 }
+
+/** The milestones of a comparison, the deleted ones included: what a client asks about. */
+export function milestoneChanges(comparison: BaselineComparison | null): BaselineTaskChange[] {
+  return (comparison?.tasks ?? []).filter((t) => t.milestone);
+}
+
+/** A milestone's change in a table cell: "2 working days late", "On time", "New". */
+export function milestoneText(change: BaselineTaskChange): string {
+  const days = change.finishSlipDays || change.startSlipDays || 0;
+  switch (change.change) {
+    case 'SLIPPED':
+      return `${workingDays(days)} late`;
+    case 'PULLED_IN':
+      return `${workingDays(days)} early`;
+    case 'ADDED':
+      return change.existedThen ? 'Had no date' : 'New';
+    case 'REMOVED':
+      return change.existsNow ? 'Date cleared' : 'Removed';
+    default:
+      return change.existedThen ? 'On time' : 'No date';
+  }
+}

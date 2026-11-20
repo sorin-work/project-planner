@@ -1,6 +1,8 @@
 import { BaselineComparison, BaselineTaskChange } from '../../core/models';
 import { formatDate } from '../../shared/dates';
-import { baselineDates, baselineLabel, baselineLabels, changeText, changedItems, countsText, endText, workingDays } from './baseline-text';
+import {
+  baselineDates, baselineLabel, baselineLabels, changeText, changedItems, countsText, endText, milestoneChanges, milestoneText, workingDays,
+} from './baseline-text';
 
 function task(taskId: number, extra: Partial<BaselineTaskChange>): BaselineTaskChange {
   return { taskId, title: `Task ${taskId}`, milestone: false, change: 'UNCHANGED', existedThen: true, existsNow: true, ...extra };
@@ -98,5 +100,16 @@ describe('baseline text', () => {
   it('counts the changes in words', () => {
     expect(countsText(comparison.counts)).toBe('2 slipped, 1 pulled in, 2 added, 2 removed');
     expect(countsText({ unchanged: 4, slipped: 0, pulledIn: 0, added: 0, removed: 0 })).toBe('Every task is where it was');
+  });
+
+  it('says how late or early a milestone is, and which milestones there are', () => {
+    const launch = task(10, { milestone: true, change: 'SLIPPED', baselineDue: '2026-03-18', currentDue: '2026-03-20', startSlipDays: 2, finishSlipDays: 2 });
+    const early = { ...launch, change: 'PULLED_IN' as const, startSlipDays: -1, finishSlipDays: -1 };
+    expect(milestoneText(launch)).toBe('2 working days late');
+    expect(milestoneText(early)).toBe('1 working day early');
+    expect(milestoneText({ ...launch, change: 'UNCHANGED', startSlipDays: 0, finishSlipDays: 0 })).toBe('On time');
+    expect(milestoneText({ ...launch, change: 'ADDED', existedThen: false })).toBe('New');
+    expect(milestoneText({ ...launch, change: 'REMOVED', existsNow: false })).toBe('Removed');
+    expect(milestoneChanges({ ...comparison, tasks: [slipped, launch] })).toEqual([launch]);
   });
 });
