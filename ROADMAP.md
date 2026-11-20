@@ -234,9 +234,10 @@ for this.
   empty week (`empty_timesheet`), so they stay "missing" for good. Until item
   15 knows about time off, list zero-hour weeks separately and do not include
   them in "Remind all".
-- Undecided: automatic reminders (Harvest sends one before and one after a
-  weekly deadline). That needs a scheduler and a deadline setting per
-  organisation, and really wants email. I would leave it for item 12.
+- Not in this pull request: automatic reminders (Harvest sends one before and
+  one after a weekly deadline). They need a scheduler and a deadline setting
+  per organisation, and really want email. They belong to the daily summary
+  that item 12 lists as its follow-up.
 - Undecided: "Approve all" on the submitted tab.
   `TimesheetService.checkReviewer` stops managers approving their own week, so
   a bulk call needs a result per sheet. I would leave it out.
@@ -276,19 +277,18 @@ letters, arrow down, Enter, land on the task or project.
   `/projects/{id}`.
 - Debounce the input, drop the answer to a superseded request, and show the
   last few picks (from `localStorage`) before anything is typed.
-- Related: inside a project the List tab can only "Hide done" and "Only mine".
-  A text filter plus assignee, status and priority filters over
-  `store.tasks()` need no API. `visibleRows` filters row by row, so decide
-  what happens to a parent when only its subtask matches. I would keep the
-  parent row, greyed out.
-- Related: the dashboard lists my overdue tasks, the ones due within seven
-  days (`DUE_SOON_DAYS`) and the ones in progress. A to-do task due in three
-  weeks shows up nowhere outside its project. The search endpoint with
-  `assigneeId` and `status` parameters and no text would feed a "My tasks"
-  page.
-- Undecided: whether the list filters and "My tasks" belong in this item. I
-  would build the endpoint with the extra parameters now and add the two
-  screens only if the dialog goes quickly.
+- Also in this pull request: filters on the List tab, which can only "Hide
+  done" and "Only mine" today. A text filter plus assignee, status and
+  priority filters over `store.tasks()` need no API. `visibleRows` filters row
+  by row, so when only a subtask matches, keep its parent row, greyed out.
+- So the pull request is: the search endpoint (text only), the dialog with its
+  shortcut and top bar button, recent picks, and the List tab filters.
+- Follow-up, not in this pull request: a "My tasks" page. The dashboard lists
+  my overdue tasks, the ones due within seven days (`DUE_SOON_DAYS`) and the
+  ones in progress, so a to-do task due in three weeks shows up nowhere
+  outside its project. The page would call the search endpoint with new
+  `assigneeId` and `status` parameters and no text. Neither the page nor the
+  parameters are built here.
 
 ### 5. Accessibility pass
 
@@ -476,8 +476,12 @@ an arrow from one bar to another.
 - Tricky: a parent with subtasks. Nothing ties their dates together today, so
   resizing the parent leaves the subtasks where they were. Leave that as it
   is.
-- Undecided: drawing a bar on the empty row of a task without dates, to give
-  it dates. Cheap once resize exists, and easy to trigger by accident.
+- So the pull request is: resize handles, drawing and removing links, `Shift`
+  plus the arrow keys, and `shift` in working days with the timeline sending
+  them.
+- Follow-up, not in this pull request: drawing a bar on the empty row of a
+  task without dates, to give it dates. Cheap once resize exists, but easy to
+  trigger by accident, so it wants a look of its own.
 
 ### 9. Time and utilisation reports
 
@@ -564,7 +568,8 @@ and that is the one thing of theirs I miss.
   fires at that moment. The next entry on the project picks it up.
 - Undecided: who a project belongs to. There is no project lead, so every
   manager is told about every project, which is noise in a bigger team. A lead
-  on `projects` would fix that and would help item 12 too.
+  on `projects` would fix that, and would help the daily summary that item 12
+  leaves as a follow-up.
 - Undecided: alerts for the schedule (health turning off track, or the plan
   running past `Project.endDate` after a cascade). Those need hooks in
   `TaskService` as well. Not here.
@@ -676,15 +681,18 @@ timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
 - The suggestion list in `CommentBox` offers every member as well
   (`store.members()`). Filter it by the same rule, which the web app can do
   from the member's `clientId` and the project's.
-- A daily summary ("due today", "overdue", and for managers "timesheets
-  waiting") is the other half of what people expect. The queries exist in
-  `DashboardResource`. It needs "eight in the morning in the organisation's
-  time zone" (`Organisation.zone()`) and a record of what was sent, so that it
-  does not repeat. I would do it last and drop it from this item if it grows.
+- So the pull request is: the outbox column and the job, the preferences with
+  their endpoint and settings card, the project check for mentions, and the
+  seeding fix.
+- Follow-up, not in this pull request: a daily summary ("due today",
+  "overdue", and for managers "timesheets waiting"), which is the other half
+  of what people expect. The queries exist in `DashboardResource`. It needs
+  "eight in the morning in the organisation's time zone"
+  (`Organisation.zone()`) and a record of what was sent, so that it does not
+  repeat. The automatic timesheet reminders that item 3 leaves out belong to
+  that follow-up too.
 - Undecided: separate preferences per organisation for people who are in
   several. I lean towards no.
-- Undecided: whether the automatic timesheet reminders from item 3 come in
-  here. Yes if the daily summary is built, as part of it.
 
 ### 13. Duplicate a project as a template
 
@@ -736,26 +744,53 @@ years for "copy a project and shift its dates". That is this feature.
 
 The demo data is eight projects, about ninety tasks and a year of time for
 five people, and everything is instant. Some of the code only works at that
-size.
+size. There are seven separate changes here, listed in the order I would do
+them. The first four are the pull request. The last three are follow-ups, each
+small enough for a pull request of its own.
 
-- The project list works out full health for every project.
-  `ProjectResource.list` calls `ProjectHealthService.summary` per project,
-  which loads all of its tasks, every one of its time entries
-  (`TimeEntry.list("projectId", ...)`) and a fresh `RateBook` (the
-  organisation, the role rates and all memberships).
-  `ProjectService.toResponse` then looks up the client by id.
-  `DashboardResource` does the same for the active projects.
-- `TimesheetPage` and `ReportsPage` call that same list only to fill a project
-  select.
-- More of the same kind: `TimesheetService.summaries` queries the entries and
-  the user once per sheet. `OrgResource.members` and
-  `CommentResource.mentionedUsers` call `User.findById` per member.
-  `MeResource.me` loads the organisation per membership.
-- Fixes: load the tasks and one grouped time query (project, user, billable,
-  `sum(minutes)`) for all listed projects at once, with one `RateBook` per
-  request. A light list for selects (id, code, name, status, client) under its
-  own path or a query parameter. Users in one `id in` query, as `TaskMapper`
-  already does.
+In the pull request:
+
+1. A query-count check, first, because it makes the rest checkable in CI
+   without timing anything. Switch on Hibernate statistics in the test profile
+   (`quarkus.hibernate-orm.statistics=true`) and assert that the number of
+   statements for the project list with thirty projects stays under a fixed
+   bound. Build that data in the test, not in `DemoSeeder`.
+2. The project list and the dashboard. `ProjectResource.list` calls
+   `ProjectHealthService.summary` per project, which loads all of its tasks,
+   every one of its time entries (`TimeEntry.list("projectId", ...)`) and a
+   fresh `RateBook` (the organisation, the role rates and all memberships).
+   `ProjectService.toResponse` then looks up the client by id, and
+   `DashboardResource` does the same for the active projects. Load the tasks
+   and one grouped time query for all listed projects at once, with one
+   `RateBook` per request.
+3. A light project list for selects (id, code, name, status, client) under its
+   own path or a query parameter. `TimesheetPage` and `ReportsPage` call the
+   full list today only to fill a project select. Switch both.
+4. People in one `id in` query, as `TaskMapper` already does, in the places
+   that look them up one at a time: `TimesheetService.summaries` (which also
+   queries the entries once per sheet), `OrgResource.members` and
+   `CommentResource.mentionedUsers` (`User.findById` per member), and
+   `MeResource.me` (the organisation per membership).
+
+Follow-ups, not in this pull request:
+
+5. Older entries in the two lists that only take a limit. `ActivityResource`
+   (at most 200) and `NotificationResource` cannot be asked for anything
+   older. A "before this id" parameter, and "Load more" in `ActivityTab` and
+   `NotificationsPage`.
+6. The timeline with many tasks. It draws every row and every bar.
+   `layoutGantt` is recomputed when tasks, zoom or collapsed phases change and
+   not during a drag, which is right, so with a thousand tasks it is the size
+   of the DOM that hurts. Open with the phases collapsed above some task count
+   first, and only then think about drawing just the visible rows.
+7. Smaller things on the web side, and only with a measurement that says they
+   matter: `groupTasks` copies the child array for every subtask and scans the
+   phases for every task, `ProjectStore.changed` fetches the critical path
+   again after each change, and the board reloads the whole task list after
+   each drop (`reloadTasks`).
+
+Notes for the pull request:
+
 - Tricky: rounding again. `BudgetCalculator` adds up `Money.cost` per entry,
   rounded to cents each time. Feeding it one `TimeFacts` per person with
   summed minutes moves `spentAmount` by a few cents, and no test would
@@ -764,32 +799,15 @@ size.
   three one-minute entries at 100 an hour cost 1.67 each and 5.01 together,
   where three minutes in one entry cost 5.00.
 - Keep rounding per entry, so that the budget, the CSV and item 9's report
-  stay in step. A grouped query can still be exact: group by the minutes
-  value as well (project, user, billable, minutes, and a count), price one
-  entry and multiply by the count.
-- Lists with nothing but a limit: `ActivityResource` (at most 200) and
-  `NotificationResource` cannot be asked for older entries. Add a "before this
-  id" parameter and "Load more" in `ActivityTab` and `NotificationsPage`.
-- Web: the timeline draws every row and every bar. `layoutGantt` is recomputed
-  when tasks, zoom or collapsed phases change and not during a drag, which is
-  right. With a thousand tasks it is the size of the DOM that hurts. Cheapest
-  first: open with the phases collapsed above some task count, and only then
-  think about drawing just the visible rows.
-- Smaller things: `groupTasks` copies the child array for every subtask and
-  scans the phases for every task. After each change `ProjectStore.changed`
-  fetches the critical path again, and the board reloads the whole task list
-  after each drop (`reloadTasks`). All fine at ninety tasks. Measure before
-  touching them.
-- Make it checkable in CI without timing anything: switch on Hibernate
-  statistics in the test profile (`quarkus.hibernate-orm.statistics=true`) and
-  assert that the number of statements for the project list with, say, thirty
-  projects stays under a fixed bound. Build that data in the test, not in
-  `DemoSeeder`.
-- The indexes look right for today's queries. Add one only together with the
-  query that needs it (`V20`).
-- Undecided: the target. I would aim for an organisation with 50 projects and
-  a project with 1,000 tasks and 20,000 time entries, with the project list
-  under ten queries.
+  stay in step. The grouped query in step 2 can still be exact: group by the
+  minutes value as well (project, user, billable, minutes, and a count), price
+  one entry and multiply by the count.
+- Item 12 changes `CommentResource.mentionedUsers` too, to skip people who
+  cannot see the project. Whichever lands second keeps both changes.
+- The indexes look right for today's queries. Add one only together with a
+  query from steps 2 to 4 that needs it (`V20`).
+- The target: an organisation with 50 projects, and a project with 1,000 tasks
+  and 20,000 time entries, with the project list under ten statements.
 
 ### 15. Public holidays and time off
 
