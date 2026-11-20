@@ -27,6 +27,8 @@ services:
       CORS_ALLOWED_ORIGINS: http://localhost:${WEB_PORT:-5191}
       # Creates demo@example.com / demo-password with a year of sample data.
       SEED_DEMO: ${SEED_DEMO:-true}
+      # Serves the interactive API reference at /api/docs. The API itself leaves it off.
+      API_DOCS: ${API_DOCS:-true}
     depends_on:
       db:
         condition: service_healthy
