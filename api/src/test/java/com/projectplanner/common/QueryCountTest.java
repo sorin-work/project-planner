@@ -61,16 +61,16 @@ class QueryCountTest {
     @Test
     void theProjectListIsUnderTenStatementsForEveryRole() {
         // The roadmap's target. The projects, the organisation, the clients, the tasks of all
-        // projects, the rates (three) and the time of all projects, besides the caller.
+        // projects, the rates (three), the holidays and the time of all projects, besides the caller.
         for (Account who : java.util.List.of(org.owner(), org.members().getFirst(), org.clientViewer())) {
-            assertThat(statements(who, r -> r.get(orgPath("/projects")))).isLessThanOrEqualTo(8);
+            assertThat(statements(who, r -> r.get(orgPath("/projects")))).isLessThanOrEqualTo(9);
         }
         assertThat(statements(org.owner(), r -> r.get(orgPath("/projects/options")))).isLessThanOrEqualTo(3);
     }
 
     @Test
     void theDashboardDoesNotGrowWithTheProjects() {
-        assertThat(statements(org.owner(), r -> r.get(orgPath("/dashboard")))).isLessThanOrEqualTo(21);
+        assertThat(statements(org.owner(), r -> r.get(orgPath("/dashboard")))).isLessThanOrEqualTo(22);
     }
 
     @Test
