@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, linkedSignal, signal, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { SearchHit, SearchHitType } from '../../core/models';
@@ -6,7 +6,7 @@ import { OrgContext } from '../../core/org-context.service';
 import { SearchApi } from '../../core/search.api';
 import { moveHighlight } from '../../shared/list-keys';
 import { MIN_SEARCH_LENGTH, QuickSearch } from './quick-search';
-import { loadRecent, recentKey, rememberPick } from './recent-picks';
+import { loadRecent, recentKey, rememberPick, saveRecent } from './recent-picks';
 
 interface Option {
   hit: SearchHit;
@@ -95,8 +95,9 @@ export class SearchDialog {
 
   readonly isOpen = signal(false);
   protected readonly text = signal('');
-  protected readonly highlighted = signal(0);
   private readonly recent = signal<SearchHit[]>([]);
+  /** Counts the openings, so that the recent picks fetched for an earlier one are dropped. */
+  private opening = 0;
   /** What had the focus when the dialog opened, to give it back. */
   private opener: HTMLElement | null = null;
 
@@ -127,6 +128,8 @@ export class SearchDialog {
   });
 
   protected readonly options = computed(() => this.groups().flatMap((group) => group.options));
+  /** Back on the first row whenever a new list replaces the one the highlight was on. */
+  protected readonly highlighted = linkedSignal({ source: this.options, computation: () => 0 });
   protected readonly activeId = computed(() => this.options()[this.highlighted()]?.id ?? null);
 
   /** What stands in place of the list when there is no list. */
@@ -168,7 +171,7 @@ export class SearchDialog {
     this.quick.reset();
     this.text.set('');
     this.highlighted.set(0);
-    this.recent.set(loadRecent(storage(), recentKey(user.id, orgId)));
+    this.showRecent(orgId, recentKey(user.id, orgId));
 
     const dialog = this.dialog().nativeElement;
     // showModal keeps the page behind out of reach. Where it is missing the dialog still opens.
@@ -181,6 +184,31 @@ export class SearchDialog {
     const input = this.input().nativeElement;
     input.value = '';
     input.focus();
+  }
+
+  /**
+   * Only the kind and the id of a pick are kept. The titles are fetched each time, so that
+   * a renamed task shows its new title, and what the person can no longer open is left out,
+   * and forgotten.
+   */
+  private showRecent(orgId: number, key: string): void {
+    this.recent.set([]);
+    const picks = loadRecent(storage(), key);
+    if (picks.length === 0) {
+      return;
+    }
+    const opening = ++this.opening;
+    this.api.recent(orgId, picks).subscribe({
+      next: (hits) => {
+        if (opening !== this.opening || !this.isOpen()) {
+          return;
+        }
+        this.recent.set(hits);
+        saveRecent(storage(), key, hits);
+      },
+      // Without them the dialog still searches.
+      error: () => undefined,
+    });
   }
 
   close(): void {
@@ -199,6 +227,7 @@ export class SearchDialog {
       return;
     }
     this.isOpen.set(false);
+    this.opening++;
     this.quick.reset();
     this.opener?.focus();
     this.opener = null;
@@ -234,6 +263,10 @@ export class SearchDialog {
       document.getElementById(options[moved].id)?.scrollIntoView?.({ block: 'nearest' });
     } else if (event.key === 'Enter' && !event.isComposing) {
       event.preventDefault();
+      // A held Enter would open one hit after the other.
+      if (event.repeat) {
+        return;
+      }
       const highlighted = options[this.highlighted()]?.hit;
       if (this.typing()) {
         this.quick.enter(highlighted);
