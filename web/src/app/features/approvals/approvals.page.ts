@@ -1,3 +1,4 @@
+import { Announce } from '../../shared/announce';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, linkedSignal, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -33,7 +34,7 @@ interface MissingSection {
 
 @Component({
   selector: 'app-approvals-page',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, Announce],
   template: `
     <div class="page-header">
       <h1>Timesheet approvals</h1>
@@ -71,7 +72,7 @@ interface MissingSection {
             <button type="button" (click)="shiftWeek(1)" [disabled]="m.weekStart >= m.latestWeekStart" aria-label="Next week">›</button>
           </div>
           @if (notice()) {
-            <p class="alert info" role="status">{{ notice() }}</p>
+            <p class="alert info" role="status" [appAnnounce]="notice()">{{ notice() }}</p>
           }
           @for (section of sections(); track section.key) {
             <div class="list-header">

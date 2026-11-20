@@ -138,7 +138,7 @@
       }
       @if (!locked()) {
         @if (notice()) {
-          <p class="alert info" role="status">{{ notice() }}</p>
+          <p class="alert info" role="status" [appAnnounce]="notice()">{{ notice() }}</p>
         }
         <div class="grid-tools">
           <label class="sr-only" for="row-project">Project for a new row</label>

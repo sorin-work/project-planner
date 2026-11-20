@@ -17,7 +17,7 @@ import { TaskPanel } from './task-panel';
   providers: [ProjectStore],
   template: `
     @if (error()) {
-      <p class="alert error">{{ error() }}</p>
+      <p class="alert error" role="alert">{{ error() }}</p>
       <a routerLink="/projects">Back to projects</a>
     } @else if (store.project(); as p) {
       <div class="page-header project-header">

@@ -1,3 +1,4 @@
+import { Announce } from '../../shared/announce';
 import { Announcer } from '../../core/announcer';
 import {
   ChangeDetectionStrategy,
@@ -72,7 +73,7 @@ function without<V>(record: Record<string, V>, key: string): Record<string, V> {
 
 @Component({
   selector: 'app-timesheet-page',
-  imports: [FormsModule],
+  imports: [FormsModule, Announce],
   templateUrl: './timesheet.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:visibilitychange)': 'cameBack()' },

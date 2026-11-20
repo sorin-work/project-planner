@@ -71,7 +71,7 @@
 
     <main class="content" id="content" tabindex="-1">
       @if (loadError()) {
-        <p class="alert error">{{ loadError() }}</p>
+        <p class="alert error" role="alert">{{ loadError() }}</p>
       } @else if (auth.me() && !org.current()) {
         <div class="card empty">
           <h2>You're not part of a team</h2>

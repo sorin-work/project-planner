@@ -1,3 +1,4 @@
+import { Announce } from '../../shared/announce';
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
@@ -13,11 +14,11 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
 
 @Component({
   selector: 'app-settings-page',
-  imports: [FormsModule, HolidaysCard],
+  imports: [FormsModule, HolidaysCard, Announce],
   template: `
     <h1>Settings</h1>
     @if (message()) {
-      <p class="alert success" role="status">{{ message() }}</p>
+      <p class="alert success" role="status" [appAnnounce]="message()">{{ message() }}</p>
     }
     @if (error()) {
       <p class="alert error" role="alert">{{ error() }}</p>

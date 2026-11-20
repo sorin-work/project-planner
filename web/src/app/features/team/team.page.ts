@@ -1,3 +1,4 @@
+import { Announce } from '../../shared/announce';
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { messageOf } from '../../core/errors';
@@ -10,7 +11,7 @@ import { TimeOffCard } from './time-off.card';
 
 @Component({
   selector: 'app-team-page',
-  imports: [FormsModule, Avatar, TimeOffCard],
+  imports: [FormsModule, Avatar, TimeOffCard, Announce],
   templateUrl: './team.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

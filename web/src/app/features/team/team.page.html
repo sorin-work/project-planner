@@ -3,7 +3,7 @@
   <p class="alert error" role="alert">{{ error() }}</p>
 }
 @if (notice()) {
-  <p class="alert success" role="status">{{ notice() }}</p>
+  <p class="alert success" role="status" [appAnnounce]="notice()">{{ notice() }}</p>
 }
 <section class="card table-wrap">
   <table class="table">

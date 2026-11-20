@@ -1,3 +1,4 @@
+import { Announce } from '../../shared/announce';
 import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
@@ -18,7 +19,7 @@ import { issueText, linkIssue, linkNote, moveCost, moveTo } from './schedule-iss
 
 @Component({
   selector: 'app-task-panel',
-  imports: [FormsModule, CommentBox, TaskAttachments],
+  imports: [FormsModule, CommentBox, TaskAttachments, Announce],
   templateUrl: './task-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
