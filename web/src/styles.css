@@ -1768,3 +1768,13 @@ kbd {
     display: none;
   }
 }
+
+/* List tab filters */
+
+.task-filters input[type='search'] {
+  width: 12rem;
+}
+
+tr.context-row > td {
+  opacity: 0.55;
+}
