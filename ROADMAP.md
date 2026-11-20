@@ -447,13 +447,23 @@ an arrow from one bar to another.
   events but no layout and no `setPointerCapture` (the code already calls it
   with `?.`), so a component spec can only send events with made-up
   coordinates.
-- Tricky: weekends. `TaskService.shift` moves by calendar days. Drag a
-  Thursday to Friday task one column to the right and it becomes Friday to
-  Saturday, which `WorkCalendar.duration` counts as one working day: the task
-  quietly got shorter. Resizing makes that easier to hit. I think `shift`
-  should start on a working day and keep the length in working days
-  (`onOrAfter`, `addWorkingDays`), the way `Rescheduler` treats dependants,
-  and a resize should snap its end to a working day.
+- Tricky: weekends. `TaskService.shift` moves by calendar days (`plusDays`).
+  Drag a Thursday to Friday task one column to the right and it becomes Friday
+  to Saturday, which `WorkCalendar.duration` counts as one working day: the
+  task quietly got shorter. Resizing makes that easier to hit.
+- So `shift` changes to N working days, in either direction. The new start is
+  `addWorkingDays(start, n)`, which takes negative numbers, and the due date
+  keeps the length in working days, the way `Rescheduler` treats dependants.
+  Do not snap the result with `onOrAfter`: a Monday bar moved left by one or
+  two days would land on the weekend, snap back to Monday and never move.
+- The timeline then sends working days. One arrow key press is one working
+  day. For a drag, take the day the bar was dropped on, go on to the next
+  working day in the direction of the drag if that day is a weekend, and
+  count the working days from the old start (`workingDaysBetween` in
+  `shared/dates.ts` exists and nothing uses it yet). A resize snaps its end
+  the same way, in the direction of the drag.
+- `movingATaskCascadesThroughItsDependants` in `TaskResourceTest` shifts by 7
+  and expects a week later. With working days that request becomes 5.
 - Tricky: at month zoom a day is 4 pixels wide (`DAY_WIDTH.month`), too small
   for handles. Edit only at day and week zoom. On touch screens the bars need
   `touch-action: none`, or the drag scrolls `.gantt-scroll` instead.
