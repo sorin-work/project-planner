@@ -38,7 +38,7 @@ public class ProjectHealthService {
         LocalDate today = Organisation.<Organisation>findById(project.organisationId).today(clock);
         List<Task> tasks = Task.forProject(project.id);
         Progress progress = progressCalculator.calculate(tasks.stream().map(ProjectHealthService::facts).toList(), today);
-        Budget budget = budget(project);
+        Budget budget = budget(project, RateBook.load(project.organisationId));
         HealthStatus status = HealthStatus.of(progress, budget, project.status == ProjectStatus.DONE, started(project, tasks, today));
 
         List<OverdueTask> overdue = tasks.stream()
@@ -71,10 +71,20 @@ public class ProjectHealthService {
                 h.progress().scheduleVarianceHours());
     }
 
-    Budget budget(Project project) {
-        RateBook rates = RateBook.load(project.organisationId);
-        List<TimeFacts> entries = TimeEntry.<TimeEntry>list("projectId", project.id).stream()
-                .map(e -> new TimeFacts(e.minutes, e.billable, rates.rate(project.hourlyRate, e.userId)))
+    /**
+     * Hours and money burned on a project. The entries are grouped in the database by
+     * person, billable flag and length, with a count: that is all the calculator needs, and
+     * it keeps the rounding per entry. Without {@code rates} nothing has a price, which is
+     * enough for a project without a money budget.
+     */
+    Budget budget(Project project, RateBook rates) {
+        List<TimeFacts> entries = TimeEntry.getEntityManager()
+                .createQuery("select e.userId, e.billable, e.minutes, count(e.id) from TimeEntry e"
+                        + " where e.projectId = :project group by e.userId, e.billable, e.minutes", Object[].class)
+                .setParameter("project", project.id)
+                .getResultList().stream()
+                .map(r -> new TimeFacts(((Number) r[2]).longValue(), (Boolean) r[1],
+                        rates == null ? null : rates.rate(project.hourlyRate, (Long) r[0]), ((Number) r[3]).longValue()))
                 .toList();
         return budgetCalculator.calculate(project.budgetHours, project.budgetAmount, entries);
     }

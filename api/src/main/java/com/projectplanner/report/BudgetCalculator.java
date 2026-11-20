@@ -9,6 +9,8 @@ import java.util.Collection;
 /**
  * Budget burn for a project. All logged time counts against the hours budget;
  * only billable time, at each person's rate, counts against the money budget.
+ * The overview, the health status and the budget alerts all take their numbers
+ * from here.
  */
 public final class BudgetCalculator {
 
@@ -17,10 +19,12 @@ public final class BudgetCalculator {
         long billableMinutes = 0;
         BigDecimal spent = BigDecimal.ZERO;
         for (TimeFacts entry : entries) {
-            totalMinutes += entry.minutes();
+            long minutes = entry.minutes() * entry.count();
+            totalMinutes += minutes;
             if (entry.billable()) {
-                billableMinutes += entry.minutes();
-                spent = spent.add(Money.cost(entry.minutes(), entry.rate()));
+                billableMinutes += minutes;
+                // One entry is priced and rounded to a cent, then counted as often as it occurs.
+                spent = spent.add(Money.cost(entry.minutes(), entry.rate()).multiply(BigDecimal.valueOf(entry.count())));
             }
         }
         BigDecimal logged = Money.hours(totalMinutes);
@@ -45,7 +49,16 @@ public final class BudgetCalculator {
         return part.multiply(BigDecimal.valueOf(100)).divide(whole, 1, RoundingMode.HALF_UP).doubleValue();
     }
 
-    public record TimeFacts(long minutes, boolean billable, BigDecimal rate) {
+    /**
+     * Entries of the same length, billable flag and rate: {@code count} of them, each of
+     * {@code minutes} minutes. Money is rounded per entry, so entries may only be put together
+     * like this, never by adding up their minutes.
+     */
+    public record TimeFacts(long minutes, boolean billable, BigDecimal rate, long count) {
+
+        public TimeFacts(long minutes, boolean billable, BigDecimal rate) {
+            this(minutes, billable, rate, 1);
+        }
     }
 
     public record Budget(BigDecimal budgetHours, BigDecimal loggedHours, BigDecimal billableHours,
