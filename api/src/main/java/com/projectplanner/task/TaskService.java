@@ -1,6 +1,8 @@
 package com.projectplanner.task;
 
 import com.projectplanner.activity.ActivityLog;
+import com.projectplanner.attachment.Attachment;
+import com.projectplanner.attachment.AttachmentFiles;
 import com.projectplanner.auth.User;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.notification.NotificationType;
@@ -38,11 +40,14 @@ public class TaskService {
     private final Clock clock;
     private final Rescheduler rescheduler = new Rescheduler(WorkCalendar.DEFAULT);
 
-    public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock) {
+    private final AttachmentFiles attachmentFiles;
+
+    public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock, AttachmentFiles attachmentFiles) {
         this.activity = activity;
         this.notifier = notifier;
         this.mapper = mapper;
         this.clock = clock;
+        this.attachmentFiles = attachmentFiles;
     }
 
     public Task create(Membership me, Project project, CreateTaskRequest request) {
@@ -163,7 +168,12 @@ public class TaskService {
     public void delete(Membership me, Project project, Task task) {
         activity.record(project.organisationId, project.id, null, me.userId, "task.deleted", "Deleted " + task.title);
         TaskDependency.delete("predecessorId = ?1 or successorId = ?1", task.id);
-        for (Task subtask : Task.<Task>list("parentId", task.id)) {
+        List<Task> subtasks = Task.list("parentId", task.id);
+        // The rows of the attachments go with the tasks by the foreign key, the files once that is committed.
+        List<Long> ids = new ArrayList<>(subtasks.stream().map(t -> t.id).toList());
+        ids.add(task.id);
+        attachmentFiles.deleteAfterCommit(Attachment.keysOfTasks(ids));
+        for (Task subtask : subtasks) {
             TaskDependency.delete("predecessorId = ?1 or successorId = ?1", subtask.id);
             subtask.delete();
         }
