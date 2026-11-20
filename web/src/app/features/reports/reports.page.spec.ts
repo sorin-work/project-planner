@@ -157,7 +157,7 @@ describe('ReportsPage', () => {
     await fixture.whenStable();
 
     expect(texts(el, '.report tbody tr:first-child td')).toEqual(['Gwen', '5h', '5h', '24h', '', '20.8%']);
-    expect(texts(el, '.report tfoot th')).toEqual(['Total', '11h 48m', '9h 48m', '43h 12m', '', '22.7%']);
+    expect(texts(el, '.report tfoot th, .report tfoot td')).toEqual(['Total', '11h 48m', '9h 48m', '43h 12m', '', '22.7%']);
     const note = el.querySelector('section.card > p.muted')?.textContent ?? '';
     expect(note).toContain('for the 3 working days from 9 Mar');
     expect(note).toContain('Days after today are not counted');
