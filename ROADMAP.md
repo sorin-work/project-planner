@@ -727,16 +727,18 @@ documents); SVG, HTML and plain text that starts like markup are refused. The
 bytes come through a link that works for two minutes, an HMAC over the
 attachment, the user, the expiry and the preview flag, with access checked
 when the link is made; every answer has `Content-Disposition`, `nosniff` and a
-sandboxing CSP, and only raster images are ever shown inline. 20 MB a file and
+sandboxing CSP, and only raster images are ever shown inline. Names lose
+control and invisible format characters, and only plain files inside the
+folder are served, never links. 20 MB a file and
 2 GB an organisation; Quarkus and nginx let 25 MB through so the API can say
 why. Deleting an attachment, a task or a project removes the files after the
 commit, a failed upload removes its file, and a sweep every six hours removes
-files without a row. A copied project takes the files only when asked. The
+files without a row. A copied project takes the files only when asked, and leaves out (and counts)
+files that are missing. Uploads lock the organisation's row for the limit. The
 backup service archives the volume next to every dump and restores it with
 the dump, and the restore drill in CI checks it. Differences from the design:
 the bytes are behind a signed link instead of the bearer token, which lets a
-plain download and an `<img>` preview work; the organisation limit can be
-passed by uploads that arrive at the same moment in different projects, by at
-most a file each; and a file removed in the minute between a dump and its
+plain download and an `<img>` preview work, and a link works for its two
+minutes even after access is taken away; and a file removed in the minute between a dump and its
 archive is missing from that backup. Still open: attachments on comments,
 pasted images, and storage other than the volume.
