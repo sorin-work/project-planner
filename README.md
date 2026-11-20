@@ -207,9 +207,11 @@ docker compose start api
 `restore` without a file name lists the dumps. The restore replaces the whole database,
 so everything written after the dump is gone. The dump is loaded into a new database
 first, and that one takes the place of the old one only when the load worked: a damaged
-file, or an API that is still running, leaves the data as it was. Should the very last
-step fail, giving the new database its name, the script says where the restored data is
-and prints the command that finishes the job.
+file, or an API that is still running, leaves the data as it was. The two swap names in
+one transaction and the old database is dropped after that, so a restore that is killed
+half way never leaves you without a database. On a new volume there is nothing to swap
+with. Should giving the restored database its name fail there, the script says where
+the data is and prints the command that finishes the job.
 
 After losing the volume, or on another machine, it is the same command: put the dump in
 `./backups`, run the `restore` line (it starts the database by itself), then
@@ -319,15 +321,27 @@ the stack on PostgreSQL. On a Compose project of its own, with its own volume, i
    a restore of the newest into a scratch database, and the row count of every table
    compared between the two (`users`, `tasks`, `time_entries` and `timesheets` must not
    be empty);
-3. takes one migration back by hand, dumps, removes the volume, restores the dump with
-   the commands from above and starts the API, which has to apply the missing migration
-   and come back with the same row counts;
+3. takes one migration back by hand, dumps, removes the volume and restores the dump
+   with the commands from above. The row counts have to be back before the API has run.
+   Then the API is started without the demo seed and has to apply the missing migration;
 4. checks that the API refuses to start on a database from a newer version.
 
 ```bash
-sh scripts/check-restore.sh       # needs Docker; stop your stack first, or set DB_PORT and API_PORT
-sh scripts/check-backup-loop.sh   # needs nothing
+sh scripts/check-restore.sh          # needs Docker; stop your stack first, or set DB_PORT and API_PORT
+sh scripts/check-restore-guards.sh   # needs nothing
+sh scripts/check-backup-loop.sh      # needs nothing
 ```
+
+The check drops a column and removes a database volume, so it is careful about whose.
+It reads `docker-compose.yml` and nothing else: an override file or a `COMPOSE_FILE`
+could put the database on storage that is in use. It refuses the project name the stack
+itself runs under (CI is the exception, there is no data there), a project that already
+has containers or a volume, and a Docker that does not answer. It creates the `db`
+container first and only starts it once its data is seen to be on the volume the project
+has just made. If you interrupt it, it removes what it started. Should a run leave
+something behind anyway, the next one says so and prints the command that removes it.
+`scripts/check-restore-guards.sh` goes through those refusals with a stand-in for
+`docker` and is run by CI as well.
 
 `check-backup.sh` starts with `scripts/check-backup-loop.sh`, which needs neither Docker
 nor a database. It drives the daily loop with stand-ins for `pg_dump` and `sleep` and
