@@ -387,10 +387,14 @@ longer mailed to the person, they left the organisation, or they can no longer s
 what it is about (a project of another client, budgets or approvals after losing the
 manager role). A mail that fails is tried again after 1, 2, 4, 8 and 16 minutes and
 then given up, which the log says. Several instances of the API can run the job at
-the same time: a run reads what waits with `FOR UPDATE SKIP LOCKED` and claims it for
-five minutes (`email_claimed_until`, `V27`) before it sends anything, so no two runs mail
-the same notification, and a run that dies in the middle of a mail leaves its rows to be
-taken on again once the claim has run out. One case still sends twice: a mail that the
+the same time. A run takes people one at a time, the one whose oldest waiting
+notification is oldest first and each once a round, so that one person's backlog does
+not hold up the others. Just before a person's mail it reads their waiting rows with
+`FOR UPDATE SKIP LOCKED` and claims them for five minutes with a token of its own
+(`email_claimed_until` and `email_claim_token`, `V27`), so no two runs mail the same
+notification. It stamps the outcome only on rows that still hold its token, and a run
+that dies in the middle of a mail leaves its rows to be taken on again once the claim
+has run out. A round stops after four minutes and leaves the rest to the next. One case still sends twice: a mail that the
 mail server took but whose answer never came back counts as failed and is sent again.
 The job only ever writes its own columns, so reading a notification while its mail is
 on the way is never undone.

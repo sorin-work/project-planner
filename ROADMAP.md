@@ -499,9 +499,10 @@ only a fixed sentence per type and a link; every mail has a signed stop link per
 that works without signing in, through a page at `/unsubscribe` that asks first.
 Still open: the daily summary and the automatic timesheet reminders, which stay the
 follow-up the roadmap planned; links in a mail open in whichever organisation the
-browser has selected. In a follow-up the rows are claimed with `FOR UPDATE SKIP LOCKED`
-and `email_claimed_until` (`V27`), so several API instances can run the job, and the
-job writes its outcome with bulk updates of its own columns.
+browser has selected. In a follow-up each person's rows are claimed just before
+their mail, with `FOR UPDATE SKIP LOCKED` and a claim token (`V27`), people are taken
+oldest waiting first and once a round, so several API instances can run the job, and
+the job writes its outcome with bulk updates of its own columns.
 
 ### 13. Duplicate a project as a template
 
