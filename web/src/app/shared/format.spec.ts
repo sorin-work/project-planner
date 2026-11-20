@@ -1,4 +1,4 @@
-import { formatHours, formatMinutes, formatMoney, formatPercent, initials, parseDuration } from './format';
+import { formatClock, formatHours, formatMinutes, formatMoney, formatPercent, initials, isDecimalHours, parseDuration } from './format';
 
 describe('format', () => {
   it('formats minutes as hours and minutes', () => {
@@ -28,6 +28,37 @@ describe('format', () => {
     expect(parseDuration('')).toBeNull();
     expect(parseDuration('soon')).toBeNull();
     expect(parseDuration('1:75')).toBeNull();
+  });
+
+  it('only takes decimal hours that are whole minutes', () => {
+    expect(parseDuration('0.1')).toBe(6);
+    expect(parseDuration('0,25')).toBe(15);
+    expect(parseDuration('1.30')).toBe(78);
+    expect(parseDuration('7.75h')).toBe(465);
+    expect(parseDuration('2.50')).toBe(150);
+    expect(parseDuration('0.05')).toBe(3);
+    expect(parseDuration('1.5h 15m')).toBe(105);
+    // 93.3 minutes, 1440.48 minutes, a third of an hour written out, and a sixtieth of a minute.
+    for (const text of ['1.555', '24.008', '0.333', '0.001', '1,01', '1.555h', '0.1234']) {
+      expect(parseDuration(text)).toBeNull();
+      expect(isDecimalHours(text)).toBe(true);
+    }
+    expect(isDecimalHours('1:30')).toBe(false);
+    expect(isDecimalHours('90m')).toBe(false);
+  });
+
+  it('writes minutes as hours and minutes on a clock, and reads every one of them back', () => {
+    expect(formatClock(0)).toBe('0:00');
+    expect(formatClock(5)).toBe('0:05');
+    expect(formatClock(78)).toBe('1:18');
+    expect(formatClock(480)).toBe('8:00');
+    expect(formatClock(1440)).toBe('24:00');
+    for (let minutes = 0; minutes <= 1440; minutes++) {
+      expect(parseDuration(formatClock(minutes))).toBe(minutes);
+      if (minutes > 0) {
+        expect(parseDuration(formatMinutes(minutes))).toBe(minutes);
+      }
+    }
   });
 
   it('formats money and percentages', () => {

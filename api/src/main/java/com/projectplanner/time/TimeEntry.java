@@ -56,8 +56,17 @@ public class TimeEntry extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
+    /** Made up by the client for a create, so that a repeat of it is recognised. Unique per person. */
+    @Column(name = "client_key")
+    public String clientKey;
+
     public boolean isRunning() {
         return startedAt != null && endedAt == null;
+    }
+
+    public static Optional<TimeEntry> madeWith(long organisationId, long userId, String clientKey) {
+        return find("organisationId = ?1 and userId = ?2 and clientKey = ?3", organisationId, userId, clientKey)
+                .firstResultOptional();
     }
 
     public static Optional<TimeEntry> runningFor(long organisationId, long userId) {
