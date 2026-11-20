@@ -37,15 +37,23 @@ public final class ScheduleCheck {
     }
 
     /**
-     * @param relatedTaskId  the predecessor or the parent; null for {@link IssueType#AFTER_PROJECT_END}
-     * @param days           working days the task starts too early, is due too late or lies outside
-     *                       its parent; null for {@link IssueType#WAITS_FOR_UNSCHEDULED}
-     * @param suggestedStart for {@link IssueType#STARTS_TOO_EARLY} only: the first day every
-     *                       predecessor of the task allows
-     * @param suggestedDue   the due date that goes with it, keeping the task's length in working days
+     * @param relatedTaskId    the predecessor or the parent; null for {@link IssueType#AFTER_PROJECT_END}
+     * @param days             working days the task starts too early, is due too late or lies outside
+     *                         its parent; null for {@link IssueType#WAITS_FOR_UNSCHEDULED}
+     * @param suggestedStart   for {@link IssueType#STARTS_TOO_EARLY} only: the first day every
+     *                         predecessor of the task allows
+     * @param suggestedDue     the due date that goes with it, keeping the task's length in working days
+     * @param suggestionCauses what moving the task to the suggested dates would newly get it reported
+     *                         for: {@link IssueType#AFTER_PROJECT_END}, {@link IssueType#OUTSIDE_PARENT},
+     *                         both or nothing. The suggestion only looks at the dependencies, so this
+     *                         is the price to show next to it.
      */
     public record Issue(IssueType type, long taskId, Long relatedTaskId, Integer days,
-                        LocalDate suggestedStart, LocalDate suggestedDue) {
+                        LocalDate suggestedStart, LocalDate suggestedDue, List<IssueType> suggestionCauses) {
+
+        public Issue(IssueType type, long taskId, Long relatedTaskId, Integer days, LocalDate suggestedStart, LocalDate suggestedDue) {
+            this(type, taskId, relatedTaskId, days, suggestedStart, suggestedDue, List.of());
+        }
     }
 
     private final WorkCalendar calendar;
@@ -77,21 +85,18 @@ public final class ScheduleCheck {
             if (done.contains(task.id())) {
                 continue;
             }
-            if (task.isScheduled()) {
-                checkLinks(task, graph, byId, done, issues);
-            }
             Long parentId = parents.get(task.id());
-            if (parentId != null && byId.containsKey(parentId)) {
-                int outside = daysOutside(task, byId.get(parentId));
-                if (outside > 0) {
-                    issues.add(new Issue(IssueType.OUTSIDE_PARENT, task.id(), parentId, outside, null, null));
-                }
+            ScheduledTask parent = parentId == null ? null : byId.get(parentId);
+            if (task.isScheduled()) {
+                checkLinks(task, parent, projectEnd, graph, byId, done, issues);
             }
-            if (projectEnd != null && task.due() != null) {
-                int late = calendar.workingDaysBetween(projectEnd.plusDays(1), task.due());
-                if (late > 0) {
-                    issues.add(new Issue(IssueType.AFTER_PROJECT_END, task.id(), null, late, null, null));
-                }
+            int outside = daysOutside(task, parent);
+            if (outside > 0) {
+                issues.add(new Issue(IssueType.OUTSIDE_PARENT, task.id(), parentId, outside, null, null));
+            }
+            int late = daysLate(task, projectEnd);
+            if (late > 0) {
+                issues.add(new Issue(IssueType.AFTER_PROJECT_END, task.id(), null, late, null, null));
             }
         }
         issues.sort(Comparator.comparing((Issue i) -> firstDay(byId.get(i.taskId())))
@@ -102,8 +107,8 @@ public final class ScheduleCheck {
     }
 
     /** One issue per link that does not hold. Only tasks with both dates get here, as in the rescheduler. */
-    private void checkLinks(ScheduledTask task, DependencyGraph graph, Map<Long, ScheduledTask> byId,
-                            Set<Long> done, List<Issue> issues) {
+    private void checkLinks(ScheduledTask task, ScheduledTask parent, LocalDate projectEnd, DependencyGraph graph,
+                            Map<Long, ScheduledTask> byId, Set<Long> done, List<Issue> issues) {
         LocalDate earliest = rescheduler.earliestStart(graph, byId, task.id());
         for (Link link : graph.predecessors(task.id())) {
             ScheduledTask predecessor = byId.get(link.predecessorId());
@@ -121,16 +126,37 @@ public final class ScheduleCheck {
             if (early > 0) {
                 // The fix has to satisfy every predecessor, not only this one.
                 ScheduledTask fix = rescheduler.startingOn(task, earliest);
-                issues.add(new Issue(IssueType.STARTS_TOO_EARLY, task.id(), predecessor.id(), early, fix.start(), fix.due()));
+                issues.add(new Issue(IssueType.STARTS_TOO_EARLY, task.id(), predecessor.id(), early, fix.start(), fix.due(),
+                        causedBy(task, fix, parent, projectEnd)));
             }
         }
     }
 
-    /** Working days of the subtask that fall before its parent starts or after it is due. */
+    /**
+     * What {@code moved} would be reported for that {@code task} is not reported for today.
+     * The same two rules as in {@link #check}, asked about the suggested dates.
+     */
+    private List<IssueType> causedBy(ScheduledTask task, ScheduledTask moved, ScheduledTask parent, LocalDate projectEnd) {
+        List<IssueType> causes = new ArrayList<>();
+        if (daysLate(moved, projectEnd) > 0 && daysLate(task, projectEnd) == 0) {
+            causes.add(IssueType.AFTER_PROJECT_END);
+        }
+        if (daysOutside(moved, parent) > 0 && daysOutside(task, parent) == 0) {
+            causes.add(IssueType.OUTSIDE_PARENT);
+        }
+        return List.copyOf(causes);
+    }
+
+    /** Working days from the day after the project's end up to the task's due date. */
+    private int daysLate(ScheduledTask task, LocalDate projectEnd) {
+        return projectEnd == null || task.due() == null ? 0 : calendar.workingDaysBetween(projectEnd.plusDays(1), task.due());
+    }
+
+    /** Working days of the subtask that fall before its parent starts or after it is due. Zero without a parent. */
     private int daysOutside(ScheduledTask subtask, ScheduledTask parent) {
         LocalDate first = firstDay(subtask);
         LocalDate last = subtask.due() != null ? subtask.due() : subtask.start();
-        if (first == null) {
+        if (parent == null || first == null) {
             return 0;
         }
         int outside = 0;

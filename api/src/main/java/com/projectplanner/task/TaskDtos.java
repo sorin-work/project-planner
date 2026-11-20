@@ -83,13 +83,16 @@ public final class TaskDtos {
     /**
      * One problem in the plan, see {@link ScheduleCheck}. The suggested dates are only
      * there when moving the task fixes the issue; send both back in a task update.
+     * {@code suggestionCauses} is there when that move would get the task reported for
+     * something else.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ScheduleIssueResponse(ScheduleCheck.IssueType type, long taskId, Long relatedTaskId, Integer days,
-                                        LocalDate suggestedStart, LocalDate suggestedDue) {
+                                        LocalDate suggestedStart, LocalDate suggestedDue,
+                                        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<ScheduleCheck.IssueType> suggestionCauses) {
         public static ScheduleIssueResponse of(ScheduleCheck.Issue issue) {
             return new ScheduleIssueResponse(issue.type(), issue.taskId(), issue.relatedTaskId(), issue.days(),
-                    issue.suggestedStart(), issue.suggestedDue());
+                    issue.suggestedStart(), issue.suggestedDue(), issue.suggestionCauses());
         }
     }
 }

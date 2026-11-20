@@ -95,6 +95,42 @@ class ScheduleCheckTest {
     }
 
     @Test
+    void saysWhenTheFixWouldPutTheTaskAfterTheProjectEnd() {
+        var design = new ScheduledTask(1, day(7), day(11)); // due Friday 13 March, the project's last day
+        var build = new ScheduledTask(2, day(9), day(11)); // Wed - Fri, waits for Design
+        List<Issue> issues = check.check(List.of(design, build), List.of(new Link(1, 2)), Map.of(), Set.of(), day(11));
+        // Moving Build to Monday - Wednesday clears the link and makes it three days late instead.
+        assertThat(issues).containsExactly(new Issue(IssueType.STARTS_TOO_EARLY, 2, 1L, 3, day(14), day(16),
+                List.of(IssueType.AFTER_PROJECT_END)));
+    }
+
+    @Test
+    void saysWhenTheFixWouldTakeASubtaskOutOfItsParent() {
+        var design = new ScheduledTask(1, day(0), day(3)); // due Thursday
+        var build = new ScheduledTask(2, day(0), day(4)); // the parent, Mon - Fri
+        var endpoints = new ScheduledTask(3, day(2), day(3)); // Wed - Thu, inside Build, waits for Design
+        List<Issue> issues = check.check(List.of(design, build, endpoints), List.of(new Link(1, 3)),
+                Map.of(3L, 2L), Set.of(), day(4));
+        // Fri - Mon: Monday is past both the parent and the project.
+        assertThat(issues).containsExactly(new Issue(IssueType.STARTS_TOO_EARLY, 3, 1L, 2, day(4), day(7),
+                List.of(IssueType.AFTER_PROJECT_END, IssueType.OUTSIDE_PARENT)));
+    }
+
+    @Test
+    void theFixCausesNothingWhenItFitsOrWhenTheTaskIsReportedForItAlready() {
+        var design = new ScheduledTask(1, day(0), day(3));
+        var parent = new ScheduledTask(2, day(0), day(11));
+        var inside = new ScheduledTask(3, day(2), day(3)); // moves to Fri - Mon, still inside and in time
+        var late = new ScheduledTask(4, day(2), day(15)); // already past the end and past its parent
+        List<Issue> issues = check.check(List.of(design, parent, inside, late), List.of(new Link(1, 3), new Link(1, 4)),
+                Map.of(3L, 2L, 4L, 2L), Set.of(), day(11));
+        assertThat(issues).filteredOn(i -> i.type() == IssueType.STARTS_TOO_EARLY)
+                .extracting(Issue::taskId, Issue::suggestionCauses)
+                .containsExactly(tuple(3L, List.of()), tuple(4L, List.of()));
+        assertThat(issues).extracting(Issue::type).contains(IssueType.AFTER_PROJECT_END, IssueType.OUTSIDE_PARENT);
+    }
+
+    @Test
     void aMilestoneIsMovedAsASingleDay() {
         var build = new ScheduledTask(1, day(0), day(4));
         var launch = new ScheduledTask(2, day(3), day(3));
