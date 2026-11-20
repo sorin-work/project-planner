@@ -106,9 +106,12 @@ public class ProjectDuplicator {
         Map<Long, Long> newTask = copyTasks(tasks, copy.id, newPhase, shift, team, now);
         int links = copyDependencies(dependencies, newTask, now);
 
+        // The entry is read by everybody who sees the copy, and not all of them may see the source:
+        // a copy can be made for another client. So the text does not name it. Its id is kept next
+        // to the entry, and the name is added for the readers who may know it.
         activity.record(copy.organisationId, copy.id, null, me.userId, "project.duplicated",
-                "Copied the plan of " + source.name + " into " + copy.name + ": " + count(phases.size(), "phase") + ", "
-                        + count(tasks.size(), "task") + " and " + count(links, "link"));
+                "Copied the plan from another project: " + count(phases.size(), "phase") + ", "
+                        + count(tasks.size(), "task") + " and " + count(links, "link"), source.id);
         return copy;
     }
 
