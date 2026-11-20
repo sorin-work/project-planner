@@ -58,6 +58,21 @@ describe('TimesheetPage', () => {
     return { harness, el: harness.routeNativeElement as HTMLElement };
   }
 
+  it('marks the holidays of the week in the header and still takes time on them', async () => {
+    const harness = await RouterTestingHarness.create(`/time?week=${MONDAY}`);
+    http.expectOne('/api/orgs/7/projects/options').flush(PROJECTS);
+    const withHoliday = { ...week(MONDAY, [entry(1, MONDAY, 60)]), days: [{ date: '2026-03-04', minutes: 0, holiday: 'Spring holiday' }] };
+    http.expectOne((r) => r.url === WEEK_URL).flush(withHoliday);
+    await harness.fixture.whenStable();
+    const el = harness.routeNativeElement as HTMLElement;
+    const headers = [...el.querySelectorAll('.timesheet-grid thead th')];
+    const wednesday = headers.find((th) => th.textContent.includes('Wed'))!;
+    expect(wednesday.textContent).toContain('Spring holiday');
+    expect(wednesday.classList.contains('weekend')).toBe(true);
+    expect(headers.find((th) => th.textContent.includes('Tue'))!.classList.contains('weekend')).toBe(false);
+    expect(cell(el, 'WEB, Design, Wednesday').disabled).toBe(false);
+  });
+
   function cell(el: HTMLElement, label: string): HTMLInputElement {
     const input = el.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
     if (!input) {

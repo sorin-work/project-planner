@@ -47,7 +47,9 @@
             <tr>
               <th>Project / task</th>
               @for (d of g.dates; track d) {
-                <th class="num" [class.weekend]="$index >= 5">{{ dayName(d) }}<br /><span class="muted small">{{ formatDate(d) }}</span></th>
+                <th class="num" [class.weekend]="$index >= 5 || holidays().has(d)" [attr.title]="holidays().get(d) ?? null">{{ dayName(d) }}<br /><span class="muted small">{{ formatDate(d) }}</span>
+                  @if (holidays().get(d); as name) { <br /><span class="holiday-name small">{{ name }}</span> }
+                </th>
               }
               <th class="num">Total</th>
             </tr>

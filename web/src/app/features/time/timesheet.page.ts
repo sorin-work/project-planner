@@ -97,6 +97,10 @@ export class TimesheetPage {
   private readonly currentWeek = signal<string | null>(null);
   protected readonly weekOf = computed(() => this.linkedWeek() ?? this.currentWeek() ?? weekStart(today()));
   protected readonly week = signal<Week | null>(null);
+  /** The holidays of the week on screen, by date. Time can still be logged on them. */
+  protected readonly holidays = computed(
+    () => new Map((this.week()?.days ?? []).filter((d) => d.holiday).map((d) => [d.date, d.holiday!] as const)),
+  );
   protected readonly projects = signal<ProjectOption[]>([]);
   protected readonly projectsLoaded = signal(false);
   protected readonly tasks = signal<Task[]>([]);
