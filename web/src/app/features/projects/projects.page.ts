@@ -20,20 +20,20 @@ import { ProjectForm } from './project-form';
     <div class="page-header">
       <h1>Projects</h1>
       @if (org.canManage() && !creating()) {
-        <button class="primary" type="button" (click)="creating.set(true)">New project</button>
+        <button class="primary" type="button" (click)="startCreating()">New project</button>
       }
     </div>
 
     @if (creating()) {
       <section class="card">
         <h2>New project</h2>
-        @if (items().length) {
+        @if (sources().length) {
           <div class="field">
             <label for="np-copy">Copy the plan from</label>
             <select id="np-copy" [ngModel]="copyFrom()" (ngModelChange)="copyFrom.set($event)">
               <option [ngValue]="null">Nothing, start empty</option>
-              @for (item of items(); track item.project.id) {
-                <option [ngValue]="item.project">{{ item.project.name }} ({{ item.project.code }})</option>
+              @for (source of sources(); track source.id) {
+                <option [ngValue]="source">{{ source.name }} ({{ source.code }})</option>
               }
             </select>
           </div>
@@ -135,6 +135,8 @@ export class ProjectsPage {
   protected readonly creating = signal(false);
   /** The project whose plan the new one starts from, when it does not start empty. */
   protected readonly copyFrom = signal<Project | null>(null);
+  /** Every project that can be copied from. Not the list below, which the filters narrow. */
+  protected readonly sources = signal<Project[]>([]);
   protected readonly saving = signal(false);
   protected readonly formError = signal<string | null>(null);
   protected status: ProjectStatus | '' = '';
@@ -184,6 +186,12 @@ export class ProjectsPage {
         this.formError.set(messageOf(err));
       },
     });
+  }
+
+  startCreating(): void {
+    this.creating.set(true);
+    // Asked for without the page's filters: a finished project is as good a template as an active one.
+    this.api.list(this.org.id()).subscribe({ next: (all) => this.sources.set(all.map((item) => item.project)) });
   }
 
   stopCreating(): void {
