@@ -103,4 +103,20 @@ describe('TaskPanel schedule issues', () => {
     expect(el.querySelector('.issue-fix')?.textContent).toContain('Earliest dates that fit');
     expect(moveButton(el)).toBeUndefined();
   });
+
+  it('says in words where the task was in the baseline, for client viewers too', async () => {
+    const { fixture, store, el } = await render(false);
+    expect(el.querySelector('.baseline-note')).toBeNull();
+    store.comparison.set({
+      baseline: { id: 31, projectId: 7, name: 'Signed off', reference: true, createdAt: '', tasks: 2 },
+      tasks: [{ taskId: 2, title: build.title, milestone: false, change: 'PULLED_IN', existedThen: true, existsNow: true,
+        baselineStart: '2026-03-09', baselineDue: '2026-03-13', currentStart: build.startDate, currentDue: build.dueDate,
+        startSlipDays: -1, finishSlipDays: -2 }],
+      phases: [], projectEnd: { change: 'UNCHANGED' }, planEnd: { change: 'UNCHANGED' },
+      counts: { unchanged: 1, slipped: 0, pulledIn: 1, added: 0, removed: 0 }, baselineEstimateHours: 0, currentEstimateHours: 0,
+    });
+    await fixture.whenStable();
+    expect(el.querySelector('.baseline-note')?.textContent).toContain('Baseline Signed off: Finishes 2 working days earlier than in the baseline');
+  });
 });
+

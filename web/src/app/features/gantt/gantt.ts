@@ -45,6 +45,10 @@ export class Gantt {
   readonly showCritical = input(true);
   readonly zoom = input<Zoom>('day');
   readonly editable = input(false);
+  /** Baseline dates by task, drawn as a thin bar under each bar. Empty when nothing is compared. */
+  readonly baseline = input<Map<number, { start: string; due: string }>>(new Map());
+  /** What the comparison says about each task, read out with its bar since the thin bar alone is only a picture. */
+  readonly baselineLabels = input<Map<number, string>>(new Map());
 
   /** A bar was moved by this many working days. */
   readonly moved = output<{ taskId: number; days: number }>();
@@ -70,12 +74,20 @@ export class Gantt {
   protected readonly formatRange = formatRange;
   protected readonly grabAreas = barHandles;
 
+  /** The bar's label for a screen reader: title, dates, and how it compares with the baseline. */
+  protected barLabel(bar: GanttBar): string {
+    const compared = this.baselineLabels().get(bar.task.id);
+    const label = `${bar.task.title}, ${formatRange(bar.task.startDate, bar.task.dueDate)}`;
+    return compared ? `${label}. ${compared}` : label;
+  }
+
   protected readonly layout = computed(() =>
     layoutGantt(this.tasks(), this.phases(), {
       zoom: this.zoom(),
       critical: this.showCritical() ? this.critical() : new Set<number>(),
       collapsed: this.collapsed(),
       broken: this.broken(),
+      baseline: this.baseline(),
     }),
   );
 

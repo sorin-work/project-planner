@@ -81,6 +81,33 @@
   </div>
 }
 
+@if (store.comparison(); as cmp) {
+  <section class="card baseline-card" aria-label="Compared with the baseline">
+    <h2>Compared with {{ cmp.baseline.name }}</h2>
+    <p>{{ endText(cmp.projectEnd, 'The project ends') }}.</p>
+    <p>{{ endText(cmp.planEnd, 'The plan ends') }}.</p>
+    <p class="muted small">{{ countsText(cmp.counts) }}. Estimate {{ formatHours(cmp.baselineEstimateHours) }} then,
+      {{ formatHours(cmp.currentEstimateHours) }} now.</p>
+    @if (baselineMilestones().length) {
+      <table class="table baseline-milestones">
+        <thead>
+          <tr><th scope="col">Milestone</th><th scope="col">Baseline</th><th scope="col">Now</th><th scope="col">Change</th></tr>
+        </thead>
+        <tbody>
+          @for (m of baselineMilestones(); track m.taskId) {
+            <tr>
+              <td>{{ m.title }}</td>
+              <td>{{ formatDate(m.baselineDue ?? m.baselineStart) }}</td>
+              <td>{{ m.existsNow ? formatDate(m.currentDue ?? m.currentStart) : 'Removed' }}</td>
+              <td [class.danger]="m.change === 'SLIPPED'">{{ milestoneChange(m) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+}
+
 <div class="grid-2">
   <section class="card">
     <h2>Phases</h2>

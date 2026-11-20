@@ -1,11 +1,13 @@
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { Observable } from 'rxjs';
 import { messageOf } from '../../core/errors';
-import { Client, Phase } from '../../core/models';
+import { Baseline, Client, Phase } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { ProjectApi, ProjectInput } from '../../core/project.api';
+import { formatDate } from '../../shared/dates';
 import { DuplicateForm } from '../projects/duplicate-form';
 import { ProjectForm } from '../projects/project-form';
 import { ProjectStore } from './project.store';
@@ -41,6 +43,40 @@ import { ProjectStore } from './project.store';
       </form>
     </section>
 
+    <section class="card" aria-labelledby="st-baselines">
+      <h2 id="st-baselines">Baselines</h2>
+      <p class="muted">
+        A baseline keeps the dates of every task and phase as they are now, to compare the plan with later. It never changes
+        afterwards. The timeline draws the reference baseline under the bars. A project keeps up to {{ maxBaselines }}.
+      </p>
+      @if (baselineError()) {
+        <p class="alert error" role="alert">{{ baselineError() }}</p>
+      }
+      @if (store.baselines().length) {
+        <ul class="phase-list baseline-list">
+          @for (b of store.baselines(); track b.id) {
+            <li>
+              <input [ngModel]="b.name" (change)="renameBaseline(b, $any($event.target).value)" [attr.aria-label]="'Name of ' + b.name" />
+              <span class="muted small grow">
+                {{ b.tasks }} task{{ b.tasks === 1 ? '' : 's' }}, saved {{ formatDate(b.createdAt.slice(0, 10)) }}{{ b.createdByName ? ' by ' + b.createdByName : '' }}
+              </span>
+              @if (b.reference) {
+                <span class="badge">Reference</span>
+              } @else {
+                <button type="button" class="small" (click)="makeReference(b)">Make reference</button>
+              }
+              <button type="button" class="small danger" (click)="removeBaseline(b)">Delete</button>
+            </li>
+          }
+        </ul>
+      }
+      <form class="quick-add" (ngSubmit)="takeBaseline()">
+        <input name="baseline" placeholder="Name, for example Signed off 3 March" [(ngModel)]="newBaseline" aria-label="Name of the new baseline"
+          maxlength="120" />
+        <button type="submit" class="small" [disabled]="!newBaseline.trim() || store.baselines().length >= maxBaselines">Save baseline</button>
+      </form>
+    </section>
+
     <section class="card">
       <h2>Duplicate project</h2>
       @if (duplicating() && store.project(); as source) {
@@ -73,6 +109,11 @@ export class SettingsTab {
   protected readonly saved = signal(false);
   protected readonly duplicating = signal(false);
   protected newPhase = '';
+  protected newBaseline = '';
+  protected readonly baselineError = signal<string | null>(null);
+  /** The API's limit, BaselineService.MAX_PER_PROJECT. The API refuses an eleventh with its own message too. */
+  protected readonly maxBaselines = 10;
+  protected readonly formatDate = formatDate;
 
   constructor() {
     effect(() => {
@@ -95,6 +136,8 @@ export class SettingsTab {
         this.store.project.set(p);
         // A new end date changes which tasks are due after it.
         this.store.refreshSchedule();
+        // And how the project's end compares with the baseline.
+        this.store.refreshComparison();
         this.busy.set(false);
         this.saved.set(true);
       },
@@ -150,6 +193,49 @@ export class SettingsTab {
       next: () => {
         this.store.refreshPhases();
         this.store.reloadTasks();
+      },
+    });
+  }
+
+  takeBaseline(): void {
+    const project = this.store.project();
+    const name = this.newBaseline.trim();
+    if (!project || !name) {
+      return;
+    }
+    this.baselineRequest(this.api.takeBaseline(project.id, name), () => (this.newBaseline = ''));
+  }
+
+  renameBaseline(baseline: Baseline, name: string): void {
+    if (!name.trim() || name === baseline.name) {
+      return;
+    }
+    this.baselineRequest(this.api.updateBaseline(baseline.id, { name }));
+  }
+
+  /** The reference is what the timeline compares with when the project is opened. */
+  makeReference(baseline: Baseline): void {
+    this.baselineRequest(this.api.updateBaseline(baseline.id, { reference: true }), () => this.store.compareWith(baseline.id));
+  }
+
+  removeBaseline(baseline: Baseline): void {
+    if (!confirm(`Delete the baseline "${baseline.name}"? The plan does not change.`)) {
+      return;
+    }
+    this.baselineRequest(this.api.deleteBaseline(baseline.id));
+  }
+
+  /** Sends a change to the baselines, then fetches the list again. A refusal is shown, and the list is fetched anyway. */
+  private baselineRequest(request: Observable<unknown>, done?: () => void): void {
+    this.baselineError.set(null);
+    request.subscribe({
+      next: () => {
+        done?.();
+        this.store.loadBaselines();
+      },
+      error: (err: unknown) => {
+        this.baselineError.set(messageOf(err));
+        this.store.loadBaselines();
       },
     });
   }

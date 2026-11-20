@@ -2,6 +2,7 @@ package com.projectplanner.project;
 
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.support.Api;
+import com.projectplanner.support.BigPlan;
 import com.projectplanner.support.Api.Account;
 import com.projectplanner.support.TestClock;
 import com.projectplanner.task.Task;
@@ -461,7 +462,7 @@ class ProjectDuplicateTest {
         Account designer = Api.signup("Fox");
         Website source = website(owner, designer, "SPLIT");
         long whole = duplicate(owner, source.projectId(), Map.of("name", "In one go", "code", "SPLIT-2", "startDate", "2026-06-10", "keepAssignees", true));
-        long wholeStatements = statementsFor(() -> duplicate(owner, source.projectId(),
+        long wholeStatements = BigPlan.statementsFor(em, () -> duplicate(owner, source.projectId(),
                 Map.of("name", "Counted", "code", "SPLIT-3", "startDate", "2026-06-10", "keepAssignees", true)));
 
         // Two rows to a statement: three phases, four tasks, two subtasks and two links need 2 + 2 + 1 + 1 of them instead of 4.
@@ -470,7 +471,7 @@ class ProjectDuplicateTest {
         long splitStatements;
         Map<String, Long> ids = new HashMap<>();
         try {
-            splitStatements = statementsFor(() -> ids.put("split", duplicate(owner, source.projectId(),
+            splitStatements = BigPlan.statementsFor(em, () -> ids.put("split", duplicate(owner, source.projectId(),
                     Map.of("name", "In pieces", "code", "SPLIT-4", "startDate", "2026-06-10", "keepAssignees", true))));
         } finally {
             ProjectDuplicator.rowsPerStatement = usual;
@@ -634,13 +635,13 @@ class ProjectDuplicateTest {
     @Test
     void aPlanOfThousandsOfTasksTakesNoMoreStatementsThanASmallOne() {
         Account owner = Api.signup("Rex");
-        long small = bigProject(owner, "SMALL", 20);
-        long large = bigProject(owner, "LARGE", 3000);
+        long small = BigPlan.create(owner, "SMALL", 20);
+        long large = BigPlan.create(owner, "LARGE", 3000);
 
-        long smallStatements = statementsFor(() -> duplicate(owner, small, Map.of("name", "Small copy", "code", "SMALL-2",
+        long smallStatements = BigPlan.statementsFor(em, () -> duplicate(owner, small, Map.of("name", "Small copy", "code", "SMALL-2",
                 "startDate", "2026-06-10", "keepAssignees", true)));
         long started = System.nanoTime();
-        long largeStatements = statementsFor(() -> duplicate(owner, large, Map.of("name", "Large copy", "code", "LARGE-2",
+        long largeStatements = BigPlan.statementsFor(em, () -> duplicate(owner, large, Map.of("name", "Large copy", "code", "LARGE-2",
                 "startDate", "2026-06-10", "keepAssignees", true)));
         long millis = (System.nanoTime() - started) / 1_000_000;
 
@@ -675,79 +676,5 @@ class ProjectDuplicateTest {
         });
         // The chain of links held in the source and holds in the copy.
         owner.as().get("/api/projects/" + copyId + "/schedule-issues").then().statusCode(200).body("$", hasSize(0));
-    }
-
-    /**
-     * A project with {@code size} tasks, written straight into the database: one in six is a
-     * parent with five subtasks, and the parents wait for each other in a chain.
-     */
-    private long bigProject(Account owner, String code, int size) {
-        long projectId = Api.createProject(owner, code);
-        QuarkusTransaction.requiringNew().run(() -> {
-            Instant now = Instant.now();
-            LocalDate start = LocalDate.of(2026, 3, 2);
-            List<Task> parents = new ArrayList<>();
-            Task parent = null;
-            for (int i = 0; i < size; i++) {
-                Task task = new Task();
-                task.projectId = projectId;
-                task.title = code + " task " + i;
-                task.description = "Step " + i;
-                task.estimateHours = java.math.BigDecimal.valueOf(i % 9 + 1);
-                task.assigneeId = owner.userId();
-                task.position = i;
-                task.createdAt = now;
-                task.updatedAt = now;
-                // Every parent takes a week, Monday to Friday, one week after the one before.
-                int week = i / 6;
-                task.startDate = start.plusWeeks(week);
-                task.dueDate = task.startDate.plusDays(4);
-                if (i % 6 == 0) {
-                    parent = task;
-                    parents.add(task);
-                } else {
-                    task.parentId = parent.id;
-                    task.startDate = task.startDate.plusDays(i % 6 - 1);
-                    task.dueDate = task.startDate;
-                }
-                task.persist();
-            }
-            for (int i = 1; i < parents.size(); i++) {
-                link(parents.get(i - 1).id, parents.get(i).id, now);
-            }
-            // And links between subtasks, so that the copy needs their new ids as well.
-            List<Task> all = Task.forProject(projectId);
-            List<Task> subtasks = all.stream().filter(t -> t.parentId != null).toList();
-            for (int i = 1; i < subtasks.size(); i++) {
-                if (subtasks.get(i).parentId.equals(subtasks.get(i - 1).parentId)) {
-                    link(subtasks.get(i - 1).id, subtasks.get(i).id, now);
-                }
-            }
-        });
-        return projectId;
-    }
-
-    private static void link(long predecessor, long successor, Instant now) {
-        TaskDependency dependency = new TaskDependency();
-        dependency.predecessorId = predecessor;
-        dependency.successorId = successor;
-        dependency.createdAt = now;
-        dependency.persist();
-    }
-
-    /** How many statements the database ran for {@code request}, by its own count. */
-    private long statementsFor(Runnable request) {
-        QuarkusTransaction.requiringNew().run(() -> em.createNativeQuery("set query_statistics true").executeUpdate());
-        try {
-            long before = executed();
-            request.run();
-            return executed() - before;
-        } finally {
-            QuarkusTransaction.requiringNew().run(() -> em.createNativeQuery("set query_statistics false").executeUpdate());
-        }
-    }
-
-    private long executed() {
-        return count("select coalesce(sum(execution_count), 0) from information_schema.query_statistics");
     }
 }
