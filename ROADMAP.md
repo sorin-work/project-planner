@@ -36,7 +36,7 @@ couple of weekends, **L** several weeks of spare time.
 | 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
 | 14  | Performance on large projects              | Later | both     | M    | -          |
 | 15  | Public holidays and time off               | Later | both     | L    | -          |
-| 16  | Baselines                                  | Maybe | both     | M    | -          |
+| 16  | Baselines                                  | Shipped | both     | M    | -          |
 | 17  | Dependency types and lead time             | Maybe | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Maybe | both     | L    | -          |
 
@@ -560,49 +560,6 @@ its capacity view on leave and public holidays.
 
 ## Maybe
 
-### 16. Baselines
-
-Health compares the plan with today: `forecastEnd` is the latest due date and
-`endVarianceDays` its distance from `Project.endDate`. What the plan looked
-like when it was agreed is not kept anywhere. The activity log has
-"Rescheduled ... to ..." as text and no more. A baseline is a saved copy of
-the dates to compare against: the grey bar under each bar in MS Project.
-
-- Data (`V22__create_baselines.sql`): `baselines` (project, name, created by,
-  created at) and `baseline_tasks` (baseline, task id, title, start, due,
-  estimate, milestone). The task id is a plain value without a foreign key, as
-  in `activity_log`, and the title is copied, so that a task deleted later
-  still shows up as removed.
-- API: `GET` and `POST /api/projects/{projectId}/baselines` (creating needs
-  `manageProject`), `DELETE /api/baselines/{id}`, and
-  `GET /api/baselines/{id}/comparison`: per task the baseline dates and the
-  current ones, the slip of start and finish in working days, the tasks added
-  and removed since, and totals (slip of the end date, change in total
-  estimate).
-- The comparison is a plain class in `schedule/` with its own test.
-- Web: a "Compare with" select on the timeline toolbar. `GanttBar` gets
-  optional baseline coordinates and `gantt.html` draws a thin bar under the
-  real one. `ROW_HEIGHT` is 32 and the bar is 18 high, so there is room.
-  `dateRange` has to include the baseline dates, or the grey bars fall off the
-  left edge.
-- On the Overview tab, a card with the slip of the end date and a list of
-  milestones (baseline date, current date, days late). Milestones are what a
-  client asks about.
-- "Save baseline" with a name ("Signed off 3 March") on the project's Settings
-  tab.
-- Tricky: tasks created after the baseline have nothing to compare with. Show
-  them as new, not as on time. The same goes for tasks that had no dates then
-  and have dates now.
-- Tricky: client viewers see the plan (`viewProject`). Should they see how far
-  it slipped from what was promised? I think yes, read-only, since it is their
-  project. Make it a deliberate choice.
-- Undecided: taking a baseline automatically when a project goes from planned
-  to active (`ProjectService.update` already notices status changes). I lean
-  towards yes, named "Start of project", because nobody remembers to take one
-  until they need it. And a cap of about ten per project.
-- Undecided: whether a small team looks at this more than twice a year. That
-  is why it is under Maybe.
-
 ### 17. Dependency types and lead time
 
 Every link is finish-to-start with a lag of zero or more working days. Real
@@ -884,3 +841,28 @@ plain create as well, and a source that is changed while it is copied is
 `409 source_changed`. Still open: real templates (projects
 flagged as such and hidden elsewhere), a choice of which phases to copy, and
 the organisation's calendar in `ProjectDuplicator` once item 15 has one.
+
+### 16. Baselines
+
+A baseline is saved on the project's Settings tab with a name, by owners and
+managers, and holds the dates of every task and phase and the project's own start
+and end at that moment (`V22`: `baselines`, `baseline_tasks` and
+`baseline_phases`, plain ids and copied titles, so a deleted task shows up as
+removed). It never changes afterwards; only its name and the reference mark do.
+Each table is filled by one `insert ... select`, so a plan of thousands of tasks
+takes as many statements as a small one. A project keeps up to ten, and one is the
+reference the timeline compares with when it opens. `BaselineComparison` in
+`schedule/` works out per task and per phase the slip of start and finish in
+working days, with `WorkCalendar`, and the slip of the project's end and the plan's
+end. The timeline draws a thin grey bar under each bar, has a "Compare with" select
+and a list of what changed, and reads each bar's change out with it. The task panel
+says it in words, and the Overview has the ends and a table of the milestones.
+Client viewers of the project's client see the comparison, read-only, since they
+see the plan's dates already. Schedule issues and the critical path ignore
+baselines, and duplicating a project does not copy them. Differences from the
+design: phases are kept as well, a task that had no dates in the baseline and has
+them now counts as added, and no baseline is taken on its own when a project goes
+from planned to active: a baseline is a deliberate act, and an automatic one would
+take a slot of the ten without anybody choosing it. Still open: that automatic
+baseline if people ask for it, and the organisation's calendar once item 15 has
+one.
