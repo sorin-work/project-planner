@@ -67,4 +67,8 @@ public class Notification extends PanacheEntityBase {
     /** A run of the mail job has taken it on until then. */
     @Column(name = "email_claimed_until")
     public Instant emailClaimedUntil;
+
+    /** Which run holds the claim. */
+    @Column(name = "email_claim_token")
+    public String emailClaimToken;
 }
