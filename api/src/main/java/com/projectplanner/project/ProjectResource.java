@@ -3,6 +3,8 @@ package com.projectplanner.project;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Role;
+import com.projectplanner.project.ProjectDtos.DuplicateDefaults;
+import com.projectplanner.project.ProjectDtos.DuplicateRequest;
 import com.projectplanner.project.ProjectDtos.ProjectRequest;
 import com.projectplanner.project.ProjectDtos.ProjectResponse;
 import com.projectplanner.report.ProjectHealthService;
@@ -36,11 +38,13 @@ public class ProjectResource {
     private final OrgAccess access;
     private final ProjectService projects;
     private final ProjectHealthService health;
+    private final ProjectDuplicator duplicator;
 
-    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health) {
+    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health, ProjectDuplicator duplicator) {
         this.access = access;
         this.projects = projects;
         this.health = health;
+        this.duplicator = duplicator;
     }
 
     @GET
@@ -108,6 +112,29 @@ public class ProjectResource {
         Project project = access.project(projectId);
         access.manageProject(project);
         project.delete();
+    }
+
+    /** What a copy of this project would be called by default: a name, a code that is free, and a start date. */
+    @GET
+    @Path("/projects/{projectId}/duplicate")
+    public DuplicateDefaults duplicateDefaults(@PathParam("projectId") long projectId) {
+        Project source = access.project(projectId);
+        access.manageProject(source);
+        return duplicator.defaults(source);
+    }
+
+    /**
+     * Copies the plan of a project into a new, planned project that begins on the given
+     * day. One transaction: the copy is there as a whole or not at all.
+     */
+    @POST
+    @Path("/projects/{projectId}/duplicate")
+    @Transactional
+    @ResponseStatus(201)
+    public ProjectResponse duplicate(@PathParam("projectId") long projectId, @Valid @NotNull DuplicateRequest request) {
+        Project source = access.project(projectId);
+        Membership me = access.manageProject(source);
+        return ProjectService.toResponse(duplicator.duplicate(me, source, request), true);
     }
 
     public record ProjectListItem(ProjectResponse project, HealthSummary health) {

@@ -27,13 +27,22 @@ public class ProjectService {
     }
 
     public Project create(Membership me, ProjectRequest request) {
+        Project project = insert(me.organisationId, request);
+        activity.record(project.organisationId, project.id, null, me.userId, "project.created",
+                "Created project " + project.name);
+        return project;
+    }
+
+    /**
+     * Checks and saves a new project and writes nothing to the activity log. For a
+     * caller that has its own entry to write, like the copy of a project.
+     */
+    Project insert(long organisationId, ProjectRequest request) {
         Project project = new Project();
-        project.organisationId = me.organisationId;
+        project.organisationId = organisationId;
         project.createdAt = Instant.now(clock);
         apply(project, request);
         project.persist();
-        activity.record(project.organisationId, project.id, null, me.userId, "project.created",
-                "Created project " + project.name);
         return project;
     }
 
@@ -50,7 +59,7 @@ public class ProjectService {
         if (request.startDate() != null && request.endDate() != null && request.endDate().isBefore(request.startDate())) {
             throw ApiException.badRequest("invalid_dates", "The end date can't be before the start date");
         }
-        String code = request.code().trim().toUpperCase(Locale.ROOT);
+        String code = ProjectCodes.normalise(request.code());
         boolean taken = Project.<Project>find("organisationId = ?1 and code = ?2", project.organisationId, code)
                 .stream().anyMatch(p -> !Objects.equals(p.id, project.id));
         if (taken) {
