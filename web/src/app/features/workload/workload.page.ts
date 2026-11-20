@@ -7,6 +7,7 @@ import { MemberWorkload, WeekLoad, Workload, WorkloadTask } from '../../core/mod
 import { OrgContext } from '../../core/org-context.service';
 import { addDays, formatDate, today, weekStart } from '../../shared/dates';
 import { formatHours } from '../../shared/format';
+import { capacityNote } from '../../shared/calendar-view';
 import { loadLevel } from './workload-cell';
 
 @Component({
@@ -49,9 +50,11 @@ import { loadLevel } from './workload-cell';
                 @for (w of m.weeks; track w.weekStart) {
                   <td class="num load-cell" [class]="'num load-cell load-' + level(w)">
                     <button type="button" class="cell-button" (click)="select(m, w)"
-                      [attr.aria-label]="m.name + ', week of ' + w.weekStart + ': ' + w.allocatedHours + ' of ' + w.capacityHours + ' hours'">
+                      [attr.aria-label]="m.name + ', week of ' + w.weekStart + ': ' + w.allocatedHours + ' of ' + w.capacityHours + ' hours'
+                        + (capacityNote(w) ? '. ' + capacityNote(w) : '')">
                       {{ w.allocatedHours ? formatHours(w.allocatedHours) : '' }}
                       @if (w.overallocated) { <span class="flag" title="Over capacity">!</span> }
+                      @if (capacityNote(w); as note) { <span class="less" [title]="note" aria-hidden="true">−</span> }
                     </button>
                   </td>
                 }
@@ -63,12 +66,13 @@ import { loadLevel } from './workload-cell';
       </div>
       <p class="legend small">
         <span class="load-light">under 50%</span> <span class="load-good">50–85%</span> <span class="load-full">85–100%</span>
-        <span class="load-over">over capacity</span>
+        <span class="load-over">over capacity</span> <span><span class="less">−</span> less capacity (holidays, time off)</span>
       </p>
       @if (selection(); as s) {
         <section class="card">
           <h2>{{ s.member.name }} · week of {{ formatDate(s.week.weekStart) }}</h2>
-          <p class="muted">{{ formatHours(s.week.allocatedHours) }} allocated of {{ formatHours(s.week.capacityHours) }}</p>
+          <p class="muted">{{ formatHours(s.week.allocatedHours) }} allocated of {{ formatHours(s.week.capacityHours) }}
+            @if (capacityNote(s.week); as note) { · {{ note }} }</p>
           <ul class="task-lines">
             @for (t of s.tasks; track t.id) {
               <li>
@@ -85,6 +89,7 @@ import { loadLevel } from './workload-cell';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkloadPage {
+  protected readonly capacityNote = capacityNote;
   private readonly api = inject(InboxApi);
   private readonly org = inject(OrgContext);
 

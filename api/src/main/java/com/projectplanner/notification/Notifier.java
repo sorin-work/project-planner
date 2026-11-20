@@ -6,7 +6,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * Creates notifications. People are never notified about their own actions, nor about a
@@ -30,22 +32,30 @@ public class Notifier {
 
     public void notify(long userId, long organisationId, Long actorId, NotificationType type, String message,
                        Long projectId, Long taskId) {
-        create(userId, organisationId, actorId, type, message, projectId, taskId, null);
+        create(userId, organisationId, actorId, type, message, projectId, taskId, null, preferences.of(userId, type));
+    }
+
+    /**
+     * Several people about one thing, each with a type of their own, in the order given. Their
+     * choices are read in one query, so that a comment that mentions ten people does not ask
+     * ten times.
+     */
+    public void notifyEach(Map<Long, NotificationType> recipients, long organisationId, Long actorId,
+                           Function<NotificationType, String> message, Long projectId, Long taskId) {
+        Map<Long, Map<NotificationType, Delivery>> choices = preferences.of(recipients.keySet());
+        recipients.forEach((userId, type) -> create(userId, organisationId, actorId, type, message.apply(type),
+                projectId, taskId, null, choices.get(userId).get(type)));
     }
 
     /** A timesheet notification: it has no project or task, but says which week it is about. */
     public void notifyAboutWeek(long userId, long organisationId, Long actorId, NotificationType type, String message,
                                 LocalDate weekStart) {
-        create(userId, organisationId, actorId, type, message, null, null, weekStart);
+        create(userId, organisationId, actorId, type, message, null, null, weekStart, preferences.of(userId, type));
     }
 
     private void create(long userId, long organisationId, Long actorId, NotificationType type, String message,
-                        Long projectId, Long taskId, LocalDate weekStart) {
-        if (Objects.equals(userId, actorId)) {
-            return;
-        }
-        Delivery delivery = preferences.of(userId, type);
-        if (delivery == Delivery.OFF) {
+                        Long projectId, Long taskId, LocalDate weekStart, Delivery delivery) {
+        if (Objects.equals(userId, actorId) || delivery == Delivery.OFF) {
             return;
         }
         Notification notification = new Notification();

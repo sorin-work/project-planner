@@ -66,6 +66,10 @@
   </table>
 </section>
 
+@if (org.isTeam()) {
+  <app-time-off-card [members]="members()" />
+}
+
 @if (org.canManage()) {
   <div class="grid-2">
     <section class="card">

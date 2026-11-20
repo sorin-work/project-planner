@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, linkedSignal, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { messageOf } from '../../core/errors';
-import { Member, ProjectListItem, ReportGroupBy, ReportPreset, TimeReport, TimeReportRow, UtilisationReport } from '../../core/models';
+import { Member, ProjectOption, ReportGroupBy, ReportPreset, TimeReport, TimeReportRow, UtilisationReport } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { ProjectApi } from '../../core/project.api';
@@ -95,7 +95,7 @@ export class ReportsPage {
   // --- export ---------------------------------------------------------------------------
 
   protected readonly members = signal<Member[]>([]);
-  protected readonly projects = signal<ProjectListItem[]>([]);
+  protected readonly projects = signal<ProjectOption[]>([]);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
@@ -122,7 +122,7 @@ export class ReportsPage {
       if (orgId === null || this.tab() !== 'export') {
         return;
       }
-      this.projectApi.list(orgId).subscribe({ next: (p) => this.projects.set(p) });
+      this.projectApi.options(orgId).subscribe({ next: (p) => this.projects.set(p) });
       this.orgApi.members(orgId).subscribe({ next: (m) => this.members.set(m.filter((x) => x.role !== 'CLIENT')) });
     });
     effect(() => {

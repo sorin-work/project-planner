@@ -40,6 +40,7 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -121,8 +122,12 @@ public class OrgResource {
             // Client viewers only need to know who is on the team, not other clients.
             memberships = memberships.stream().filter(m -> m.role.isTeam() || m.id.equals(me.id)).toList();
         }
+        Map<Long, User> users = new HashMap<>();
+        if (!memberships.isEmpty()) {
+            User.<User>list("id in ?1", memberships.stream().map(m -> m.userId).toList()).forEach(u -> users.put(u.id, u));
+        }
         return memberships.stream()
-                .map(m -> MemberResponse.of(m, User.findById(m.userId), me.role.canManage()))
+                .map(m -> MemberResponse.of(m, users.get(m.userId), me.role.canManage()))
                 .sorted(Comparator.comparing(MemberResponse::role).thenComparing(MemberResponse::name))
                 .toList();
     }
@@ -301,7 +306,8 @@ public class OrgResource {
             activity.record(invitation.organisationId, null, null, user.id, "member.joined",
                     user.name + " joined as " + invitation.role.label());
         }
-        return MembershipSummary.of(Membership.find(invitation.organisationId, user.id).orElseThrow());
+        return MembershipSummary.of(Membership.find(invitation.organisationId, user.id).orElseThrow(),
+                Organisation.findById(invitation.organisationId));
     }
 
     @GET

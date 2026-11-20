@@ -126,10 +126,19 @@
         @for (d of t.predecessors; track d.id) {
           <li>
             {{ taskTitle(d.predecessorId) }}
-            @if (d.lagDays) {
-              <span class="muted small">+{{ d.lagDays }} working days</span>
-            }
+            <span class="muted small dep-phrase">This {{ dependencyPhrase(d, taskTitle(d.predecessorId)) }}.</span>
             @if (canEdit()) {
+              <span class="dep-edit">
+                <select class="small" [value]="d.type" (change)="changeType(d, $any($event.target))"
+                  [attr.aria-label]="'How this waits for ' + taskTitle(d.predecessorId)">
+                  @for (o of dependencyTypes; track o.type) {
+                    <option [value]="o.type" [selected]="o.type === d.type">{{ o.label }}</option>
+                  }
+                </select>
+                <input class="lag-input" type="number" min="-365" max="365" step="1" [value]="d.lagDays"
+                  (change)="changeLag(d, $any($event.target))"
+                  [attr.aria-label]="'Lag in working days after ' + taskTitle(d.predecessorId) + ', negative for a lead'" />
+              </span>
               <button type="button" class="link small" (click)="removeDependency(d.id)" [attr.aria-label]="'Remove dependency on ' + taskTitle(d.predecessorId)">remove</button>
             }
             @if (linkIssue(issues(), d.predecessorId); as issue) {
@@ -162,7 +171,13 @@
               <option [ngValue]="o.id">{{ o.title }}</option>
             }
           </select>
-          <label class="small">lag <input name="lag" type="number" min="0" max="365" [(ngModel)]="newLag" class="lag-input" /></label>
+          <select name="type" [(ngModel)]="newType" aria-label="How it waits">
+            @for (o of dependencyTypes; track o.type) {
+              <option [ngValue]="o.type">{{ o.label }}</option>
+            }
+          </select>
+          <label class="small">lag <input name="lag" type="number" min="-365" max="365" step="1" [(ngModel)]="newLag" class="lag-input"
+            aria-label="Lag in working days, negative for a lead" /></label>
           <button type="submit" class="small" [disabled]="newPredecessor === null">Add</button>
         </form>
       }
@@ -170,6 +185,8 @@
         <p class="muted small">Blocks: {{ dependants().map(taskTitleOf).join(', ') }}</p>
       }
     </section>
+
+    <app-task-attachments [taskId]="t.id" />
 
     <section class="panel-section">
       <h3>Comments</h3>

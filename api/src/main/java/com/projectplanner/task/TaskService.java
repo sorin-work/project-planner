@@ -1,6 +1,9 @@
 package com.projectplanner.task;
 
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.activity.ActivityLog;
+import com.projectplanner.attachment.Attachment;
+import com.projectplanner.attachment.AttachmentFiles;
 import com.projectplanner.auth.User;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.notification.NotificationType;
@@ -10,7 +13,6 @@ import com.projectplanner.project.Phase;
 import com.projectplanner.project.Project;
 import com.projectplanner.schedule.Rescheduler;
 import com.projectplanner.schedule.ScheduledTask;
-import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.TaskDtos.CreateTaskRequest;
 import com.projectplanner.task.TaskDtos.TaskChange;
 import com.projectplanner.task.TaskDtos.UpdateTaskRequest;
@@ -36,13 +38,23 @@ public class TaskService {
     private final Notifier notifier;
     private final TaskMapper mapper;
     private final Clock clock;
-    private final Rescheduler rescheduler = new Rescheduler(WorkCalendar.DEFAULT);
+    private final OrgCalendars calendars;
 
-    public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock) {
+    private final AttachmentFiles attachmentFiles;
+
+    public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock, OrgCalendars calendars,
+                       AttachmentFiles attachmentFiles) {
         this.activity = activity;
         this.notifier = notifier;
         this.mapper = mapper;
         this.clock = clock;
+        this.attachmentFiles = attachmentFiles;
+        this.calendars = calendars;
+    }
+
+    /** Moves and pushes in the working days of the project's organisation. */
+    private Rescheduler rescheduler(Project project) {
+        return new Rescheduler(calendars.of(project.organisationId));
     }
 
     public Task create(Membership me, Project project, CreateTaskRequest request) {
@@ -154,7 +166,7 @@ public class TaskService {
         if (task.startDate == null && task.dueDate == null) {
             throw ApiException.badRequest("unscheduled", "Give the task dates before moving it on the timeline");
         }
-        ScheduledTask moved = rescheduler.shift(task.toScheduled(), days);
+        ScheduledTask moved = rescheduler(project).shift(task.toScheduled(), days);
         UpdateTaskRequest request = new UpdateTaskRequest(null, null, null, false, null, null, null,
                 moved.start(), moved.due(), false, null, false, null, null);
         return update(me, project, task, request);
@@ -163,7 +175,12 @@ public class TaskService {
     public void delete(Membership me, Project project, Task task) {
         activity.record(project.organisationId, project.id, null, me.userId, "task.deleted", "Deleted " + task.title);
         TaskDependency.delete("predecessorId = ?1 or successorId = ?1", task.id);
-        for (Task subtask : Task.<Task>list("parentId", task.id)) {
+        List<Task> subtasks = Task.list("parentId", task.id);
+        // The rows of the attachments go with the tasks by the foreign key, the files once that is committed.
+        List<Long> ids = new ArrayList<>(subtasks.stream().map(t -> t.id).toList());
+        ids.add(task.id);
+        attachmentFiles.deleteAfterCommit(Attachment.keysOfTasks(ids));
+        for (Task subtask : subtasks) {
             TaskDependency.delete("predecessorId = ?1 or successorId = ?1", subtask.id);
             subtask.delete();
         }
@@ -175,10 +192,26 @@ public class TaskService {
      * the new dates. Returns the tasks that moved.
      */
     public List<Task> reschedule(Membership me, Project project, Set<Long> changed) {
+        return reschedule(me, project, changed, false);
+    }
+
+    /**
+     * After a link into {@code successor} was added or changed: the successor itself and
+     * what is downstream of it, and nothing else. Other tasks that wait for the same
+     * predecessor were not touched by the change, and stay where they are.
+     */
+    public List<Task> rescheduleFrom(Membership me, Project project, long successor) {
+        return reschedule(me, project, Set.of(successor), true);
+    }
+
+    private List<Task> reschedule(Membership me, Project project, Set<Long> changed, boolean includeChanged) {
         List<Task> tasks = Task.forProject(project.id);
         List<ScheduledTask> scheduled = tasks.stream().map(Task::toScheduled).toList();
         var links = TaskDependency.forProject(project.id).stream().map(TaskDependency::toLink).toList();
-        Map<Long, ScheduledTask> shifted = rescheduler.propagate(scheduled, links, changed);
+        Rescheduler rescheduler = rescheduler(project);
+        Map<Long, ScheduledTask> shifted = includeChanged
+                ? rescheduler.propagateFrom(scheduled, links, changed)
+                : rescheduler.propagate(scheduled, links, changed);
         if (shifted.isEmpty()) {
             return List.of();
         }

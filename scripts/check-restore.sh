@@ -43,6 +43,7 @@ cd "$(dirname "$0")/.."
 
 project=${CHECK_PROJECT:-planner-restore-check}
 volume="${project}_db-data"
+files_volume="${project}_attachments"
 remove="docker compose -f docker-compose.yml -p $project --profile backup down -v"
 
 # -f already takes precedence over COMPOSE_FILE and switches the override
@@ -101,6 +102,9 @@ containers=$(compose ps -aq) || fail "docker compose ps did not work, so there i
 [ -z "$containers" ] || fail "the compose project $project already has containers, and the check wants a project of its own (CHECK_PROJECT). $leftover"
 found=$(docker volume ls -q --filter "name=^${volume}\$") || fail "docker volume ls did not work, so there is no telling whether the volume $volume exists. Nothing was started."
 [ -z "$found" ] || fail "the volume $volume already exists, and the check wants one of its own (CHECK_PROJECT). $leftover"
+# The attachments are thrown away with the database.
+found=$(docker volume ls -q --filter "name=^${files_volume}\$") || fail "docker volume ls did not work, so there is no telling whether the volume $files_volume exists. Nothing was started."
+[ -z "$found" ] || fail "the volume $files_volume already exists, and the check wants one of its own (CHECK_PROJECT). $leftover"
 
 BACKUP_DIR=$(mktemp -d)
 export BACKUP_DIR SEED_DEMO=true BACKUP_KEEP=7 BACKUP_INTERVAL_SECONDS=86400
@@ -159,8 +163,11 @@ echo "== an older dump: take V14 back, then dump"
 # a database that ran V15 and never V14, which is what a dump looks like
 # after two branches with migrations were merged in the other order.
 sql "alter table tasks drop column position; delete from flyway_schema_history where version = '14'"
+# And a file on the attachments volume, which has to come back with the dump.
+compose run --rm -T --entrypoint sh backup -c 'mkdir -p /attachments/ab && echo "restore check" >/attachments/ab/ab000000000000000000000000000001'
 compose run --rm -T backup once
-dump=$(ls "$BACKUP_DIR")
+dump=$(ls "$BACKUP_DIR" | grep '\.dump$')
+[ -r "$BACKUP_DIR/${dump%.dump}.files.tar" ] || fail "there is no archive of the attachments next to $dump"
 [ -r "$BACKUP_DIR/$dump" ] || fail "$dump cannot be read by the owner of the folder it is in"
 
 echo "== lose the volume, restore $dump"
@@ -176,6 +183,11 @@ compose run --rm -T backup restore "$dump"
 restored=$(counts)
 echo "$restored"
 [ "$before" = "$restored" ] || fail "the restored database does not have the row counts from before the dump"
+file=$(compose run --rm -T --entrypoint sh backup -c 'cat /attachments/ab/ab000000000000000000000000000001') || file=''
+[ "$file" = "restore check" ] || fail "the attachment did not come back with the dump"
+# The api's user (api/Dockerfile) has to be able to remove it and to write next to it.
+owner=$(compose run --rm -T --entrypoint sh backup -c 'stat -c %u:%g /attachments /attachments/ab/ab000000000000000000000000000001' | sort -u) || owner=''
+[ "$owner" = "1000:1000" ] || fail "the restored attachments do not belong to the api's user 1000:1000 but to: $owner"
 
 echo "== start the api on it, without the demo seed"
 export SEED_DEMO=false

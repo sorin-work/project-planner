@@ -10,6 +10,7 @@ import com.projectplanner.baseline.BaselineDtos.DateChangeResponse;
 import com.projectplanner.baseline.BaselineDtos.PhaseChangeResponse;
 import com.projectplanner.baseline.BaselineDtos.TaskChangeResponse;
 import com.projectplanner.baseline.BaselineDtos.UpdateBaselineRequest;
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
 import com.projectplanner.project.Phase;
@@ -17,7 +18,6 @@ import com.projectplanner.project.Project;
 import com.projectplanner.schedule.BaselineComparison;
 import com.projectplanner.schedule.BaselineComparison.Change;
 import com.projectplanner.schedule.BaselineComparison.Entry;
-import com.projectplanner.schedule.WorkCalendar;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 
@@ -42,13 +42,14 @@ public class BaselineService {
     private final ActivityLog activity;
     private final EntityManager em;
     private final Clock clock;
-    // The organisation's own calendar belongs here once there is one (roadmap item 15).
-    private final BaselineComparison comparison = new BaselineComparison(WorkCalendar.DEFAULT);
+    /** Slips are counted in the working days of the organisation, holidays left out. */
+    private final OrgCalendars calendars;
 
-    public BaselineService(ActivityLog activity, EntityManager em, Clock clock) {
+    public BaselineService(ActivityLog activity, EntityManager em, Clock clock, OrgCalendars calendars) {
         this.activity = activity;
         this.em = em;
         this.clock = clock;
+        this.calendars = calendars;
     }
 
     public List<BaselineResponse> list(Project project) {
@@ -146,6 +147,7 @@ public class BaselineService {
             phases.put((Long) row[0], (String) row[7]);
         }
 
+        BaselineComparison comparison = new BaselineComparison(calendars.of(project.organisationId));
         BaselineComparison.Result result = comparison.compare(then, now, baseline.projectEnd, project.endDate);
         List<TaskChangeResponse> tasks = result.tasks().stream()
                 .map(t -> new TaskChangeResponse(t.taskId(), t.title(), t.milestone(), t.change(), t.existedThen(), t.existsNow(),

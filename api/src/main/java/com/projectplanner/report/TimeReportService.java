@@ -1,6 +1,7 @@
 package com.projectplanner.report;
 
 import com.projectplanner.auth.User;
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.client.Client;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.RateBook;
@@ -41,7 +42,11 @@ public class TimeReportService {
             // A running timer has no time yet.
             + " and (e.startedAt is null or e.endedAt is not null)";
 
-    private final WorkloadCalculator workload = new WorkloadCalculator(WorkCalendar.DEFAULT);
+    private final OrgCalendars calendars;
+
+    public TimeReportService(OrgCalendars calendars) {
+        this.calendars = calendars;
+    }
 
     /** Time per project, client, person or task. Without {@code withMoney} every amount is zero. */
     public TimeReport.Result time(long organisationId, ReportRange range, GroupBy groupBy, Filter filter, boolean withMoney) {
@@ -150,7 +155,10 @@ public class TimeReportService {
     public UtilisationReport utilisation(long organisationId, ReportRange range, LocalDate today) {
         LocalDate countedTo = range.to().isAfter(today) ? today : range.to();
         boolean begun = !countedTo.isBefore(range.from());
-        int workingDays = WorkCalendar.DEFAULT.workingDaysBetween(range.from(), countedTo);
+        WorkCalendar calendar = calendars.of(organisationId);
+        WorkloadCalculator workload = new WorkloadCalculator(calendar);
+        int workingDays = calendar.workingDaysBetween(range.from(), countedTo);
+        Map<Long, Set<LocalDate>> daysOff = begun ? calendars.daysOff(organisationId, range.from(), countedTo) : Map.of();
 
         Map<Long, long[]> time = new HashMap<>();
         if (begun) {
@@ -171,7 +179,8 @@ public class TimeReportService {
         byId(User.class, team.stream().map(m -> m.userId).collect(Collectors.toSet())).forEach(u -> names.put(u.id, u.name));
         List<Utilisation.Person> people = team.stream().map(m -> {
             long[] sums = time.getOrDefault(m.userId, new long[2]);
-            long capacity = workload.capacityMinutes(new WorkloadCalculator.Person(m.userId, m.weeklyCapacityHours.doubleValue()),
+            long capacity = workload.capacityMinutes(new WorkloadCalculator.Person(m.userId, m.weeklyCapacityHours.doubleValue(),
+                            daysOff.getOrDefault(m.userId, Set.of())),
                     range.from(), countedTo);
             return new Utilisation.Person(m.userId, names.get(m.userId), sums[0], sums[1], capacity);
         }).toList();

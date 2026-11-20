@@ -2,7 +2,9 @@ package com.projectplanner.notification;
 
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.util.Collection;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -32,6 +34,17 @@ public class NotificationPreferences {
         Map<NotificationType, Delivery> map = new EnumMap<>(DEFAULTS);
         NotificationPreference.<NotificationPreference>list("userId", userId).forEach(p -> map.put(p.type, p.delivery));
         return map;
+    }
+
+    /** The choices of several people in one query, for a request that notifies several at once. */
+    public Map<Long, Map<NotificationType, Delivery>> of(Collection<Long> userIds) {
+        Map<Long, Map<NotificationType, Delivery>> all = new HashMap<>();
+        userIds.forEach(id -> all.put(id, new EnumMap<>(DEFAULTS)));
+        if (!userIds.isEmpty()) {
+            NotificationPreference.<NotificationPreference>list("userId in ?1", userIds)
+                    .forEach(p -> all.get(p.userId).put(p.type, p.delivery));
+        }
+        return all;
     }
 
     public Delivery of(long userId, NotificationType type) {

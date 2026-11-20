@@ -8,7 +8,7 @@ const clients: Client[] = [
   { id: 4, name: 'Acme', archived: false, projectCount: 2 },
   { id: 5, name: 'Globex', archived: false, projectCount: 1 },
 ];
-const defaults = { name: 'Website (copy)', code: 'WEB-2', startDate: '2026-06-10', phases: 3, tasks: 6, dependencies: 2 };
+const defaults = { name: 'Website (copy)', code: 'WEB-2', startDate: '2026-06-10', phases: 3, tasks: 6, dependencies: 2, attachments: 0, attachmentBytes: 0 };
 
 describe('DuplicateForm', () => {
   let http: HttpTestingController;
@@ -61,10 +61,21 @@ describe('DuplicateForm', () => {
     await submit();
     const post = http.expectOne('/api/projects/7/duplicate');
     expect(post.request.method).toBe('POST');
-    expect(post.request.body).toEqual({ name: 'Website (copy)', code: 'WEB-2', clientId: null, startDate: '2026-06-10', keepAssignees: false });
+    expect(post.request.body).toEqual({ name: 'Website (copy)', code: 'WEB-2', clientId: null, startDate: '2026-06-10', keepAssignees: false, copyAttachments: false });
     post.flush({ id: 31, name: 'Website (copy)', code: 'WEB-2' });
     await fixture.whenStable();
     expect(created).toHaveBeenCalledWith(expect.objectContaining({ id: 31 }));
+  });
+
+  it('offers the files only when the source has some, and copies them only when ticked', async () => {
+    expect(el.querySelector('#df-files')).toBeNull();
+    http.expectOne('/api/projects/7/duplicate').flush({ ...defaults, attachments: 3, attachmentBytes: 2.1 * 1024 * 1024 });
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Copy the 3 files (2.1 MB) attached to the tasks');
+    expect(input('df-files').checked).toBe(false);
+    input('df-files').click();
+    await submit();
+    expect(http.expectOne('/api/projects/7/duplicate').request.body).toEqual(expect.objectContaining({ copyAttachments: true }));
   });
 
   it('sends what was changed: another name and code, the client and the assignees', async () => {
@@ -78,7 +89,7 @@ describe('DuplicateForm', () => {
     input('df-assignees').click();
     await submit();
     const post = http.expectOne('/api/projects/7/duplicate');
-    expect(post.request.body).toEqual({ name: 'Website for Globex', code: 'GLX-WEB', clientId: 5, startDate: '2026-09-01', keepAssignees: true });
+    expect(post.request.body).toEqual({ name: 'Website for Globex', code: 'GLX-WEB', clientId: 5, startDate: '2026-09-01', keepAssignees: true, copyAttachments: false });
     post.flush({ id: 32 });
   });
 

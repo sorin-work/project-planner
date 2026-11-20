@@ -29,7 +29,13 @@ case "$*" in
   *" ps -aq") cat "$STATE/containers" ;;
   "volume ls "*)
     [ ! -e "$STATE/no-volume-list" ] || exit 1
-    cat "$STATE/volumes"
+    # Only the volume the filter names, as docker does.
+    name=$(echo "$*" | sed -n 's/.*name=^\(.*\)\$.*/\1/p')
+    if [ -n "$name" ]; then
+      grep -x -F "$name" "$STATE/volumes" || true
+    else
+      cat "$STATE/volumes"
+    fi
     ;;
   *" up --no-start "*) [ ! -e "$STATE/stop-at-create" ] || exit 1 ;;
   *" ps -aq db") echo c0ffee ;;
@@ -170,6 +176,14 @@ echo "planner-restore-check_db-data" >"$STATE/volumes"
 run_check ""
 touched_nothing
 said "the volume planner-restore-check_db-data already exists"
+said "$remove"
+echo "ok: $case_name"
+
+begin "the attachments volume already exists" planner-restore-check
+echo "planner-restore-check_attachments" >"$STATE/volumes"
+run_check ""
+touched_nothing
+said "the volume planner-restore-check_attachments already exists"
 said "$remove"
 echo "ok: $case_name"
 

@@ -8,6 +8,7 @@ import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgDtos.MembershipSummary;
+import com.projectplanner.org.Organisation;
 import io.quarkus.security.Authenticated;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -20,7 +21,9 @@ import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.time.Clock;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Path("/api/me")
 @Authenticated
@@ -43,7 +46,15 @@ public class MeResource {
     @Operation(summary = "Your account and the organisations you are in")
     public MeResponse me() {
         User user = currentUser.get();
-        List<MembershipSummary> orgs = Membership.forUser(user.id).stream().map(MembershipSummary::of).toList();
+        List<Membership> memberships = Membership.forUser(user.id);
+        // The organisations in one query, not one per membership.
+        Map<Long, Organisation> organisations = new HashMap<>();
+        if (!memberships.isEmpty()) {
+            Organisation.<Organisation>list("id in ?1", memberships.stream().map(m -> m.organisationId).toList())
+                    .forEach(o -> organisations.put(o.id, o));
+        }
+        List<MembershipSummary> orgs = memberships.stream()
+                .map(m -> MembershipSummary.of(m, organisations.get(m.organisationId))).toList();
         return new MeResponse(UserResponse.of(user), orgs);
     }
 

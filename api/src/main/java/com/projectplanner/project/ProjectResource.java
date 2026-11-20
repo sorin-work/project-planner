@@ -1,5 +1,8 @@
 package com.projectplanner.project;
 
+import com.projectplanner.attachment.Attachment;
+import com.projectplanner.attachment.AttachmentFiles;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
@@ -29,6 +32,7 @@ import org.jboss.resteasy.reactive.ResponseStatus;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 @Path("/api")
 @Authenticated
@@ -44,7 +48,11 @@ public class ProjectResource {
     private final ProjectHealthService health;
     private final ProjectDuplicator duplicator;
 
-    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health, ProjectDuplicator duplicator) {
+    private final AttachmentFiles attachmentFiles;
+
+    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health, ProjectDuplicator duplicator,
+                           AttachmentFiles attachmentFiles) {
+        this.attachmentFiles = attachmentFiles;
         this.access = access;
         this.projects = projects;
         this.health = health;
@@ -76,12 +84,33 @@ public class ProjectResource {
         query.append(" order by name");
         List<Project> found = new ArrayList<>(Project.<Project>list(query.toString(), params));
         found.sort(Comparator.comparingInt(p -> LIST_ORDER.indexOf(p.status)));
+        // A fixed number of queries for any number of projects: the clients, the tasks, the rates and the time all come at once.
+        List<ProjectResponse> responses = ProjectService.toResponses(found, me.role.canManage());
+        Map<Long, HealthSummary> summaries = health.summaries(orgId, found, me);
         List<ProjectListItem> items = new ArrayList<>();
-        for (Project project : found) {
-            items.add(new ProjectListItem(ProjectService.toResponse(project, me.role.canManage()),
-                    health.summary(project, me)));
+        for (ProjectResponse response : responses) {
+            items.add(new ProjectListItem(response, summaries.get(response.id())));
         }
         return items;
+    }
+
+    @GET
+    @Path("/orgs/{orgId}/projects/options")
+    @Operation(summary = "List the projects for a select",
+            description = "Id, code, name, status and client of each project the caller can see, in the order of the full list. "
+                    + "Nothing is worked out, so this is what a form asks for to fill a project select.")
+    public List<ProjectOption> options(@PathParam("orgId") long orgId) {
+        Membership me = access.member(orgId);
+        List<Project> found = me.role == Role.CLIENT
+                ? Project.list("organisationId = ?1 and clientId = ?2 order by name", orgId, me.clientId == null ? -1L : me.clientId)
+                : Project.list("organisationId = ?1 order by name", orgId);
+        // The same order as the full list: active work first, finished projects last, by name within.
+        List<Project> ordered = new ArrayList<>(found);
+        ordered.sort(Comparator.comparingInt(p -> LIST_ORDER.indexOf(p.status)));
+        Map<Long, String> clients = ProjectService.clientNames(ordered);
+        return ordered.stream()
+                .map(p -> new ProjectOption(p.id, p.code, p.name, p.status, p.clientId, p.clientId == null ? null : clients.get(p.clientId)))
+                .toList();
     }
 
     @POST
@@ -130,6 +159,8 @@ public class ProjectResource {
     public void delete(@PathParam("projectId") long projectId) {
         Project project = access.project(projectId);
         access.manageProject(project);
+        // The rows go by the foreign keys; the files of the attachments go once the deletion is committed.
+        attachmentFiles.deleteAfterCommit(Attachment.keysOfProject(project.id));
         project.delete();
     }
 
@@ -156,17 +187,26 @@ public class ProjectResource {
             description = "For owners and managers. Phases, tasks, subtasks, milestones and links are copied, with every date at "
                     + "the same distance in working days from the first day of the plan, which lands on startDate. The new project "
                     + "is planned and every task is to do. Logged time, comments, notifications and activity are not copied. "
-                    + "Without clientId the copy is internal, and without keepAssignees nobody is assigned.")
+                    + "Without clientId the copy is internal, and without keepAssignees nobody is assigned. The files attached to the tasks "
+                    + "are only copied with copyAttachments.")
     @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
     @Fails(status = 400, code = "date_out_of_range", when = "a date of the copied plan would lie outside the years 1 to 9999")
     @Fails(status = 409, code = "code_taken", when = "another project in the organisation already uses the code")
     @Fails(status = 409, code = "source_changed", when = "a task or phase of the source was deleted while it was being copied")
+    @Fails(status = 413, code = "storage_full", when = "copyAttachments is set and the copied files do not fit in the organisation's limit")
     public ProjectResponse duplicate(@PathParam("projectId") long projectId, @Valid @NotNull DuplicateRequest request) {
         Project source = access.project(projectId);
         Membership me = access.manageProject(source);
-        return ProjectService.toResponse(duplicator.duplicate(me, source, request), true);
+        ProjectDuplicator.Duplicate copy = duplicator.duplicate(me, source, request);
+        ProjectResponse response = ProjectService.toResponse(copy.project(), true);
+        return copy.files() == null ? response : response.withCopiedFiles(copy.files().copied(), copy.files().skipped());
     }
 
     public record ProjectListItem(ProjectResponse project, HealthSummary health) {
+    }
+
+    /** A project as a select needs it. The client fields are left out for an internal project. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ProjectOption(long id, String code, String name, ProjectStatus status, Long clientId, String clientName) {
     }
 }

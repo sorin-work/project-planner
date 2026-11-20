@@ -10,6 +10,9 @@
 #   3. The newest dump restores into a scratch database.
 #   4. Every table has the same number of rows in both, and the tables that
 #      hold the work (users, tasks, time_entries, timesheets) are not empty.
+#   5. The attachments: every dump has its archive and loses it when it is
+#      pruned, and the restore puts back exactly the files in the archive,
+#      in another folder that held different ones.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -45,6 +48,12 @@ sh "$here/check-backup-loop.sh"
 export BACKUP_DIR="$work/dumps" BACKUP_KEEP=2
 mkdir "$BACKUP_DIR"
 echo "not a dump" >"$BACKUP_DIR/keep-me.txt"
+# Files in the layout of the api's store: a folder per first two characters of the key.
+export ATTACHMENTS_DIR="$work/attachments"
+mkdir -p "$ATTACHMENTS_DIR/0a" "$ATTACHMENTS_DIR/ff"
+echo "the brief" >"$ATTACHMENTS_DIR/0a/0a000000000000000000000000000001"
+head -c 100000 /dev/urandom >"$ATTACHMENTS_DIR/ff/ff000000000000000000000000000002"
+(cd "$ATTACHMENTS_DIR" && find . -type f -exec md5sum {} \; | sort) >"$work/files-before.txt"
 
 echo "== retention"
 sh "$here/backup.sh" once
@@ -62,10 +71,32 @@ if echo "$left" | grep -qx "$first"; then
 fi
 [ -f "$BACKUP_DIR/keep-me.txt" ] || fail "a file that is not a dump was removed"
 [ -z "$(ls -A "$BACKUP_DIR" | grep '\.partial$' || true)" ] || fail "a partial dump was left behind"
+archives=$(ls "$BACKUP_DIR" | grep '\.files\.tar$' | sort)
+[ "$archives" = "$(echo "$left" | sed 's/\.dump$/.files.tar/')" ] || fail "every dump kept should have its archive and no other, found: $archives"
 newest=$(echo "$left" | tail -n 1)
 
-echo "== restore $newest into $scratch"
-PGDATABASE="$scratch" sh "$here/backup.sh" restore "$newest"
+echo "== restore $newest into $scratch, and its attachments into a folder that holds other files"
+restored_files="$work/restored-attachments"
+mkdir -p "$restored_files/12"
+echo "a file the backup does not know" >"$restored_files/12/12000000000000000000000000000003"
+PGDATABASE="$scratch" ATTACHMENTS_DIR="$restored_files" sh "$here/backup.sh" restore "$newest"
+(cd "$restored_files" && find . -type f -exec md5sum {} \; | sort) >"$work/files-after.txt"
+diff "$work/files-before.txt" "$work/files-after.txt" || fail "the restored attachments (+) are not the ones that were archived (-)"
+[ ! -e "$restored_files/.restoring" ] || fail "the unpacked copy was left behind"
+
+echo "== an archive that holds a link is restored without it"
+crafted="$work/crafted"
+mkdir -p "$crafted/cc" "$work/crafted-target/cc"
+echo "a real file" >"$crafted/cc/cc000000000000000000000000000004"
+ln -s /etc/hostname "$crafted/cc/cc000000000000000000000000000005"
+cp "$BACKUP_DIR/$newest" "$BACKUP_DIR/planner-20000101T000000Z.dump"
+tar -C "$crafted" -cf "$BACKUP_DIR/planner-20000101T000000Z.files.tar" .
+PGDATABASE="$scratch" ATTACHMENTS_DIR="$work/crafted-target" sh "$here/backup.sh" restore planner-20000101T000000Z.dump >"$work/crafted.log"
+grep -q "left out 1 entries" "$work/crafted.log" || fail "the link in the archive was not reported"
+[ -f "$work/crafted-target/cc/cc000000000000000000000000000004" ] || fail "the plain file of the crafted archive was not restored"
+[ ! -e "$work/crafted-target/cc/cc000000000000000000000000000005" ] && [ ! -L "$work/crafted-target/cc/cc000000000000000000000000000005" ] ||
+  fail "the link in the archive was restored"
+rm -f "$BACKUP_DIR/planner-20000101T000000Z.dump" "$BACKUP_DIR/planner-20000101T000000Z.files.tar"
 
 echo "== row counts"
 row_counts "$PGDATABASE" >"$work/source.txt"
@@ -80,4 +111,4 @@ for table in users tasks time_entries timesheets; do
 done
 total=$(awk '$1 !~ /\.flyway_schema_history$/ { rows += $2 } END { print rows + 0 }' "$work/source.txt")
 
-echo "OK: $(wc -l <"$work/source.txt") tables came back from $newest, $total rows in the application tables"
+echo "OK: $(wc -l <"$work/source.txt") tables came back from $newest, $total rows in the application tables, and $(wc -l <"$work/files-before.txt") attachments"

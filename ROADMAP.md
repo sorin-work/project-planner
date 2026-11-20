@@ -34,11 +34,11 @@ couple of weekends, **L** several weeks of spare time.
 | 11  | Invitation and password reset emails       | Shipped | both     | M    | -          |
 | 12  | Notification emails and preferences        | Shipped | both     | M    | 11         |
 | 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
-| 14  | Performance on large projects              | Later | both     | M    | -          |
-| 15  | Public holidays and time off               | Later | both     | L    | -          |
+| 14  | Performance on large projects              | Shipped | both     | M    | -          |
+| 15  | Public holidays and time off               | Shipped | both     | L    | -          |
 | 16  | Baselines                                  | Shipped | both     | M    | -          |
-| 17  | Dependency types and lead time             | Maybe | both     | L    | 1          |
-| 18  | Attachments on tasks                       | Maybe | both     | L    | -          |
+| 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
+| 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
 
 ## Before starting on one
 
@@ -171,229 +171,29 @@ only a keyboard or with a screen reader. Gaps I already know about:
 ## Later
 
 
-### 14. Performance on large projects
+### Follow-ups of 14. Performance on large projects
 
-The demo data is eight projects, about ninety tasks and a year of time for
-five people, and everything is instant. Some of the code only works at that
-size. There are seven separate changes here, listed in the order I would do
-them. The first four are the pull request. The last three are follow-ups, each
-small enough for a pull request of its own.
+These were left out of item 14 on purpose, each small enough for a pull
+request of its own.
 
-In the pull request:
-
-1. A query-count check, first, because it makes the rest checkable in CI
-   without timing anything. Switch on Hibernate statistics in the test profile
-   (`quarkus.hibernate-orm.statistics=true`) and assert that the number of
-   statements for the project list with thirty projects stays under a fixed
-   bound. Build that data in the test, not in `DemoSeeder`.
-2. The project list and the dashboard. `ProjectResource.list` calls
-   `ProjectHealthService.summary` per project, which loads all of its tasks,
-   every one of its time entries (`TimeEntry.list("projectId", ...)`) and a
-   fresh `RateBook` (the organisation, the role rates and all memberships).
-   `ProjectService.toResponse` then looks up the client by id, and
-   `DashboardResource` does the same for the active projects. Load the tasks
-   and one grouped time query for all listed projects at once, with one
-   `RateBook` per request.
-3. A light project list for selects (id, code, name, status, client) under its
-   own path or a query parameter. `TimesheetPage` and `ReportsPage` call the
-   full list today only to fill a project select. Switch both.
-4. People in one `id in` query, as `TaskMapper` already does, in the places
-   that look them up one at a time: `TimesheetService.summaries` (which also
-   queries the entries once per sheet), `OrgResource.members` and
-   `CommentResource.mentionedUsers` (`User.findById` per member), and
-   `MeResource.me` (the organisation per membership).
-
-Follow-ups, not in this pull request:
-
-5. Older entries in the two lists that only take a limit. `ActivityResource`
-   (at most 200) and `NotificationResource` cannot be asked for anything
-   older. A "before this id" parameter, and "Load more" in `ActivityTab` and
-   `NotificationsPage`.
-6. The timeline with many tasks. It draws every row and every bar.
-   `layoutGantt` is recomputed when tasks, zoom or collapsed phases change and
-   not during a drag, which is right, so with a thousand tasks it is the size
-   of the DOM that hurts. Open with the phases collapsed above some task count
-   first, and only then think about drawing just the visible rows.
-7. Smaller things on the web side, and only with a measurement that says they
-   matter: `groupTasks` copies the child array for every subtask and scans the
-   phases for every task, `ProjectStore.changed` fetches the critical path
-   again after each change, and the board reloads the whole task list after
-   each drop (`reloadTasks`).
-
-Notes for the pull request:
-
-- Tricky: rounding again. `BudgetCalculator` adds up `Money.cost` per entry,
-  rounded to cents each time. Feeding it one `TimeFacts` per person with
-  summed minutes moves `spentAmount` by a few cents, and no test would
-  notice: `roundsPartialHoursToCents` in `BudgetCalculatorTest` has a single
-  entry. Before touching the query, add a case that pins rounding per entry:
-  three one-minute entries at 100 an hour cost 1.67 each and 5.01 together,
-  where three minutes in one entry cost 5.00.
-- Keep rounding per entry, so that the budget, the CSV and item 9's report
-  stay in step. The grouped query in step 2 can still be exact: group by the
-  minutes value as well (project, user, billable, minutes, and a count), price
-  one entry and multiply by the count.
-- Item 12 changes `CommentResource.mentionedUsers` too, to skip people who
-  cannot see the project. Whichever lands second keeps both changes.
-- The indexes look right for today's queries. Add one only together with a
-  query from steps 2 to 4 that needs it (`V20`).
-- The target: an organisation with 50 projects, and a project with 1,000 tasks
-  and 20,000 time entries, with the project list under ten statements.
-
-### 15. Public holidays and time off
-
-`WorkCalendar` knows weekends and nothing else. A task planned across
-Christmas counts those days as working days, and the workload page shows forty
-free hours for somebody who is on holiday. (The demo data even skips two
-holiday stretches per person when it logs time, but nothing in the model says
-so.) OpenProject has non-working days for the whole instance, and Float builds
-its capacity view on leave and public holidays.
-
-- Data (`V21__create_holidays_and_time_off.sql`): `holidays` (organisation,
-  date, name, one per organisation and date) and `time_off` (organisation,
-  user, first day, last day, note).
-- API in a new `calendar` package: `/api/orgs/{orgId}/holidays` (the team
-  reads, managers write) and `/api/orgs/{orgId}/time-off` (people manage their
-  own, managers anybody's).
-- Calendar: `WorkCalendar` gets a constructor that takes the non-working
-  dates. `WorkCalendar.DEFAULT` stays for the tests and the seeder.
-  `isWorkingDay` checks the set. `workingDaysBetween` has a fast path that
-  counts five days per whole week, so subtract the holidays that fall on
-  weekdays in the range.
-- Four places build a helper on `WorkCalendar.DEFAULT` once, in a field, and
-  need the organisation's calendar per request instead: `TaskService`
-  (`rescheduler`), `ScheduleResource` (`criticalPath`), `ProjectHealthService`
-  (`progressCalculator`, plus three direct calls) and `WorkloadResource`
-  (`calculator`). Add a request-scoped loader so that one request reads the
-  holidays once. The static `WorkCalendar.weekStart` is not affected.
-- Item 1's `ScheduleCheck` takes a calendar as well. It is built in
-  `ScheduleResource` next to `criticalPath` (the `scheduleCheck` field), so
-  that class has two helpers to switch.
-- Time off does not move the schedule. It only lowers capacity.
-  `WorkloadCalculator.Person` has one `capacityHours` for all weeks. Make it
-  per week (`WeekLoad` already reports capacity per week). A day off takes a
-  fifth of the weekly capacity, and a holiday does the same for everybody. A
-  task is still spread evenly over its own working days, not around its
-  assignee's days off.
-- Web: a holidays card in Settings for managers. Time off on the Team page or
-  a page of its own. The timeline shades holidays like weekends: `layoutGantt`
-  builds `weekends` from `isWeekend`, so pass the holiday dates in through its
-  options. Workload cells show the lower capacity with a marker. The timesheet
-  grid marks holidays in its header.
-- Tricky: existing plans. Dates are stored and durations are worked out from
-  them, so a new holiday inside a task makes it one working day shorter
-  without moving anything, and can leave a task starting or ending on the
-  holiday. Do not rewrite plans when a holiday is added. Dependants are only
-  checked on the next move. If item 1 is in, it reports the links that now
-  break.
-- Tricky: `TimeService` lets people log time on any day and should keep doing
-  so. People do work on holidays.
-- Tricky: other items do new arithmetic with `WorkCalendar.DEFAULT`: the check
-  in item 1, the working-day shift in item 8, capacity in item 9, the date
-  shift in item 13 and the slip in item 16. Whichever lands second switches to
-  the organisation's calendar. The timeline's own count of working days for a
-  drag (item 8: `snapToWorkingDay` and `moveWorkingDays` in `gantt-edit.ts`)
-  needs the holiday dates too.
-- Undecided, with my leaning in brackets: approval for time off (no, this is a
-  planner and not an HR tool), half days (no), importing public holidays (a
-  typed list of dates is enough), and one calendar per country for spread-out
-  teams (one per organisation for now).
+- Older entries in the two lists that only take a limit. `ActivityResource`
+  (at most 200) and `NotificationResource` cannot be asked for anything
+  older. A "before this id" parameter, and "Load more" in `ActivityTab` and
+  `NotificationsPage`.
+- The timeline with many tasks. It draws every row and every bar.
+  `layoutGantt` is recomputed when tasks, zoom or collapsed phases change and
+  not during a drag, which is right, so with a thousand tasks it is the size
+  of the DOM that hurts. Open with the phases collapsed above some task count
+  first, and only then think about drawing just the visible rows.
+- Smaller things on the web side, and only with a measurement that says they
+  matter: `groupTasks` copies the child array for every subtask and scans the
+  phases for every task, `ProjectStore.changed` fetches the critical path
+  again after each change, and the board reloads the whole task list after
+  each drop (`reloadTasks`).
 
 ## Maybe
 
-### 17. Dependency types and lead time
-
-Every link is finish-to-start with a lag of zero or more working days. Real
-plans also have "QA starts two days before development ends" (lead, which is a
-negative lag) and "these two start together" (start-to-start). MS Project has
-four link types. In practice finish-to-start with lead, and start-to-start,
-cover nearly everything. Depends on item 1, because its check and this item
-must share one rule.
-
-- Model: a `type` on `task_dependencies` (`FS`, `SS`, `FF`, `SF`, default
-  `FS`) and a lag that may be negative. `V23__add_dependency_type.sql` adds
-  the column and replaces `ck_task_dependencies_lag` (`lag_days >= 0`) with a
-  range. `Link` gets the type. `DependencyRequest.lagDays` is `@Min(0)` today.
-- One rule in one place: given a link and the predecessor's dates, the
-  earliest allowed start or finish of the successor. FS: start after the
-  predecessor's due date plus lag. SS: start no earlier than its start plus
-  lag. FF: finish no earlier than its finish plus lag. SF: finish no earlier
-  than its start plus lag. `Rescheduler.earliestStart` becomes that rule. For
-  the two finish-based types the task is moved so that its finish fits,
-  keeping its length.
-- `CriticalPath`: the forward pass (`ef + 1 + lag`) and the backward pass
-  (`ls - 1 - lag`) both have finish-to-start written into them. Each needs the
-  four cases. `CriticalPathTest` and `ReschedulerTest` cover FS. Add the same
-  shapes for the other types.
-- `DependencyGraph` does not change. A loop is a loop whatever the type, and
-  one link per pair of tasks stays (`uq_task_dependencies`).
-- `Rescheduler.propagate` still only moves tasks downstream of the change, and
-  only later. With SS a change to the predecessor's start now matters, which
-  works because the chain is recomputed from the current dates.
-- Web: a type select and a lag that accepts negative numbers in the "Waits
-  for" form of `task-panel.html`. The list says "+2 working days" today and
-  needs wording for the rest ("starts with", "2 working days before the end
-  of"). `linkPath` always runs from the right end of one bar to the left end
-  of the next. SS leaves from the left end and FF arrives at the right end.
-  `Dependency` in `models.ts` gets the type.
-- Tricky: lead across a weekend. `addWorkingDays` accepts negative numbers,
-  but returns its date unchanged for zero, weekend or not. `Rescheduler` gets
-  around that today by calling `nextWorkingDay` first. Write the Friday and
-  Monday tests before the code.
-- Tricky: a lead longer than the predecessor makes the successor start before
-  it. MS Project allows that. So would I.
-- Tricky: the check from item 1 and its "Move to" fix must use the same rule,
-  or valid start-to-start links get reported as broken.
-- Undecided: all four types, or only FS and SS. SF is almost never used and
-  doubles the test matrix. I would ship FS and SS with lead, and keep the
-  column able to hold the others.
-
-### 18. Attachments on tasks
-
-A task has a description and plain-text comments, nothing else. The brief, the
-mock-up and the signed-off PDF live in email or on a shared drive, with a link
-pasted into a comment. Every comparable tool has attachments. The question is
-whether file storage is worth it for a planner.
-
-- Data (`V24__create_attachments.sql`): `attachments` (task, uploader, file
-  name, content type, size, storage key, created at), deleted with the task.
-- Storage: files on disk under `ATTACHMENTS_DIR`, on a new named volume in
-  `docker-compose.yml`, saved under a random key and never under the uploaded
-  name. S3-compatible storage can wait.
-- API in a new `attachment` package: list and upload (multipart) at
-  `/api/tasks/{taskId}/attachments`, `GET /api/attachments/{id}` for the
-  bytes, and `DELETE /api/attachments/{id}`. Reading needs `viewProject`.
-  Uploading needs `editProject`, or `viewProject` like commenting if client
-  viewers may upload (see below). Deleting is for the uploader and for
-  managers.
-- Web: a section in `task-panel.html` between the subtasks and the comments,
-  with the list, an upload button and a drop target. A download has to send
-  the bearer token, which a plain link cannot do. `TimeApi.exportCsv` and
-  `downloadBlob` in `reports.page.ts` already solve that for the CSV: fetch a
-  blob and save it. Image previews work the same way with object URLs.
-- Limits per file (say 20 MB) and per organisation. Two places cap the request
-  size: Quarkus (`quarkus.http.limits.max-body-size`, 10 MB by default) and
-  nginx, which has no `client_max_body_size` in `web/nginx.conf` and so stops
-  at its default of 1 MB.
-- Tricky: clean-up. Deleting a task or a project removes rows through foreign
-  key cascades (`ProjectResource.delete` is a single `project.delete()`),
-  which would leave the files on disk. Delete the files explicitly in
-  `TaskService.delete` and before a project delete, and add a sweep for files
-  without a row. Probably both.
-- Tricky: serving other people's files. Always send
-  `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. An
-  uploaded SVG or HTML file shown inline would run script on the app's origin,
-  where the login token sits in `localStorage`.
-- Tricky: client viewers can read tasks and comment. Should they upload? I
-  lean towards yes, with deleting limited to their own files. Sending the
-  brief is what a client does.
-- Tricky: backups. Item 6 dumps the database only. With attachments the volume
-  has to be in the backup as well.
-- Tests: a multipart upload with REST Assured against a temporary directory,
-  then download, the size limit, permissions and clean-up.
-- Undecided: whether this is worth it at all, when a link to the shared drive
-  in the description works. Attachments on comments and pasted images are what
-  people would ask for next, so it does not stay small.
+Nothing is left in this group: items 16 to 18 have shipped.
 
 ## Shipped
 
@@ -720,8 +520,8 @@ one of twenty, and a table only needs a second statement above 5,000 rows.
 The copy has the schedule issues of the source's dates and no
 others, with two things to know: tasks finished in the source are open again,
 so an overlap the source had stopped reporting is reported, and a task that
-lies on a weekend entirely becomes a one-day task on the next working day and
-can then be in the way of a neighbour. The copy's one activity entry does not
+lies on a weekend entirely becomes a one-day task on the next working day (since
+item 17 the scheduling rules read it that way in the source as well). The copy's one activity entry does not
 name the source, because a copy can be made for another client: the source's
 id is kept next to the entry (`related_project_id`, `V26`) and its name is
 added for readers who may see it. A code that two requests take at the same
@@ -730,6 +530,64 @@ plain create as well, and a source that is changed while it is copied is
 `409 source_changed`. Still open: real templates (projects
 flagged as such and hidden elsewhere), a choice of which phases to copy, and
 the organisation's calendar in `ProjectDuplicator` once item 15 has one.
+
+### 14. Performance on large projects
+
+`QueryCountTest` counts statements with Hibernate's statistics (on in the
+test profile) on an organisation built by the test, not by `DemoSeeder`:
+fifty projects, one with 1,000 tasks and 20,000 time entries, five people,
+thirty-six submitted weeks and an owner in five organisations. Each endpoint
+has a fixed bound, and a small organisation sends as many statements as the
+large one. The project list is nine statements for every role (eight before
+item 15 added the holidays), the target
+was under ten. `ProjectHealthService.summaries` takes the tasks of all listed
+projects in one query, their time in one query grouped by project, person,
+billable flag and minutes with a count, and one `RateBook`, and
+`ProjectService.toResponses` the client names in one. The dashboard uses the
+same and maps its three task lists in one pass (22 statements). The light
+list is `GET /orgs/{org}/projects/options` (id, code, name, status, client),
+and `TimesheetPage` and `ReportsPage` fill their selects from it. People are
+looked up in one `id in` query in `TimesheetService.summaries` (which also
+takes the entries of all its weeks at once), `OrgResource.members`,
+`CommentResource.mentionedUsers` and `MeResource.me` (the organisations).
+Money is still priced and rounded per entry, which
+`BudgetCalculatorTest.roundsEveryEntryOnItsOwn` pins. Different from the
+design: no index was needed, so `V20` is unused. Still open: the three
+follow-ups listed under Later.
+
+### 15. Public holidays and time off
+
+`V21` adds `holidays` and `time_off`, and the `calendar` package has their
+endpoints: every member reads the holidays (client viewers too, since their
+timeline shades them), managers write them; the team reads time off, people
+manage their own and managers anybody's. `WorkCalendar` takes the holidays
+that fall on weekdays and takes them out of `workingDaysBetween` after the
+fast path for whole weeks. `OrgCalendars`, request-scoped, reads them once per
+request, and every place that counted working days with
+`WorkCalendar.DEFAULT` now asks it: the rescheduler in `TaskService` (moves,
+shifts and the cascade, through item 17's `LinkRule` for all four link types,
+whose start-to-finish takes the working day before with the holidays), the critical path and the schedule check in
+`ScheduleResource`, progress and the three counts in `ProjectHealthService`,
+`ProjectDuplicator` with `PlanShift`, the slips of item 16 in `BaselineService`,
+`WorkloadResource` and the capacity in `TimeReportService`. `DEFAULT` is left for the tests and the seeder. Capacity
+is per week (`WeekLoad.holidays`, `daysOff`): every working day is a fifth of
+the weekly hours, so a holiday takes a fifth off for everybody and a day off a
+fifth off for one person, and a task is still spread over its own working
+days. On the web, `shared/dates.ts` takes the holidays in every working-day
+function, and `gantt-edit.ts` and `gantt-layout.ts` pass them on, so a drag
+lands where the API will put it and holidays are shaded like weekends.
+Settings has a holidays card, the Team page a time off card, the workload
+marks weeks with less capacity, and the timesheet header names a holiday
+(the week's days carry it). Plans are not rewritten when a holiday is added,
+and time can still be logged on one. The demo team's holidays are time off
+now, and Tom is away three days next week. Different from the design: the
+holidays are readable by client viewers. Overlapping time off for one person
+is refused, under a lock on their membership, and holiday changes are in the
+activity log. Left as the roadmap leaned: no approval, no half days, no import,
+one calendar per organisation. Still open: the missing timesheets list still
+shows the plain weekly hours as capacity, and the demo has no public holidays,
+since one inside a seeded plan would change the schedule issues the demo is
+built to show.
 
 ### 16. Baselines
 
@@ -755,3 +613,58 @@ from planned to active: a baseline is a deliberate act, and an automatic one wou
 take a slot of the ten without anybody choosing it. Still open: that automatic
 baseline if people ask for it, and the organisation's calendar once item 15 has
 one.
+
+### 17. Dependency types and lead time
+
+All four types shipped, not only finish-to-start and start-to-start: `V23` adds
+`dependency_type` (`FS` for every link that existed) and replaces the lag check
+with a range of -365 to 365 working days, so a negative lag is a lead. The rule
+lives in one place, `LinkRule` in `schedule/`: the earliest start of a successor
+for each type, with a link on the finish turned into a start by keeping the
+successor's length, and the same rule in working-day offsets for both passes of
+`CriticalPath`. `Rescheduler`, `ScheduleCheck` and its "Move to" dates go through
+it, and a property test holds the dates and the offsets to each other. A lead
+across a weekend works because every count starts from a working day:
+`addWorkingDays` keeps any date for zero, so the anchor is moved onto one first.
+Start-to-finish without a lag ends the successor on the working day before the
+predecessor starts, the mirror of finish-to-start. A task on days off only counts
+as a one-day task on the next working day everywhere (`LinkRule.normalise`), so
+the critical path and the rescheduler agree on a Saturday milestone. A change to a
+link moves only what that link reaches, not other tasks that wait for the same
+predecessor. `DependencyGraph` did not change. `PATCH /dependencies/{id}` changes the type or
+the lag and pushes the successor later when needed, never earlier. A schedule
+issue about a link names its type, so the web can say "ends too early" for the
+finish types. The timeline draws each arrow between the ends its type names, with
+the type and lag beside it, and the task panel has a type select and a lag box for
+a new link and for each existing one. A copied project keeps the types. Baselines
+keep dates, not links, so the comparison is untouched by types. Still open: a type
+for links drawn on the timeline (they are finish-to-start and can be changed in the
+panel afterwards), and the organisation's calendar from item 15, which replaces
+`WorkCalendar` behind `LinkRule` without changing the rule.
+
+### 18. Attachments on tasks
+
+Files on tasks, in the `attachment` package and `V24`, on an `attachments`
+volume under random keys. Whoever can see the project sees and attaches files,
+client viewers of its client included; whoever attached a file, an owner or a
+manager removes it. What a file is is read from its first bytes and checked
+against its name and a fixed list (raster images, PDF, plain text, office
+documents); SVG, HTML and plain text that starts like markup are refused. The
+bytes come through a link that works for two minutes, an HMAC over the
+attachment, the user, the expiry and the preview flag, with access checked
+when the link is made; every answer has `Content-Disposition`, `nosniff` and a
+sandboxing CSP, and only raster images are ever shown inline. Names lose
+control and invisible format characters, and only plain files inside the
+folder are served, never links. 20 MB a file and
+2 GB an organisation; Quarkus and nginx let 25 MB through so the API can say
+why. Deleting an attachment, a task or a project removes the files after the
+commit, a failed upload removes its file, and a sweep every six hours removes
+files without a row. A copied project takes the files only when asked, and leaves out (and counts)
+files that are missing. Uploads lock the organisation's row for the limit. The
+backup service archives the volume next to every dump and restores it with
+the dump, and the restore drill in CI checks it. Differences from the design:
+the bytes are behind a signed link instead of the bearer token, which lets a
+plain download and an `<img>` preview work, and a link works for its two
+minutes even after access is taken away; and a file removed in the minute between a dump and its
+archive is missing from that backup. Still open: attachments on comments,
+pasted images, and storage other than the volume.

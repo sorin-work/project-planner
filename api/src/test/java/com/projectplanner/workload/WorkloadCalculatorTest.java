@@ -4,6 +4,7 @@ import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.workload.WorkloadCalculator.Assignment;
 import com.projectplanner.workload.WorkloadCalculator.MemberLoad;
 import com.projectplanner.workload.WorkloadCalculator.Person;
+import com.projectplanner.workload.WorkloadCalculator.WeekLoad;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -110,5 +111,36 @@ class WorkloadCalculatorTest {
         // March 2026 has 22 working days.
         assertThat(calculator.capacityMinutes(ana, LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 31))).isEqualTo(22 * 8 * 60);
         assertThat(calculator.capacityMinutes(ana, day(3), day(1))).isZero();
+    }
+
+    @Test
+    void holidaysAndDaysOffLowerTheCapacityOfTheirWeek() {
+        // Wednesday of the first week is a holiday. Ana is away on Thursday and Friday of the second week.
+        WorkloadCalculator withHoliday = new WorkloadCalculator(new WorkCalendar(List.of(day(2))));
+        Person away = new Person(1, 40, java.util.Set.of(day(10), day(11), day(12)));
+        List<WeekLoad> weeks = withHoliday.calculate(List.of(away),
+                List.of(new Assignment(1, 1, 8, day(0), day(4), false)), day(0), 3).getFirst().weeks();
+
+        assertThat(weeks.get(0).capacityHours()).isEqualTo(32.0);
+        assertThat(weeks.get(0).holidays()).isEqualTo(1);
+        assertThat(weeks.get(0).daysOff()).isZero();
+        // Saturday, the third day off, was never a working day.
+        assertThat(weeks.get(1).capacityHours()).isEqualTo(24.0);
+        assertThat(weeks.get(1).daysOff()).isEqualTo(2);
+        assertThat(weeks.get(2).capacityHours()).isEqualTo(40.0);
+        // The task is spread over its four working days, all of it in the first week.
+        assertThat(weeks.get(0).allocatedHours()).isEqualTo(8.0);
+        assertThat(withHoliday.capacityMinutes(away, day(0), day(13))).isEqualTo(56 * 60);
+    }
+
+    @Test
+    void aTaskIsSpreadOverItsOwnWorkingDaysNotAroundADayOff() {
+        // Two days of a five-day task are days off for Ana: the task still books a fifth a day.
+        Person away = new Person(1, 40, java.util.Set.of(day(0), day(1)));
+        List<WeekLoad> weeks = calculator.calculate(List.of(away),
+                List.of(new Assignment(1, 1, 30, day(0), day(4), false)), day(0), 1).getFirst().weeks();
+        assertThat(weeks.getFirst().allocatedHours()).isEqualTo(30.0);
+        assertThat(weeks.getFirst().capacityHours()).isEqualTo(24.0);
+        assertThat(weeks.getFirst().overallocated()).isTrue();
     }
 }

@@ -61,6 +61,10 @@
           <title>{{ linkLabel(link) }}</title>
           <path [attr.d]="link.path" class="link" [class.critical]="link.critical && !link.broken" [class.broken]="link.broken"
             [attr.marker-end]="link.broken ? 'url(#arrow-broken)' : link.critical ? 'url(#arrow-critical)' : 'url(#arrow)'" />
+          @if (link.tag) {
+            <text class="link-tag" [attr.x]="link.tagX" [attr.y]="link.tagY"
+              [attr.text-anchor]="link.type === 'FF' || link.type === 'SF' ? 'start' : 'end'">{{ link.tag }}</text>
+          }
           @if (canEdit()) {
             <!-- The arrow is too thin to click: a wide invisible copy of it takes the pointer. -->
             <path [attr.d]="link.path" class="link-hit" />
