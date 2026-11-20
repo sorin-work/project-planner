@@ -1,0 +1,111 @@
+import { Observable, Subject } from 'rxjs';
+import { SaveQueue } from './save-queue';
+
+describe('SaveQueue', () => {
+  /** A save that records when it starts, and with what, and finishes when the test says so. */
+  function slowSave(name: string, log: string[]) {
+    const request = new Subject<string>();
+    return {
+      save: (left: string | undefined): Observable<string> => {
+        log.push(left === undefined ? name : `${name} after ${left}`);
+        return request;
+      },
+      succeed: (value: string) => {
+        request.next(value);
+        request.complete();
+      },
+      fail: () => request.error(new Error('offline')),
+    };
+  }
+
+  it('runs one save per key at a time and keeps only the latest one waiting', () => {
+    const queue = new SaveQueue<string>();
+    const log: string[] = [];
+    const first = slowSave('first', log);
+    const second = slowSave('second', log);
+    const third = slowSave('third', log);
+
+    queue.submit('cell', first.save);
+    queue.submit('cell', second.save);
+    queue.submit('cell', third.save);
+    expect(log).toEqual(['first']);
+
+    first.succeed('entry 7');
+    // The third save is told what the first one left behind; the second never runs.
+    expect(log).toEqual(['first', 'third after entry 7']);
+    third.succeed('entry 7 again');
+    expect(log).toEqual(['first', 'third after entry 7']);
+  });
+
+  it('carries on with the waiting save when the one before it fails, with nothing changed', () => {
+    const queue = new SaveQueue<string>();
+    const log: string[] = [];
+    const first = slowSave('first', log);
+    const second = slowSave('second', log);
+    const third = slowSave('third', log);
+    const fourth = slowSave('fourth', log);
+
+    queue.submit('cell', first.save);
+    queue.submit('cell', second.save);
+    first.fail();
+    expect(log).toEqual(['first', 'second']);
+
+    queue.submit('cell', third.save);
+    second.succeed('entry 7');
+    queue.submit('cell', fourth.save);
+    third.fail();
+    expect(log).toEqual(['first', 'second', 'third after entry 7', 'fourth after entry 7']);
+  });
+
+  it('starts afresh once a cell has gone quiet', () => {
+    const queue = new SaveQueue<string>();
+    const log: string[] = [];
+    const first = slowSave('first', log);
+
+    queue.submit('cell', first.save);
+    first.succeed('entry 7');
+    queue.submit('cell', slowSave('later', log).save);
+
+    expect(log).toEqual(['first', 'later']);
+  });
+
+  it('does not make one cell wait for another', () => {
+    const queue = new SaveQueue<string>();
+    const log: string[] = [];
+
+    queue.submit('monday', slowSave('monday', log).save);
+    queue.submit('tuesday', slowSave('tuesday', log).save);
+
+    expect(log).toEqual(['monday', 'tuesday']);
+  });
+
+  it('is free again after a save that had nothing to send', () => {
+    const queue = new SaveQueue<string>();
+    const log: string[] = [];
+
+    queue.submit('cell', () => null);
+    queue.submit('cell', slowSave('next', log).save);
+
+    expect(log).toEqual(['next']);
+  });
+
+  it('says when every save has finished, the waiting ones included', () => {
+    const queue = new SaveQueue<string>();
+    const log: string[] = [];
+    const first = slowSave('first', log);
+    const second = slowSave('second', log);
+    const other = slowSave('other', log);
+
+    queue.whenIdle(() => log.push('idle at once'));
+    queue.submit('cell', first.save);
+    queue.submit('cell', second.save);
+    queue.submit('other', other.save);
+    queue.whenIdle(() => log.push('idle'));
+
+    first.succeed('a');
+    other.succeed('b');
+    expect(log).toEqual(['idle at once', 'first', 'other', 'second after a']);
+    second.succeed('c');
+    expect(log).toEqual(['idle at once', 'first', 'other', 'second after a', 'idle']);
+  });
+});
