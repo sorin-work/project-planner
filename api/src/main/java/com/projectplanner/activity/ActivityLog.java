@@ -18,7 +18,17 @@ public class ActivityLog {
     }
 
     public ActivityEntry record(long organisationId, Long projectId, Long taskId, Long actorId, String action, String summary) {
+        return record(organisationId, projectId, taskId, actorId, action, summary, null);
+    }
+
+    /**
+     * An entry that is also about another project. Keep that project's name out of
+     * {@code summary}: a reader who may not see the project is only told that there is one.
+     */
+    public ActivityEntry record(long organisationId, Long projectId, Long taskId, Long actorId, String action, String summary,
+                                Long relatedProjectId) {
         ActivityEntry entry = new ActivityEntry();
+        entry.relatedProjectId = relatedProjectId;
         entry.organisationId = organisationId;
         entry.projectId = projectId;
         entry.taskId = taskId;

@@ -47,10 +47,19 @@ public class OrgAccess {
     /** Read access to a project: the whole team, or a client viewer of the project's client. */
     public Membership viewProject(Project project) {
         Membership membership = member(project.organisationId);
-        if (membership.role == Role.CLIENT && !Objects.equals(membership.clientId, project.clientId)) {
+        if (!sees(membership, project)) {
             throw ApiException.notFound("Project");
         }
         return membership;
+    }
+
+    /**
+     * Whether somebody with this membership may know of the project at all. For a place that
+     * mentions a project next to something else, and leaves the mention out instead of refusing.
+     */
+    public boolean sees(Membership membership, Project project) {
+        return Objects.equals(membership.organisationId, project.organisationId)
+                && (membership.role != Role.CLIENT || Objects.equals(membership.clientId, project.clientId));
     }
 
     /** Planning changes (tasks, dates, dependencies) are for the team, not client viewers. */

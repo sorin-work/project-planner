@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import {
   ActivityEntry,
   CriticalPath,
+  DuplicateDefaults,
   Phase,
   Project,
   ProjectHealth,
@@ -24,6 +25,15 @@ export interface ProjectInput {
   budgetAmount?: number | null;
   hourlyRate?: number | null;
   color?: string;
+}
+
+/** A copy of a project's plan. The client and the assignees are only copied when asked for. */
+export interface DuplicateInput {
+  name: string;
+  code: string;
+  clientId: number | null;
+  startDate: string;
+  keepAssignees: boolean;
 }
 
 export interface PhaseInput {
@@ -62,6 +72,14 @@ export class ProjectApi {
 
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`/api/projects/${id}`);
+  }
+
+  duplicateDefaults(id: number): Observable<DuplicateDefaults> {
+    return this.http.get<DuplicateDefaults>(`/api/projects/${id}/duplicate`);
+  }
+
+  duplicate(id: number, body: DuplicateInput): Observable<Project> {
+    return this.http.post<Project>(`/api/projects/${id}/duplicate`, body);
   }
 
   health(id: number): Observable<ProjectHealth> {

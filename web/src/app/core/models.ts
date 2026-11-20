@@ -103,6 +103,16 @@ export interface Project {
   updatedAt: string;
 }
 
+/** What the API offers for a copy of a project, and how much there is to copy. */
+export interface DuplicateDefaults {
+  name: string;
+  code: string;
+  startDate: string;
+  phases: number;
+  tasks: number;
+  dependencies: number;
+}
+
 export interface HealthSummary {
   status: HealthStatus;
   progressPct: number;
@@ -264,6 +274,12 @@ export interface ActivityEntry {
   action: string;
   summary: string;
   createdAt: string;
+  /**
+   * Another project the entry is about, such as the one a plan was copied from. The
+   * API only sends it to a reader who may see that project.
+   */
+  relatedProjectId?: number;
+  relatedProjectName?: string;
 }
 
 export interface Notification {
