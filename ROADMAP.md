@@ -35,7 +35,7 @@ couple of weekends, **L** several weeks of spare time.
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
 | 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
 | 14  | Performance on large projects              | Shipped | both     | M    | -          |
-| 15  | Public holidays and time off               | Later | both     | L    | -          |
+| 15  | Public holidays and time off               | Shipped | both     | L    | -          |
 | 16  | Baselines                                  | Maybe | both     | M    | -          |
 | 17  | Dependency types and lead time             | Maybe | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Maybe | both     | L    | -          |
@@ -310,65 +310,6 @@ request of its own.
   phases for every task, `ProjectStore.changed` fetches the critical path
   again after each change, and the board reloads the whole task list after
   each drop (`reloadTasks`).
-
-### 15. Public holidays and time off
-
-`WorkCalendar` knows weekends and nothing else. A task planned across
-Christmas counts those days as working days, and the workload page shows forty
-free hours for somebody who is on holiday. (The demo data even skips two
-holiday stretches per person when it logs time, but nothing in the model says
-so.) OpenProject has non-working days for the whole instance, and Float builds
-its capacity view on leave and public holidays.
-
-- Data (`V21__create_holidays_and_time_off.sql`): `holidays` (organisation,
-  date, name, one per organisation and date) and `time_off` (organisation,
-  user, first day, last day, note).
-- API in a new `calendar` package: `/api/orgs/{orgId}/holidays` (the team
-  reads, managers write) and `/api/orgs/{orgId}/time-off` (people manage their
-  own, managers anybody's).
-- Calendar: `WorkCalendar` gets a constructor that takes the non-working
-  dates. `WorkCalendar.DEFAULT` stays for the tests and the seeder.
-  `isWorkingDay` checks the set. `workingDaysBetween` has a fast path that
-  counts five days per whole week, so subtract the holidays that fall on
-  weekdays in the range.
-- Four places build a helper on `WorkCalendar.DEFAULT` once, in a field, and
-  need the organisation's calendar per request instead: `TaskService`
-  (`rescheduler`), `ScheduleResource` (`criticalPath`), `ProjectHealthService`
-  (`progressCalculator`, plus three direct calls) and `WorkloadResource`
-  (`calculator`). Add a request-scoped loader so that one request reads the
-  holidays once. The static `WorkCalendar.weekStart` is not affected.
-- Item 1's `ScheduleCheck` takes a calendar as well. It is built in
-  `ScheduleResource` next to `criticalPath` (the `scheduleCheck` field), so
-  that class has two helpers to switch.
-- Time off does not move the schedule. It only lowers capacity.
-  `WorkloadCalculator.Person` has one `capacityHours` for all weeks. Make it
-  per week (`WeekLoad` already reports capacity per week). A day off takes a
-  fifth of the weekly capacity, and a holiday does the same for everybody. A
-  task is still spread evenly over its own working days, not around its
-  assignee's days off.
-- Web: a holidays card in Settings for managers. Time off on the Team page or
-  a page of its own. The timeline shades holidays like weekends: `layoutGantt`
-  builds `weekends` from `isWeekend`, so pass the holiday dates in through its
-  options. Workload cells show the lower capacity with a marker. The timesheet
-  grid marks holidays in its header.
-- Tricky: existing plans. Dates are stored and durations are worked out from
-  them, so a new holiday inside a task makes it one working day shorter
-  without moving anything, and can leave a task starting or ending on the
-  holiday. Do not rewrite plans when a holiday is added. Dependants are only
-  checked on the next move. If item 1 is in, it reports the links that now
-  break.
-- Tricky: `TimeService` lets people log time on any day and should keep doing
-  so. People do work on holidays.
-- Tricky: other items do new arithmetic with `WorkCalendar.DEFAULT`: the check
-  in item 1, the working-day shift in item 8, capacity in item 9, the date
-  shift in item 13 and the slip in item 16. Whichever lands second switches to
-  the organisation's calendar. The timeline's own count of working days for a
-  drag (item 8: `snapToWorkingDay` and `moveWorkingDays` in `gantt-edit.ts`)
-  needs the holiday dates too.
-- Undecided, with my leaning in brackets: approval for time off (no, this is a
-  planner and not an HR tool), half days (no), importing public holidays (a
-  typed list of dates is enough), and one calendar per country for spread-out
-  teams (one per organisation for now).
 
 ## Maybe
 
@@ -806,12 +747,13 @@ test profile) on an organisation built by the test, not by `DemoSeeder`:
 fifty projects, one with 1,000 tasks and 20,000 time entries, five people,
 thirty-six submitted weeks and an owner in five organisations. Each endpoint
 has a fixed bound, and a small organisation sends as many statements as the
-large one. The project list is eight statements for every role, the target
+large one. The project list is nine statements for every role (eight before
+item 15 added the holidays), the target
 was under ten. `ProjectHealthService.summaries` takes the tasks of all listed
 projects in one query, their time in one query grouped by project, person,
 billable flag and minutes with a count, and one `RateBook`, and
 `ProjectService.toResponses` the client names in one. The dashboard uses the
-same and maps its three task lists in one pass (21 statements). The light
+same and maps its three task lists in one pass (22 statements). The light
 list is `GET /orgs/{org}/projects/options` (id, code, name, status, client),
 and `TimesheetPage` and `ReportsPage` fill their selects from it. People are
 looked up in one `id in` query in `TimesheetService.summaries` (which also
@@ -821,3 +763,35 @@ Money is still priced and rounded per entry, which
 `BudgetCalculatorTest.roundsEveryEntryOnItsOwn` pins. Different from the
 design: no index was needed, so `V20` is unused. Still open: the three
 follow-ups listed under Later.
+
+### 15. Public holidays and time off
+
+`V21` adds `holidays` and `time_off`, and the `calendar` package has their
+endpoints: every member reads the holidays (client viewers too, since their
+timeline shades them), managers write them; the team reads time off, people
+manage their own and managers anybody's. `WorkCalendar` takes the holidays
+that fall on weekdays and takes them out of `workingDaysBetween` after the
+fast path for whole weeks. `OrgCalendars`, request-scoped, reads them once per
+request, and every place that counted working days with
+`WorkCalendar.DEFAULT` now asks it: the rescheduler in `TaskService` (moves,
+shifts and the cascade), the critical path and the schedule check in
+`ScheduleResource`, progress and the three counts in `ProjectHealthService`,
+`ProjectDuplicator` with `PlanShift`, `WorkloadResource` and the capacity in
+`TimeReportService`. `DEFAULT` is left for the tests and the seeder. Capacity
+is per week (`WeekLoad.holidays`, `daysOff`): every working day is a fifth of
+the weekly hours, so a holiday takes a fifth off for everybody and a day off a
+fifth off for one person, and a task is still spread over its own working
+days. On the web, `shared/dates.ts` takes the holidays in every working-day
+function, and `gantt-edit.ts` and `gantt-layout.ts` pass them on, so a drag
+lands where the API will put it and holidays are shaded like weekends.
+Settings has a holidays card, the Team page a time off card, the workload
+marks weeks with less capacity, and the timesheet header names a holiday
+(the week's days carry it). Plans are not rewritten when a holiday is added,
+and time can still be logged on one. The demo team's holidays are time off
+now, and Tom is away three days next week. Different from the design: the
+holidays are readable by client viewers. Overlapping time off for one person
+is refused. Left as the roadmap leaned: no approval, no half days, no import,
+one calendar per organisation. Still open: the missing timesheets list still
+shows the plain weekly hours as capacity, and the demo has no public holidays,
+since one inside a seeded plan would change the schedule issues the demo is
+built to show.
