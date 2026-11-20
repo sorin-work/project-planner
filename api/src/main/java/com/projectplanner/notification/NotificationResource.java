@@ -13,6 +13,8 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.time.Clock;
@@ -27,6 +29,7 @@ import java.util.stream.Collectors;
 
 @Path("/api/notifications")
 @Authenticated
+@Tag(name = "Collaboration")
 public class NotificationResource {
 
     private final CurrentUser currentUser;
@@ -38,6 +41,7 @@ public class NotificationResource {
     }
 
     @GET
+    @Operation(summary = "List your notifications")
     public List<NotificationResponse> list(@QueryParam("orgId") Long orgId,
                                            @QueryParam("unread") @DefaultValue("false") boolean unreadOnly,
                                            @QueryParam("limit") @DefaultValue("50") int limit) {
@@ -65,6 +69,7 @@ public class NotificationResource {
 
     @GET
     @Path("/unread-count")
+    @Operation(summary = "Count your unread notifications")
     public UnreadCount unreadCount(@QueryParam("orgId") Long orgId) {
         long count = orgId == null
                 ? Notification.count("userId = ?1 and readAt is null", currentUser.id())
@@ -76,6 +81,7 @@ public class NotificationResource {
     @Path("/{id}/read")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Mark a notification as read")
     public void markRead(@PathParam("id") long id) {
         Notification notification = Notification.findById(id);
         if (notification == null || notification.userId != currentUser.id()) {
@@ -90,6 +96,7 @@ public class NotificationResource {
     @Path("/read-all")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Mark all your notifications as read")
     public void markAllRead(@QueryParam("orgId") Long orgId) {
         Instant now = Instant.now(clock);
         if (orgId == null) {

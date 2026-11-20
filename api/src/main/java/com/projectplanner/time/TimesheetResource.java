@@ -1,6 +1,7 @@
 package com.projectplanner.time;
 
 import com.projectplanner.common.ApiException;
+import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.time.TimeDtos.MissingResponse;
@@ -20,6 +21,9 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -28,6 +32,7 @@ import java.util.Objects;
 
 @Path("/api/orgs/{orgId}/timesheets")
 @Authenticated
+@Tag(name = "Timesheets")
 public class TimesheetResource {
 
     private final OrgAccess access;
@@ -43,9 +48,11 @@ public class TimesheetResource {
     /** One week of time for a person: the signed-in user unless a manager asks for someone else. */
     @GET
     @Path("/week")
+    @Operation(summary = "One week of time for a person",
+            description = "For the team: owners, managers and members, not client viewers. Your own week, or with userId someone else's for owners and managers.")
     public WeekResponse week(@PathParam("orgId") long orgId,
-                             @QueryParam("date") LocalDate date,
-                             @QueryParam("userId") Long userId) {
+                             @Parameter(description = "Any day of the week. Today when left out.") @QueryParam("date") LocalDate date,
+                             @Parameter(description = "Yourself when left out.") @QueryParam("userId") Long userId) {
         Membership me = access.team(orgId);
         long user = userId == null ? me.userId : userId;
         if (user != me.userId && !me.role.canManage()) {
@@ -60,6 +67,11 @@ public class TimesheetResource {
     @POST
     @Path("/submit")
     @Transactional
+    @Operation(summary = "Submit a week for approval",
+            description = "For the team: owners, managers and members, not client viewers. The week is locked until it is sent back or withdrawn.")
+    @Fails(status = 400, code = "empty_timesheet", when = "no time is logged in the week")
+    @Fails(status = 409, code = "timer_running", when = "a timer is still running")
+    @Fails(status = 409, code = "already_submitted", when = "the week is already submitted or approved")
     public WeekResponse submit(@PathParam("orgId") long orgId, @Valid @NotNull SubmitRequest request) {
         Membership me = access.team(orgId);
         Timesheet sheet = timesheets.submit(me, request.weekStart());
@@ -69,6 +81,9 @@ public class TimesheetResource {
     @POST
     @Path("/withdraw")
     @Transactional
+    @Operation(summary = "Take a submitted week back",
+            description = "For the team: owners, managers and members, not client viewers.")
+    @Fails(status = 409, code = "not_submitted", when = "the week is not waiting for review")
     public WeekResponse withdraw(@PathParam("orgId") long orgId, @Valid @NotNull SubmitRequest request) {
         Membership me = access.team(orgId);
         Timesheet sheet = timesheets.withdraw(me, request.weekStart());
@@ -77,6 +92,8 @@ public class TimesheetResource {
 
     /** The approval queue for managers; by default only weeks waiting for review. */
     @GET
+    @Operation(summary = "The approval queue",
+            description = "For owners and managers. Weeks waiting for review unless another status is asked for.")
     public List<TimesheetSummary> list(@PathParam("orgId") long orgId,
                                        @QueryParam("status") @DefaultValue("SUBMITTED") TimesheetStatus status,
                                        @QueryParam("limit") @DefaultValue("50") int limit) {
@@ -93,7 +110,11 @@ public class TimesheetResource {
      */
     @GET
     @Path("/missing")
-    public MissingResponse missing(@PathParam("orgId") long orgId, @QueryParam("weekStart") LocalDate weekStart) {
+    @Operation(summary = "Who has not submitted a week that is over",
+            description = "For owners and managers. Drafts and weeks that were sent back, with the time logged so far. Without weekStart it is the latest week that is over.")
+    @Fails(status = 400, code = "week_not_over", when = "the week has not ended yet")
+    public MissingResponse missing(@PathParam("orgId") long orgId,
+                                   @Parameter(description = "Any day of the week.") @QueryParam("weekStart") LocalDate weekStart) {
         access.manager(orgId);
         return timesheets.missing(orgId, weekStart);
     }
@@ -102,6 +123,9 @@ public class TimesheetResource {
     @POST
     @Path("/remind")
     @Transactional
+    @Operation(summary = "Remind people to submit a week they have not submitted",
+            description = "For owners and managers. The answer says who was reminded, and who was left out and why.")
+    @Fails(status = 400, code = "week_not_over", when = "the week has not ended yet")
     public RemindResponse remind(@PathParam("orgId") long orgId, @Valid @NotNull RemindRequest request) {
         Membership me = access.manager(orgId);
         return timesheets.remind(me, request.weekStart(), request.userIds());
@@ -109,6 +133,8 @@ public class TimesheetResource {
 
     @GET
     @Path("/{sheetId}")
+    @Operation(summary = "Get a timesheet",
+            description = "For the team: owners, managers and members, not client viewers. Your own, or anyone's for owners and managers.")
     public WeekResponse get(@PathParam("orgId") long orgId, @PathParam("sheetId") long sheetId) {
         Membership me = access.team(orgId);
         Timesheet sheet = find(orgId, sheetId);
@@ -121,6 +147,9 @@ public class TimesheetResource {
     @POST
     @Path("/{sheetId}/approve")
     @Transactional
+    @Operation(summary = "Approve a timesheet",
+            description = "For owners and managers. A manager cannot review their own week, an owner can.")
+    @Fails(status = 409, code = "not_submitted", when = "the week is not waiting for review")
     public WeekResponse approve(@PathParam("orgId") long orgId, @PathParam("sheetId") long sheetId) {
         Membership me = access.manager(orgId);
         Timesheet sheet = timesheets.approve(me, find(orgId, sheetId));
@@ -130,6 +159,9 @@ public class TimesheetResource {
     @POST
     @Path("/{sheetId}/reject")
     @Transactional
+    @Operation(summary = "Send a timesheet back with a note",
+            description = "For owners and managers. The week is unlocked again.")
+    @Fails(status = 409, code = "not_submitted", when = "the week is not waiting for review")
     public WeekResponse reject(@PathParam("orgId") long orgId, @PathParam("sheetId") long sheetId,
                                @Valid ReviewRequest request) {
         Membership me = access.manager(orgId);

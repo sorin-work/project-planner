@@ -4,6 +4,7 @@ import com.projectplanner.auth.User;
 import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.CsvWriter;
+import com.projectplanner.common.Fails;
 import com.projectplanner.common.Money;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
@@ -19,6 +20,13 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.enums.SchemaType;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -30,6 +38,7 @@ import java.util.Objects;
 
 @Path("/api/orgs/{orgId}/exports")
 @Authenticated
+@Tag(name = "Export")
 public class ExportResource {
 
     private final OrgAccess access;
@@ -45,9 +54,15 @@ public class ExportResource {
     @GET
     @Path("/timesheets.csv")
     @Produces("text/csv")
+    @Operation(summary = "Time entries as CSV",
+            description = "For the team: owners, managers and members, not client viewers. Members can only export their own time.")
+    @APIResponse(responseCode = "200",
+            description = "One row per entry under a header row, as an attachment. Owners and managers also get the rate and amount columns.",
+            content = @Content(mediaType = "text/csv", schema = @Schema(type = SchemaType.STRING)))
+    @Fails(status = 400, code = "invalid_range", when = "from or to is missing, to is before from, or the range is longer than two years")
     public Response timesheets(@PathParam("orgId") long orgId,
-                               @QueryParam("from") LocalDate from,
-                               @QueryParam("to") LocalDate to,
+                               @Parameter(required = true) @QueryParam("from") LocalDate from,
+                               @Parameter(required = true) @QueryParam("to") LocalDate to,
                                @QueryParam("userId") Long userId,
                                @QueryParam("projectId") Long projectId,
                                @QueryParam("billable") Boolean billable) {

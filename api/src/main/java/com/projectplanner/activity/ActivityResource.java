@@ -13,6 +13,8 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -23,6 +25,7 @@ import java.util.stream.Collectors;
 
 @Path("/api")
 @Authenticated
+@Tag(name = "Collaboration")
 public class ActivityResource {
 
     private static final int MAX_LIMIT = 200;
@@ -36,6 +39,8 @@ public class ActivityResource {
     /** Organisation-wide feed for the team. Client viewers use the per-project feed. */
     @GET
     @Path("/orgs/{orgId}/activity")
+    @Operation(summary = "What happened across the organisation, newest first",
+            description = "Client viewers get an empty list here and use the feed of a project.")
     public List<ActivityResponse> forOrganisation(@PathParam("orgId") long orgId,
                                                   @QueryParam("limit") @DefaultValue("50") int limit) {
         Membership me = access.member(orgId);
@@ -49,6 +54,7 @@ public class ActivityResource {
 
     @GET
     @Path("/projects/{projectId}/activity")
+    @Operation(summary = "What happened in a project, newest first")
     public List<ActivityResponse> forProject(@PathParam("projectId") long projectId,
                                              @QueryParam("limit") @DefaultValue("50") int limit) {
         Project project = access.project(projectId);
