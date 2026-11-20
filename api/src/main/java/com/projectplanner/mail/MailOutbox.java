@@ -73,11 +73,18 @@ public class MailOutbox {
 
     /** Sends a mail on the current thread. Only for work that already runs on the mail thread. */
     public void send(String kind, MailTemplateInstance mail) {
+        deliver(kind, mail);
+    }
+
+    /** Sends a mail on the current thread and says whether it went. A failure is logged as above. */
+    public boolean deliver(String kind, MailTemplateInstance mail) {
         try {
             mail.send().await().atMost(SEND_TIMEOUT);
+            return true;
         } catch (RuntimeException e) {
             LOG.warnf("Could not send the %s mail: %s", kind, e.getClass().getName());
             LOG.debugf(e, "Could not send the %s mail", kind);
+            return false;
         }
     }
 

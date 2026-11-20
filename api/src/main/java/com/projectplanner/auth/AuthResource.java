@@ -6,9 +6,14 @@ import com.projectplanner.auth.AuthDtos.ForgotRequest;
 import com.projectplanner.auth.AuthDtos.LoginRequest;
 import com.projectplanner.auth.AuthDtos.ResetRequest;
 import com.projectplanner.auth.AuthDtos.SignupRequest;
+import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Fails;
 import com.projectplanner.mail.ClientThrottle;
 import com.projectplanner.mail.MailSettings;
+import com.projectplanner.notification.Delivery;
+import com.projectplanner.notification.NotificationPreferences;
+import com.projectplanner.notification.NotificationType;
+import com.projectplanner.notification.UnsubscribeLinks;
 import com.projectplanner.org.Invitation;
 import com.projectplanner.org.Invitations;
 import com.projectplanner.org.OrgDtos.InvitationLinkRequest;
@@ -16,13 +21,17 @@ import com.projectplanner.org.OrgDtos.InvitationLinkResponse;
 import com.projectplanner.org.Organisation;
 import io.vertx.core.http.HttpServerRequest;
 import jakarta.annotation.security.PermitAll;
+import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.core.Context;
 import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
@@ -38,15 +47,20 @@ public class AuthResource {
     private final Invitations invitations;
     private final MailSettings mail;
     private final ClientThrottle throttle;
+    private final UnsubscribeLinks unsubscribeLinks;
+    private final NotificationPreferences preferences;
     private final Clock clock;
 
     public AuthResource(AuthService auth, PasswordResets resets, Invitations invitations, MailSettings mail,
-                        ClientThrottle throttle, Clock clock) {
+                        ClientThrottle throttle, UnsubscribeLinks unsubscribeLinks, NotificationPreferences preferences,
+                        Clock clock) {
         this.auth = auth;
         this.resets = resets;
         this.invitations = invitations;
         this.mail = mail;
         this.throttle = throttle;
+        this.unsubscribeLinks = unsubscribeLinks;
+        this.preferences = preferences;
         this.clock = clock;
     }
 
@@ -113,5 +127,27 @@ public class AuthResource {
         Organisation org = Organisation.findById(invitation.organisationId);
         return new InvitationLinkResponse(invitation.email, org.name, invitation.role,
                 User.findByEmail(invitation.email).isPresent());
+    }
+
+    @POST
+    @Path("/unsubscribe")
+    @Transactional
+    @Operation(summary = "Stop the mails of one type, with the link from a notification mail",
+            description = "Needs no sign-in: the token says whose mails and which type, and is signed for this one use. That type is then shown in the app only. The page asks before it sends this, so that a mail scanner that opens the link changes nothing.")
+    @Fails(status = 400, code = "invalid_link", when = "the token was not made by this server, or the account is gone")
+    public UnsubscribeResponse unsubscribe(@Valid @NotNull UnsubscribeRequest request) {
+        UnsubscribeLinks.Subscription subscription = unsubscribeLinks.read(request.token())
+                .filter(s -> User.findById(s.userId()) != null)
+                .orElseThrow(() -> ApiException.badRequest("invalid_link", "This link is not one of ours. Change your mails in the settings instead."));
+        if (preferences.of(subscription.userId(), subscription.type()) == Delivery.EMAIL) {
+            preferences.set(subscription.userId(), subscription.type(), Delivery.IN_APP);
+        }
+        return new UnsubscribeResponse(subscription.type());
+    }
+
+    public record UnsubscribeRequest(@NotBlank @Size(max = 200) String token) {
+    }
+
+    public record UnsubscribeResponse(@Schema(description = "The type that is no longer mailed.") NotificationType type) {
     }
 }
