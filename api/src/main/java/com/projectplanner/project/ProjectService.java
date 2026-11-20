@@ -7,7 +7,10 @@ import com.projectplanner.org.Membership;
 import com.projectplanner.project.ProjectDtos.ProjectRequest;
 import com.projectplanner.project.ProjectDtos.ProjectResponse;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
+import jakarta.persistence.LockModeType;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Locale;
@@ -20,10 +23,12 @@ public class ProjectService {
 
     private final ActivityLog activity;
     private final Clock clock;
+    private final Event<BudgetChanged> budgetChanged;
 
-    public ProjectService(ActivityLog activity, Clock clock) {
+    public ProjectService(ActivityLog activity, Clock clock, Event<BudgetChanged> budgetChanged) {
         this.activity = activity;
         this.clock = clock;
+        this.budgetChanged = budgetChanged;
     }
 
     public Project create(Membership me, ProjectRequest request) {
@@ -38,8 +43,17 @@ public class ProjectService {
     }
 
     public void update(Membership me, Project project, ProjectRequest request) {
+        // Read again with the row locked, before anything changes: time that is being logged at
+        // this moment waits, and the alert levels are the ones that are stored now.
+        Project.getEntityManager().refresh(project, LockModeType.PESSIMISTIC_WRITE);
         ProjectStatus before = project.status;
+        BigDecimal budgetHours = project.budgetHours;
+        BigDecimal budgetAmount = project.budgetAmount;
+        BigDecimal hourlyRate = project.hourlyRate;
         apply(project, request);
+        if (!same(budgetHours, project.budgetHours) || !same(budgetAmount, project.budgetAmount) || !same(hourlyRate, project.hourlyRate)) {
+            budgetChanged.fire(new BudgetChanged(project.id));
+        }
         if (before != project.status) {
             activity.record(project.organisationId, project.id, null, me.userId, "project.status",
                     "Changed status of " + project.name + " to " + project.status.name().toLowerCase(Locale.ROOT).replace('_', ' '));
@@ -78,6 +92,10 @@ public class ProjectService {
             project.color = request.color().toLowerCase(Locale.ROOT);
         }
         project.updatedAt = Instant.now(clock);
+    }
+
+    private static boolean same(BigDecimal a, BigDecimal b) {
+        return a == null ? b == null : b != null && a.compareTo(b) == 0;
     }
 
     public static ProjectResponse toResponse(Project p, boolean showMoney) {

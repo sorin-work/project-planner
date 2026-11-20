@@ -269,6 +269,7 @@ components schemas NotificationResponse properties type $ref = #/components/sche
 components schemas NotificationResponse properties weekStart $ref = #/components/schemas/LocalDate
 components schemas NotificationResponse type = object
 components schemas NotificationType enum = ASSIGNED
+components schemas NotificationType enum = BUDGET_ALERT
 components schemas NotificationType enum = COMMENTED
 components schemas NotificationType enum = MENTIONED
 components schemas NotificationType enum = TIMESHEET_APPROVED

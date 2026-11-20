@@ -13,6 +13,7 @@ import com.projectplanner.time.TimeDtos.StartTimerRequest;
 import com.projectplanner.time.TimeDtos.TimeEntryRequest;
 import com.projectplanner.time.TimeDtos.TimeEntryResponse;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.persistence.LockModeType;
 
 import java.time.Clock;
@@ -38,10 +39,13 @@ public class TimeService {
 
     private final Clock clock;
     private final ActivityLog activity;
+    /** Says that a project's time has changed, for whoever watches the total (the budget alerts). */
+    private final Event<TimeChanged> changed;
 
-    public TimeService(Clock clock, ActivityLog activity) {
+    public TimeService(Clock clock, ActivityLog activity, Event<TimeChanged> changed) {
         this.clock = clock;
         this.activity = activity;
+        this.changed = changed;
     }
 
     public TimeEntry create(Membership me, TimeEntryRequest request) {
@@ -66,6 +70,7 @@ public class TimeService {
         entry.createdAt = Instant.now(clock);
         entry.clientKey = request.clientKey();
         entry.persist();
+        changed.fire(new TimeChanged(entry.projectId));
         return entry;
     }
 
@@ -93,6 +98,8 @@ public class TimeService {
     public void update(Membership me, TimeEntry entry, TimeEntryRequest request) {
         checkOwner(me, entry);
         checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
+        long from = entry.projectId;
+        lockInOrder(from, request.projectId());
         Target target = target(entry.organisationId, request.projectId(), request.taskId());
         if (!entry.isRunning()) {
             // Both the week the entry leaves and the one it moves into have to be open.
@@ -109,18 +116,27 @@ public class TimeService {
         if (request.billable() != null) {
             entry.billable = request.billable();
         }
+        changed.fire(new TimeChanged(entry.projectId));
+        if (from != entry.projectId) {
+            // Moved to another project: the one it left has less time now.
+            changed.fire(new TimeChanged(from));
+        }
     }
 
     public void delete(Membership me, TimeEntry entry) {
         checkOwner(me, entry);
         checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
+        Project.locked(entry.projectId);
         entry.delete();
+        changed.fire(new TimeChanged(entry.projectId));
     }
 
     /** Starts a timer, stopping (and saving) any timer that was already running. */
     public TimeEntry start(Membership me, StartTimerRequest request) {
+        Optional<TimeEntry> running = TimeEntry.runningFor(me.organisationId, me.userId);
+        running.ifPresent(timer -> lockInOrder(timer.projectId, request.projectId()));
         Target target = target(me.organisationId, request.projectId(), request.taskId());
-        TimeEntry.runningFor(me.organisationId, me.userId).ifPresent(this::finish);
+        running.ifPresent(this::finish);
         Instant now = Instant.now(clock);
         LocalDate today = organisation(me.organisationId).today(clock);
         checkUnlocked(me.organisationId, me.userId, today);
@@ -159,10 +175,12 @@ public class TimeService {
         LocalDate day = dayOf(entry);
         // Stopping books time like any other entry does, so that week has to be open.
         checkUnlocked(entry.organisationId, entry.userId, day);
+        Project.locked(entry.projectId);
         long minutes = Math.round(Duration.between(entry.startedAt, now).toSeconds() / 60.0);
         entry.endedAt = now;
         entry.minutes = (int) Math.max(1, Math.min(1440, minutes));
         entry.entryDate = day;
+        changed.fire(new TimeChanged(entry.projectId));
     }
 
     /** The day an entry counts for. For a running timer that is the day it was started, whatever its date says. */
@@ -211,8 +229,13 @@ public class TimeService {
         return toResponses(List.of(entry)).getFirst();
     }
 
+    /**
+     * The project and task an entry is for. The project's row is locked: changes to a
+     * project's time happen one after the other, so that what is worked out from the total
+     * afterwards sees every one of them.
+     */
     private Target target(long organisationId, long projectId, Long taskId) {
-        Project project = Project.findById(projectId);
+        Project project = Project.locked(projectId);
         if (project == null || !Objects.equals(project.organisationId, organisationId)) {
             throw ApiException.badRequest("unknown_project", "Project not found in this organisation");
         }
@@ -242,6 +265,14 @@ public class TimeService {
         if (status.locked()) {
             throw ApiException.conflict("timesheet_locked",
                     "The timesheet for the week of " + week + " is " + status.name().toLowerCase() + " and can't be changed");
+        }
+    }
+
+    /** Locks two projects lowest id first, so that two changes that touch the same pair can't wait for each other. */
+    private static void lockInOrder(long projectId, long otherProjectId) {
+        if (projectId != otherProjectId) {
+            Project.locked(Math.min(projectId, otherProjectId));
+            Project.locked(Math.max(projectId, otherProjectId));
         }
     }
 
