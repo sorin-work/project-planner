@@ -50,9 +50,10 @@ public class ProjectDuplicator {
 
     /**
      * Rows that go into one statement. Above it the rows are spread over more than
-     * one, to keep a single statement to a few hundred kilobytes.
+     * one, to keep a single statement to a few hundred kilobytes. Not final, so that
+     * a test can lower it and reach the second statement without thousands of rows.
      */
-    static final int ROWS_PER_STATEMENT = 5000;
+    static int rowsPerStatement = 5000;
 
     private static final String COPY_SUFFIX = " (copy)";
     private static final int MAX_NAME = 120;
@@ -282,8 +283,9 @@ public class ProjectDuplicator {
     }
 
     private void insert(String sql, List<String> rows, Object... parameters) {
-        for (int from = 0; from < rows.size(); from += ROWS_PER_STATEMENT) {
-            String values = String.join(", ", rows.subList(from, Math.min(rows.size(), from + ROWS_PER_STATEMENT)));
+        int step = rowsPerStatement;
+        for (int from = 0; from < rows.size(); from += step) {
+            String values = String.join(", ", rows.subList(from, Math.min(rows.size(), from + step)));
             em.unwrap(Session.class).doWork(connection -> {
                 try (PreparedStatement statement = connection.prepareStatement(sql.formatted(values))) {
                     for (int i = 0; i < parameters.length; i++) {
