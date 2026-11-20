@@ -22,7 +22,7 @@ couple of weekends, **L** several weeks of spare time.
 | #   | Item                                       | Group | Area     | Size | Depends on |
 | --- | ------------------------------------------ | ----- | -------- | ---- | ---------- |
 | 1   | Warnings for broken dependencies           | Next  | both     | S    | -          |
-| 2   | Type hours into the weekly grid            | Next  | both     | M    | -          |
+| 2   | Type hours into the weekly grid            | Shipped | both     | M    | -          |
 | 3   | Missing timesheets and reminders           | Shipped | both     | S    | -          |
 | 4   | Search and quick switcher                  | Next  | both     | M    | -          |
 | 5   | Accessibility pass                         | Next  | frontend | M    | -          |
@@ -145,61 +145,6 @@ and a one-click fix.
   and nothing reads (the overview works out a phase's range from its tasks). A
   "task outside its phase" warning would give them a purpose. I would leave
   them alone in this item.
-
-### 2. Type hours into the weekly grid
-
-The weekly grid on the Timesheet page is a read-only summary. Time goes in one
-entry at a time through the form below it: project, task, date, duration,
-save. A normal week is ten or more trips through that form. I want to type
-into the cells, the way the week views of Harvest and Toggl work, and to start
-a new week with last week's rows.
-
-- Cells: `timesheet.page.html` prints `formatMinutes(m)` per cell. Make each
-  one an input that takes what `parseDuration` takes ("1h 30m", "90m", "1.5",
-  "1:30") and saves on blur or Enter.
-- The simple case needs no new endpoint. A cell is the entries that share a
-  project, a task and a date. Empty cell plus a value is a
-  `POST /api/orgs/{orgId}/time-entries`. One entry is a `PUT`. A cleared cell
-  is a `DELETE`, because `TimeEntryRequest` wants at least one minute. The
-  `PUT` replaces the whole entry: send the description and the billable flag
-  back unchanged, or `TimeService.update` wipes the description.
-- Put the decision in a pure function in `timesheet-grid.ts` (create, update,
-  delete or nothing for a cell and a typed value) with a spec. `buildGrid`
-  has to keep the entries behind each cell for that. Today `GridRow.days` is
-  minutes only.
-- Tricky: several entries in one cell, for example two timer runs on the same
-  task or two entries with different descriptions. Which one takes the edit?
-  I lean towards not editing such a cell in place: show the total with a
-  marker and jump to the entry list below.
-- Tricky: a running timer is an entry with zero minutes, and
-  `TimeService.update` ignores the minutes while it runs. Its cell stays
-  read-only.
-- Rows come from entries, so a row vanishes when its last cell is cleared and
-  a new row has nowhere to live until it has time in it. Add an "Add row"
-  control (the project and task selects are already loaded for the form), keep
-  empty rows in the component, and remember them per organisation and week in
-  `localStorage` (existing keys start with `pp.`).
-- "Copy rows from last week" loads the previous week through `TimeApi.week`
-  and adds its rows without the time. Skip rows whose project is finished,
-  since `TimeService` rejects those with `project_done`.
-- Billable: `GridRow.billable` is true when any entry in the row is. A new
-  entry made from a cell should leave `billable` out so the server default
-  applies (`TimeService.defaultBillable`: client work yes, internal no).
-- Locked weeks (submitted or approved) keep read-only cells, as the form does
-  through `locked()`. The server answers `409 timesheet_locked` anyway.
-- Keyboard: Tab and arrow keys between cells, Enter saves and moves down. Each
-  input needs a label such as "ACME-APP, Tours catalogue, Tuesday".
-- Tricky: the page reloads the whole week after every save (`load`). With one
-  request per cell that would overwrite a cell being typed in. Apply each
-  response to the local state instead.
-- While here: `TimesheetResource.week` falls back to `LocalDate.now(clock)`
-  when no `date` is passed, which is the UTC day. Everything else uses
-  `Organisation.today(clock)`. The web app always passes a date, but it is the
-  browser's `today()`, so somebody in another time zone than the organisation
-  can get a different "this week" than the dashboard shows.
-- Undecided: a bulk endpoint that saves a whole week in one transaction. Fewer
-  requests and all or nothing, but then the server has to answer the
-  several-entries question. I would start without it.
 
 ### 4. Search and quick switcher
 
@@ -967,6 +912,29 @@ whether file storage is worth it for a planner.
   people would ask for next, so it does not stay small.
 
 ## Shipped
+
+### 2. Type hours into the weekly grid
+
+The cells of the weekly grid are inputs. They take what `parseDuration` takes
+and refuse the rest, save when they are left or on Enter, and Tab, Enter and
+the arrow keys move between them. What a typed cell means is decided in
+`timesheet-grid.ts` (`parseCell`, `cellAction`): create, update or delete
+through the existing `/time-entries` endpoints, with the note and the billable
+flag sent back on an update. Rows without time can be added, are kept per
+organisation and week in `localStorage` (`timesheet-rows.ts`) and can be
+copied from last week. Saved entries are put into the week on screen instead
+of loading it again, also by the form and the list. Without `?week=` the page
+asks the API for the current week, and `TimesheetResource.week` now works that
+out from the organisation's date. Different from the design: a cell with
+several entries is a button that points at them in the list, as planned, and
+a cleared cell does not delete an entry that has a note either, because the
+note can not be seen in the grid. One save runs per cell at a time
+(`save-queue.ts`), the latest typed value wins, and "Submit week" waits for
+saves that are still on their way. A row that loses its last entry is kept,
+and rows of weeks more than twelve weeks back are forgotten. Left and right
+only leave a cell once the caret is at the end of its text. Still open: the
+bulk endpoint, which I left out, and a save whose answer is lost on the way,
+which can still leave two entries in a cell.
 
 ### 3. Missing timesheets and reminders
 
