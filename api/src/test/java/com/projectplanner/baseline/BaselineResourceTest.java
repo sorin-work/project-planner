@@ -32,7 +32,7 @@ class BaselineResourceTest {
     EntityManager em;
 
     /** Design, then Build with a subtask, then the launch. Copy runs next to Build, and Someday has no dates. */
-    private record Plan(long projectId, long clientId, long design, long build, long endpoints, long launch, long copy, long someday) {
+    private record Plan(long projectId, long clientId, long phase, long design, long build, long endpoints, long launch, long copy, long someday) {
     }
 
     private static Plan plan(Account owner, String code) {
@@ -41,7 +41,7 @@ class BaselineResourceTest {
                         "startDate", "2026-03-02", "endDate", "2026-03-20"))
                 .post("/api/orgs/" + owner.orgId() + "/projects").then().statusCode(201).extract().path("id");
         long projectId = id.longValue();
-        Number phase = owner.as().body(Map.of("name", "Build phase")).post("/api/projects/" + projectId + "/phases")
+        Number phase = owner.as().body(Map.of("name", "Build phase", "startDate", "2026-03-09", "endDate", "2026-03-13")).post("/api/projects/" + projectId + "/phases")
                 .then().statusCode(201).extract().path("id");
         long design = Api.createTask(owner, projectId, Map.of("title", "Design", "estimateHours", 20, "startDate", "2026-03-02", "dueDate", "2026-03-06"));
         long build = Api.createTask(owner, projectId, Map.of("title", "Build", "phaseId", phase, "estimateHours", 40,
@@ -53,7 +53,7 @@ class BaselineResourceTest {
         long someday = Api.createTask(owner, projectId, Map.of("title", "Someday", "estimateHours", 4));
         owner.as().body(Map.of("predecessorId", design)).post("/api/tasks/" + build + "/dependencies").then().statusCode(201);
         owner.as().body(Map.of("predecessorId", build)).post("/api/tasks/" + launch + "/dependencies").then().statusCode(201);
-        return new Plan(projectId, clientId, design, build, endpoints, launch, copy, someday);
+        return new Plan(projectId, clientId, phase.longValue(), design, build, endpoints, launch, copy, someday);
     }
 
     private static long take(Account who, long projectId, String name) {
@@ -115,6 +115,9 @@ class BaselineResourceTest {
         owner.as().body(Map.of("startDate", "2026-03-23", "dueDate", "2026-03-24")).patch("/api/tasks/" + plan.someday()).then().statusCode(200);
         Api.createTask(owner, plan.projectId(), Map.of("title", "Extra", "estimateHours", 6, "startDate", "2026-03-16", "dueDate", "2026-03-17"));
         owner.as().body(Map.of("title", "Design and research")).patch("/api/tasks/" + plan.design()).then().statusCode(200);
+        // The phase ends four working days later, and is renamed.
+        owner.as().body(Map.of("name", "Build and test", "startDate", "2026-03-09", "endDate", "2026-03-19"))
+                .put("/api/phases/" + plan.phase()).then().statusCode(200);
         owner.as().body(Map.of("name", "Website", "code", "BASE", "status", "ACTIVE", "startDate", "2026-03-02", "endDate", "2026-03-27"))
                 .put("/api/projects/" + plan.projectId()).then().statusCode(200);
 
@@ -131,8 +134,16 @@ class BaselineResourceTest {
         assertThat(now.getBoolean(task("Someday") + ".existedThen")).isTrue();
         assertThat(now.getBoolean(task("Extra") + ".existedThen")).isFalse();
         assertThat(now.getBoolean(task("Launch") + ".milestone")).isTrue();
-        assertThat(now.getString(task("Build") + ".phaseName")).isEqualTo("Build phase");
+        assertThat(now.getString(task("Build") + ".phaseName")).isEqualTo("Build and test");
         assertThat(now.getString(task("Endpoints") + ".phaseName")).isEqualTo("Build phase");
+        // The phase is compared like a task, under the name it has now.
+        assertThat(now.getList("phases")).hasSize(1);
+        assertThat(now.getString("phases[0].name")).isEqualTo("Build and test");
+        assertThat(now.getString("phases[0].change")).isEqualTo("SLIPPED");
+        assertThat(now.getString("phases[0].baselineEnd")).isEqualTo("2026-03-13");
+        assertThat(now.getString("phases[0].currentEnd")).isEqualTo("2026-03-19");
+        assertThat(now.getInt("phases[0].finishSlipDays")).isEqualTo(4);
+        assertThat(now.getInt("phases[0].startSlipDays")).isZero();
 
         assertThat(now.getMap("counts")).isEqualTo(Map.of("unchanged", 0, "slipped", 3, "pulledIn", 1, "added", 2, "removed", 1));
         // The project's own end was moved a week. The plan now ends on Someday's due date, four working days later than it did.
@@ -291,7 +302,7 @@ class BaselineResourceTest {
         long started = System.nanoTime();
         long largeStatements = BigPlan.statementsFor(em, () -> ids.put("large", take(owner, large, "Agreed")));
         long millis = (System.nanoTime() - started) / 1_000_000;
-        assertThat(largeStatements).as("statements for 3000 tasks, %d ms", millis).isEqualTo(smallStatements).isLessThanOrEqualTo(15);
+        assertThat(largeStatements).as("statements for 3000 tasks, %d ms", millis).isEqualTo(smallStatements).isLessThanOrEqualTo(16);
 
         owner.as().get("/api/projects/" + large + "/baselines").then().body("[0].tasks", equalTo(3000));
         // One task in the middle of the chain slips a week and takes everything after it along.

@@ -182,4 +182,19 @@ class BaselineComparisonTest {
         // In the order of the plan as it is now. A task that is gone stands where it stood.
         assertThat(result.tasks()).extracting(TaskChange::title).containsExactly("Build", "Dropped", "Endpoints", "Extra", "Launch");
     }
+
+    @Test
+    void phasesAreComparedByTheirStartAndEndAndAreNotCountedAsTasks() {
+        // Discovery ends two working days later, from Friday to the Tuesday after. Build is gone, Launch is new.
+        List<Entry> then = List.of(new Entry(1, null, "Discovery", day(0), day(4), 0, false),
+                new Entry(2, null, "Build", day(7), day(11), 0, false));
+        List<Entry> now = List.of(new Entry(1, null, "Discovery", day(0), day(8), 0, false),
+                new Entry(3, null, "Launch", day(14), day(14), 0, false));
+        List<TaskChange> phases = comparison.comparePhases(then, now);
+        assertThat(phases).extracting(TaskChange::title).containsExactly("Discovery", "Build", "Launch");
+        assertThat(phases).extracting(TaskChange::change).containsExactly(Change.SLIPPED, Change.REMOVED, Change.ADDED);
+        assertThat(phases.getFirst().finishSlipDays()).isEqualTo(2);
+        assertThat(phases.getFirst().startSlipDays()).isZero();
+        assertThat(phases.get(1).existsNow()).isFalse();
+    }
 }

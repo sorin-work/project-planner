@@ -86,20 +86,7 @@ public final class BaselineComparison {
     }
 
     public Result compare(Collection<Entry> baseline, Collection<Entry> current, LocalDate baselineProjectEnd, LocalDate currentProjectEnd) {
-        Map<Long, Entry> then = byId(baseline);
-        Map<Long, Entry> now = byId(current);
-
-        List<TaskChange> tasks = new ArrayList<>();
-        for (Entry task : now.values()) {
-            tasks.add(change(then.get(task.id()), task));
-        }
-        for (Entry task : then.values()) {
-            if (!now.containsKey(task.id())) {
-                tasks.add(change(task, null));
-            }
-        }
-        tasks.sort(Comparator.comparing(BaselineComparison::firstDay, Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing(TaskChange::taskId));
+        List<TaskChange> tasks = changes(baseline, current);
 
         Map<Change, Integer> counts = new EnumMap<>(Change.class);
         for (Change change : Change.values()) {
@@ -109,6 +96,33 @@ public final class BaselineComparison {
 
         return new Result(List.copyOf(tasks), finish(baselineProjectEnd, currentProjectEnd),
                 finish(latestDue(baseline), latestDue(current)), counts, estimate(baseline), estimate(current));
+    }
+
+    /**
+     * Phases then and now, by the same rule as tasks: an entry per phase with its title as
+     * the name, its start and its end. Phases carry no estimate, and their changes are not
+     * counted with the tasks'.
+     */
+    public List<TaskChange> comparePhases(Collection<Entry> baseline, Collection<Entry> current) {
+        return changes(baseline, current);
+    }
+
+    /** One change per item that is in either list, in the order of their first day. */
+    private List<TaskChange> changes(Collection<Entry> baseline, Collection<Entry> current) {
+        Map<Long, Entry> then = byId(baseline);
+        Map<Long, Entry> now = byId(current);
+        List<TaskChange> changes = new ArrayList<>();
+        for (Entry item : now.values()) {
+            changes.add(change(then.get(item.id()), item));
+        }
+        for (Entry item : then.values()) {
+            if (!now.containsKey(item.id())) {
+                changes.add(change(item, null));
+            }
+        }
+        changes.sort(Comparator.comparing(BaselineComparison::firstDay, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(TaskChange::taskId));
+        return changes;
     }
 
     private TaskChange change(Entry then, Entry now) {

@@ -38,6 +38,13 @@ public final class BaselineDtos {
                                      LocalDate currentStart, LocalDate currentDue, Integer startSlipDays, Integer finishSlipDays) {
     }
 
+    /** One phase then and now, compared like a task. Slips are in working days, later being positive. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record PhaseChangeResponse(long phaseId, String name, Change change, boolean existedThen, boolean existsNow,
+                                      LocalDate baselineStart, LocalDate baselineEnd, LocalDate currentStart, LocalDate currentEnd,
+                                      Integer startSlipDays, Integer finishSlipDays) {
+    }
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record DateChangeResponse(LocalDate baseline, LocalDate current, Integer slipDays, Change change) {
         static DateChangeResponse of(BaselineComparison.DateChange change) {
@@ -52,7 +59,8 @@ public final class BaselineDtos {
      * @param projectEnd the project's own end date, then and now
      * @param planEnd    the latest due date of any task, then and now
      */
-    public record ComparisonResponse(BaselineResponse baseline, List<TaskChangeResponse> tasks, DateChangeResponse projectEnd,
+    public record ComparisonResponse(BaselineResponse baseline, List<TaskChangeResponse> tasks, List<PhaseChangeResponse> phases,
+                                     DateChangeResponse projectEnd,
                                      DateChangeResponse planEnd, Counts counts, double baselineEstimateHours,
                                      double currentEstimateHours) {
     }

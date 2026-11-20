@@ -7,10 +7,12 @@ import com.projectplanner.baseline.BaselineDtos.BaselineResponse;
 import com.projectplanner.baseline.BaselineDtos.ComparisonResponse;
 import com.projectplanner.baseline.BaselineDtos.Counts;
 import com.projectplanner.baseline.BaselineDtos.DateChangeResponse;
+import com.projectplanner.baseline.BaselineDtos.PhaseChangeResponse;
 import com.projectplanner.baseline.BaselineDtos.TaskChangeResponse;
 import com.projectplanner.baseline.BaselineDtos.UpdateBaselineRequest;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
+import com.projectplanner.project.Phase;
 import com.projectplanner.project.Project;
 import com.projectplanner.schedule.BaselineComparison;
 import com.projectplanner.schedule.BaselineComparison.Change;
@@ -54,7 +56,7 @@ public class BaselineService {
     }
 
     /**
-     * Saves the plan's dates as they are now. The tasks are copied by one statement
+     * Saves the plan's dates as they are now. The tasks and the phases are copied by one statement each
      * inside the database, whatever their number, and the caller holds the transaction,
      * so a baseline is the whole plan at one moment or it is not there.
      */
@@ -82,6 +84,10 @@ public class BaselineService {
                 select ?1, t.id, t.parent_id, t.phase_id, p.name, t.title, t.start_date, t.due_date, t.estimate_hours, t.milestone
                 from tasks t left join phases p on p.id = t.phase_id
                 where t.project_id = ?2
+                """).setParameter(1, baseline.id).setParameter(2, project.id).executeUpdate();
+        em.createNativeQuery("""
+                insert into baseline_phases (baseline_id, phase_id, name, start_date, end_date)
+                select ?1, p.id, p.name, p.start_date, p.end_date from phases p where p.project_id = ?2
                 """).setParameter(1, baseline.id).setParameter(2, project.id).executeUpdate();
         if (baseline.reference) {
             onlyReference(baseline);
@@ -145,8 +151,16 @@ public class BaselineService {
                         phases.get(t.taskId()), t.baselineStart(), t.baselineDue(), t.currentStart(), t.currentDue(),
                         t.startSlipDays(), t.finishSlipDays()))
                 .toList();
+        List<Entry> phasesThen = BaselinePhase.<BaselinePhase>list("baselineId", baseline.id).stream()
+                .map(p -> new Entry(p.phaseId, null, p.name, p.startDate, p.endDate, 0, false)).toList();
+        List<Entry> phasesNow = Phase.forProject(project.id).stream()
+                .map(p -> new Entry(p.id, null, p.name, p.startDate, p.endDate, 0, false)).toList();
+        List<PhaseChangeResponse> phaseChanges = comparison.comparePhases(phasesThen, phasesNow).stream()
+                .map(p -> new PhaseChangeResponse(p.taskId(), p.title(), p.change(), p.existedThen(), p.existsNow(),
+                        p.baselineStart(), p.baselineDue(), p.currentStart(), p.currentDue(), p.startSlipDays(), p.finishSlipDays()))
+                .toList();
         Map<Change, Integer> counts = result.counts();
-        return new ComparisonResponse(toResponses(List.of(baseline)).getFirst(), tasks,
+        return new ComparisonResponse(toResponses(List.of(baseline)).getFirst(), tasks, phaseChanges,
                 DateChangeResponse.of(result.projectEnd()), DateChangeResponse.of(result.planEnd()),
                 new Counts(counts.get(Change.UNCHANGED), counts.get(Change.SLIPPED), counts.get(Change.PULLED_IN),
                         counts.get(Change.ADDED), counts.get(Change.REMOVED)),
