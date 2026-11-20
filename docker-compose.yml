@@ -33,6 +33,9 @@ services:
       # Mail for invitations and password resets. Off unless MAIL_HOST is set, see
       # "Mail" in the README. .env.example points it at the mail catcher below.
       MAIL_HOST: ${MAIL_HOST:-}
+      # The mailer needs a host even when mail is off, and an empty MAIL_HOST is not
+      # "unset" to it. This one wins over the line in application.properties.
+      QUARKUS_MAILER_HOST: ${MAIL_HOST:-localhost}
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_FROM: ${MAIL_FROM:-}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
