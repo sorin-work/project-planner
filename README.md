@@ -405,6 +405,14 @@ workload and missing timesheet tests are plain JUnit tests and need no database.
 `@QuarkusTest` API tests start the application against H2 in PostgreSQL mode and run
 the same Flyway migrations as production.
 
+`QueryCountTest` counts the statements that the project list, the dashboard, the
+approval queue, the members, `/me` and a comment with a mention send, on an organisation
+of fifty projects with a thousand tasks and twenty thousand time entries on one of them
+(`support/LargeOrganisation`, built by the test, not by the demo seed). The counts come
+from Hibernate's statistics, which are on in the test profile, and each has a fixed
+bound. A change that queries per row fails there instead of getting slow later. The
+project list is eight statements.
+
 A restore that is never tested is not a backup, so CI also runs
 `scripts/check-restore.sh` once the images are built. It is the only check that starts
 the stack on PostgreSQL. On a Compose project of its own, with its own volume, it:
@@ -526,6 +534,15 @@ because that is what PostgreSQL and the H2 database of the tests have in common.
 index helps a search for text in the middle, so every search reads all of the
 organisation's tasks and comments. That is fine for a few thousand tasks, and it is
 not a search engine. On PostgreSQL alone a trigram index would be the next step.
+
+`GET /orgs/{org}/projects` answers with each project and a summary of its health, in a
+fixed number of statements however many projects, tasks and entries there are: the
+tasks of all listed projects come in one query, their time in one query grouped by
+project, person, billable flag and length, and the rates once. Money is still priced
+entry by entry and rounded to a cent each time, so the list, the overview, the CSV and
+the reports agree. A form that only needs a project select asks
+`GET /orgs/{org}/projects/options` instead: id, code, name, status and client of each
+project the caller can see, by name, with nothing worked out.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
