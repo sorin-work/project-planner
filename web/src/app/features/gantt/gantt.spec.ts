@@ -16,9 +16,9 @@ function task(id: number, startDate: string, dueDate: string, extra: Partial<Tas
 // in the fourth. Rows are 32 pixels high below a 44 pixel header.
 const tasks = [
   task(1, '2026-03-02', '2026-03-05'),
-  task(2, '2026-03-09', '2026-03-10', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }] }),
+  task(2, '2026-03-09', '2026-03-10', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0, type: 'FS' }] }),
   task(3, '2026-03-13', '2026-03-13', { milestone: true }),
-  task(4, '2026-03-19', '2026-03-20', { predecessors: [{ id: 51, predecessorId: 2, successorId: 4, lagDays: 0 }] }),
+  task(4, '2026-03-19', '2026-03-20', { predecessors: [{ id: 51, predecessorId: 2, successorId: 4, lagDays: 0, type: 'FS' }] }),
 ];
 
 describe('Gantt editing', () => {
@@ -212,7 +212,7 @@ describe('Gantt editing', () => {
     );
     expect(stops).toEqual(['1', 'arrow 50', '2', 'arrow 51', '3', '4']);
     expect(arrowFocus(50).getAttribute('tabindex')).toBe('0');
-    expect(arrowFocus(50).getAttribute('aria-label')).toBe('Task 2 waits for Task 1. Press Delete to remove this link.');
+    expect(arrowFocus(50).getAttribute('aria-label')).toBe('Task 2 starts after Task 1 ends. Press Delete to remove this link.');
     // What is drawn stays under the bars and is not a tab stop of its own.
     expect(el.querySelector('g.link-group')?.hasAttribute('tabindex')).toBe(false);
   });
@@ -224,7 +224,7 @@ describe('Gantt editing', () => {
     expect(document.activeElement).toBe(arrowFocus(50));
     expect(arrowFocus(50).classList).toContain('selected');
     const toast = el.querySelector('.gantt-selection')!;
-    expect(toast.textContent).toContain('Task 2 waits for Task 1');
+    expect(toast.textContent).toContain('Task 2 starts after Task 1 ends');
 
     toast.querySelector('button')!.click();
     await fixture.whenStable();
@@ -237,7 +237,7 @@ describe('Gantt editing', () => {
     await render();
     arrowFocus(51).focus();
     await fixture.whenStable();
-    expect(el.querySelector('.gantt-selection')?.textContent).toContain('Task 4 waits for Task 2');
+    expect(el.querySelector('.gantt-selection')?.textContent).toContain('Task 4 starts after Task 2 ends');
     key(arrowFocus(51), 'Delete');
     await fixture.whenStable();
     expect(unlinked).toHaveBeenCalledWith({ successorId: 4, dependencyId: 51 });

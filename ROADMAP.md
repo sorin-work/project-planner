@@ -37,7 +37,7 @@ couple of weekends, **L** several weeks of spare time.
 | 14  | Performance on large projects              | Shipped | both     | M    | -          |
 | 15  | Public holidays and time off               | Shipped | both     | L    | -          |
 | 16  | Baselines                                  | Shipped | both     | M    | -          |
-| 17  | Dependency types and lead time             | Maybe | both     | L    | 1          |
+| 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Maybe | both     | L    | -          |
 
 ## Before starting on one
@@ -312,53 +312,6 @@ request of its own.
   each drop (`reloadTasks`).
 
 ## Maybe
-
-### 17. Dependency types and lead time
-
-Every link is finish-to-start with a lag of zero or more working days. Real
-plans also have "QA starts two days before development ends" (lead, which is a
-negative lag) and "these two start together" (start-to-start). MS Project has
-four link types. In practice finish-to-start with lead, and start-to-start,
-cover nearly everything. Depends on item 1, because its check and this item
-must share one rule.
-
-- Model: a `type` on `task_dependencies` (`FS`, `SS`, `FF`, `SF`, default
-  `FS`) and a lag that may be negative. `V23__add_dependency_type.sql` adds
-  the column and replaces `ck_task_dependencies_lag` (`lag_days >= 0`) with a
-  range. `Link` gets the type. `DependencyRequest.lagDays` is `@Min(0)` today.
-- One rule in one place: given a link and the predecessor's dates, the
-  earliest allowed start or finish of the successor. FS: start after the
-  predecessor's due date plus lag. SS: start no earlier than its start plus
-  lag. FF: finish no earlier than its finish plus lag. SF: finish no earlier
-  than its start plus lag. `Rescheduler.earliestStart` becomes that rule. For
-  the two finish-based types the task is moved so that its finish fits,
-  keeping its length.
-- `CriticalPath`: the forward pass (`ef + 1 + lag`) and the backward pass
-  (`ls - 1 - lag`) both have finish-to-start written into them. Each needs the
-  four cases. `CriticalPathTest` and `ReschedulerTest` cover FS. Add the same
-  shapes for the other types.
-- `DependencyGraph` does not change. A loop is a loop whatever the type, and
-  one link per pair of tasks stays (`uq_task_dependencies`).
-- `Rescheduler.propagate` still only moves tasks downstream of the change, and
-  only later. With SS a change to the predecessor's start now matters, which
-  works because the chain is recomputed from the current dates.
-- Web: a type select and a lag that accepts negative numbers in the "Waits
-  for" form of `task-panel.html`. The list says "+2 working days" today and
-  needs wording for the rest ("starts with", "2 working days before the end
-  of"). `linkPath` always runs from the right end of one bar to the left end
-  of the next. SS leaves from the left end and FF arrives at the right end.
-  `Dependency` in `models.ts` gets the type.
-- Tricky: lead across a weekend. `addWorkingDays` accepts negative numbers,
-  but returns its date unchanged for zero, weekend or not. `Rescheduler` gets
-  around that today by calling `nextWorkingDay` first. Write the Friday and
-  Monday tests before the code.
-- Tricky: a lead longer than the predecessor makes the successor start before
-  it. MS Project allows that. So would I.
-- Tricky: the check from item 1 and its "Move to" fix must use the same rule,
-  or valid start-to-start links get reported as broken.
-- Undecided: all four types, or only FS and SS. SF is almost never used and
-  doubles the test matrix. I would ship FS and SS with lead, and keep the
-  column able to hold the others.
 
 ### 18. Attachments on tasks
 
@@ -686,8 +639,8 @@ one of twenty, and a table only needs a second statement above 5,000 rows.
 The copy has the schedule issues of the source's dates and no
 others, with two things to know: tasks finished in the source are open again,
 so an overlap the source had stopped reporting is reported, and a task that
-lies on a weekend entirely becomes a one-day task on the next working day and
-can then be in the way of a neighbour. The copy's one activity entry does not
+lies on a weekend entirely becomes a one-day task on the next working day (since
+item 17 the scheduling rules read it that way in the source as well). The copy's one activity entry does not
 name the source, because a copy can be made for another client: the source's
 id is kept next to the entry (`related_project_id`, `V26`) and its name is
 added for readers who may see it. A code that two requests take at the same
@@ -777,3 +730,31 @@ from planned to active: a baseline is a deliberate act, and an automatic one wou
 take a slot of the ten without anybody choosing it. Still open: that automatic
 baseline if people ask for it, and the organisation's calendar once item 15 has
 one.
+
+### 17. Dependency types and lead time
+
+All four types shipped, not only finish-to-start and start-to-start: `V23` adds
+`dependency_type` (`FS` for every link that existed) and replaces the lag check
+with a range of -365 to 365 working days, so a negative lag is a lead. The rule
+lives in one place, `LinkRule` in `schedule/`: the earliest start of a successor
+for each type, with a link on the finish turned into a start by keeping the
+successor's length, and the same rule in working-day offsets for both passes of
+`CriticalPath`. `Rescheduler`, `ScheduleCheck` and its "Move to" dates go through
+it, and a property test holds the dates and the offsets to each other. A lead
+across a weekend works because every count starts from a working day:
+`addWorkingDays` keeps any date for zero, so the anchor is moved onto one first.
+Start-to-finish without a lag ends the successor on the working day before the
+predecessor starts, the mirror of finish-to-start. A task on days off only counts
+as a one-day task on the next working day everywhere (`LinkRule.normalise`), so
+the critical path and the rescheduler agree on a Saturday milestone. A change to a
+link moves only what that link reaches, not other tasks that wait for the same
+predecessor. `DependencyGraph` did not change. `PATCH /dependencies/{id}` changes the type or
+the lag and pushes the successor later when needed, never earlier. A schedule
+issue about a link names its type, so the web can say "ends too early" for the
+finish types. The timeline draws each arrow between the ends its type names, with
+the type and lag beside it, and the task panel has a type select and a lag box for
+a new link and for each existing one. A copied project keeps the types. Baselines
+keep dates, not links, so the comparison is untouched by types. Still open: a type
+for links drawn on the timeline (they are finish-to-start and can be changed in the
+panel afterwards), and the organisation's calendar from item 15, which replaces
+`WorkCalendar` behind `LinkRule` without changing the rule.

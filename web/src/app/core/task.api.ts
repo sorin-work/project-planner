@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Comment, Dependency, Priority, Task, TaskChange, TaskStatus } from './models';
+import { Comment, Dependency, DependencyType, Priority, Task, TaskChange, TaskStatus } from './models';
 
 export interface NewTask {
   title: string;
@@ -66,8 +66,13 @@ export class TaskApi {
     return this.http.get<Dependency[]>(`/api/projects/${projectId}/dependencies`);
   }
 
-  addDependency(successorId: number, predecessorId: number, lagDays = 0): Observable<TaskChange> {
-    return this.http.post<TaskChange>(`/api/tasks/${successorId}/dependencies`, { predecessorId, lagDays });
+  addDependency(successorId: number, predecessorId: number, lagDays = 0, type: DependencyType = 'FS'): Observable<TaskChange> {
+    return this.http.post<TaskChange>(`/api/tasks/${successorId}/dependencies`, { predecessorId, lagDays, type });
+  }
+
+  /** Changes the type or the lag of a link. Its successor may be pushed later, never earlier. */
+  updateDependency(id: number, change: { type?: DependencyType; lagDays?: number }): Observable<TaskChange> {
+    return this.http.patch<TaskChange>(`/api/dependencies/${id}`, change);
   }
 
   removeDependency(id: number): Observable<void> {

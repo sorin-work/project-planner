@@ -1,5 +1,6 @@
-import { Phase, Task } from '../../core/models';
+import { DependencyType, Phase, Task } from '../../core/models';
 import { Holidays, NO_HOLIDAYS, addDays, diffDays, isWorkingDay, maxDate, minDate, monthName, toDate, today, weekStart } from '../../shared/dates';
+import { linkTag } from '../project/dependency-text';
 import { linkKey } from '../project/schedule-issues';
 import { groupTasks } from '../project/task-groups';
 
@@ -48,6 +49,13 @@ export interface GanttLink {
   critical: boolean;
   /** The API reported this dependency: it does not hold, or it is not enforced. */
   broken: boolean;
+  type: DependencyType;
+  lagDays: number;
+  /** "SS +2" next to the arrow's head, or null for a plain finish-to-start link. */
+  tag: string | null;
+  /** Where the tag goes: just before the arrow's head, above the line. */
+  tagX: number;
+  tagY: number;
 }
 
 export interface GanttTick {
@@ -124,24 +132,42 @@ export function barSpan(startDate: string, dueDate: string, rangeStart: string, 
 /** The part of a bar that the arithmetic around it needs. */
 export type BarBox = Pick<GanttBar, 'x' | 'y' | 'width' | 'height'>;
 
-/** An arrow leaves the middle of a bar's right end and arrives at the middle of the other bar's left end. */
-export function linkEnds(from: BarBox, to: BarBox): { fromX: number; fromY: number; toX: number; toY: number } {
-  return { fromX: from.x + from.width, fromY: from.y + from.height / 2, toX: to.x, toY: to.y + to.height / 2 };
+/**
+ * Where an arrow leaves and arrives, by the type of the link: from the predecessor's
+ * end that counts (its right end for a finish, its left end for a start) to the
+ * successor's end that is held (its left end for a start, its right end for a
+ * finish), each in the middle of the bar's height.
+ */
+export function linkEnds(from: BarBox, to: BarBox, type: DependencyType = 'FS'): { fromX: number; fromY: number; toX: number; toY: number } {
+  const fromStart = type === 'SS' || type === 'SF';
+  const toFinish = type === 'FF' || type === 'SF';
+  return {
+    fromX: fromStart ? from.x : from.x + from.width,
+    fromY: from.y + from.height / 2,
+    toX: toFinish ? to.x + to.width : to.x,
+    toY: to.y + to.height / 2,
+  };
 }
 
+const LINK_GAP = 8;
+
 /**
- * An elbow connector from the end of one bar to the start of another. When the
- * successor starts before the predecessor ends the line drops between the rows
- * and doubles back.
+ * An elbow connector between two bar ends. It leaves its bar outwards (rightwards
+ * from a right end, leftwards from a left end) and comes in from outside the other
+ * bar (from the left into a left end, from the right into a right end). When the
+ * two can be joined with one vertical line it takes that; otherwise the line drops
+ * between the rows and doubles back. With the defaults it is the finish-to-start
+ * arrow: right end to left end.
  */
-export function linkPath(fromX: number, fromY: number, toX: number, toY: number): string {
-  const gap = 8;
-  if (toX >= fromX + gap * 2) {
-    const midX = fromX + gap;
-    return `M ${fromX} ${fromY} H ${midX} V ${toY} H ${toX}`;
+export function linkPath(fromX: number, fromY: number, toX: number, toY: number, leavesRight = true, arrivesLeft = true): string {
+  const out = leavesRight ? 1 : -1;
+  const into = arrivesLeft ? 1 : -1;
+  const exitX = fromX + out * LINK_GAP;
+  if (out === into && (toX - fromX) * into >= LINK_GAP * 2) {
+    return `M ${fromX} ${fromY} H ${exitX} V ${toY} H ${toX}`;
   }
   const between = fromY + (toY > fromY ? ROW_HEIGHT / 2 : -ROW_HEIGHT / 2);
-  return `M ${fromX} ${fromY} H ${fromX + gap} V ${between} H ${toX - gap} V ${toY} H ${toX}`;
+  return `M ${fromX} ${fromY} H ${exitX} V ${between} H ${toX - into * LINK_GAP} V ${toY} H ${toX}`;
 }
 
 export function layoutGantt(
@@ -231,15 +257,21 @@ export function layoutGantt(
       if (!from || !to) {
         continue;
       }
-      const ends = linkEnds(from, to);
+      const ends = linkEnds(from, to, dep.type);
+      const arrivesLeft = dep.type === 'FS' || dep.type === 'SS';
       links.push({
         id: dep.id,
         successorId: task.id,
         predecessorId: dep.predecessorId,
-        path: linkPath(ends.fromX, ends.fromY, ends.toX, ends.toY),
+        path: linkPath(ends.fromX, ends.fromY, ends.toX, ends.toY, dep.type === 'FS' || dep.type === 'FF', arrivesLeft),
         critical: from.critical && to.critical,
         // Taken from the issue list, so the timeline never decides this with its own date maths.
         broken: options.broken?.has(linkKey(dep.predecessorId, task.id)) ?? false,
+        type: dep.type,
+        lagDays: dep.lagDays,
+        tag: linkTag(dep),
+        tagX: arrivesLeft ? ends.toX - LINK_GAP - 2 : ends.toX + LINK_GAP + 2,
+        tagY: ends.toY - 4,
       });
     }
   }

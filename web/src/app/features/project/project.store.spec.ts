@@ -13,7 +13,7 @@ function task(id: number, startDate: string, dueDate: string, extra: Partial<Tas
 }
 
 const design = task(1, '2026-03-02', '2026-03-06');
-const build = task(2, '2026-03-04', '2026-03-06', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }] });
+const build = task(2, '2026-03-04', '2026-03-06', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0, type: 'FS' }] });
 const early: ScheduleIssue = {
   type: 'STARTS_TOO_EARLY', taskId: 2, relatedTaskId: 1, days: 3, suggestedStart: '2026-03-09', suggestedDue: '2026-03-11',
 };

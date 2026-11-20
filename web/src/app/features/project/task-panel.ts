@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, ou
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
-import { Comment, Priority, Task, TaskStatus } from '../../core/models';
+import { Comment, Dependency, DependencyType, Priority, Task, TaskStatus } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { TaskApi, TaskPatch } from '../../core/task.api';
 import { formatDate, formatRange, timeAgo } from '../../shared/dates';
@@ -12,6 +12,7 @@ import { TimerService } from '../time/timer.service';
 import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
 import { baselineLabel } from './baseline-text';
+import { DEPENDENCY_TYPES, dependencyPhrase } from './dependency-text';
 import { issueText, linkIssue, linkNote, moveCost, moveTo } from './schedule-issues';
 
 @Component({
@@ -38,6 +39,9 @@ export class TaskPanel {
   protected newSubtask = '';
   protected newPredecessor: number | null = null;
   protected newLag = 0;
+  protected newType: DependencyType = 'FS';
+  protected readonly dependencyTypes = DEPENDENCY_TYPES;
+  protected readonly dependencyPhrase = dependencyPhrase;
 
   protected readonly task = computed<Task | undefined>(() => this.store.byId().get(this.taskId()));
   protected readonly subtasks = computed(() => this.store.subtasks(this.taskId()));
@@ -207,15 +211,56 @@ export class TaskPanel {
     }
     this.error.set(null);
     this.notice.set(null);
-    this.store.addDependency(this.taskId(), this.newPredecessor, this.newLag || 0).subscribe({
+    this.store.addDependency(this.taskId(), this.newPredecessor, this.newLag || 0, this.newType).subscribe({
       next: (change) => {
         this.newPredecessor = null;
         this.newLag = 0;
+        this.newType = 'FS';
         if (change.rescheduled.length) {
           this.notice.set(`Rescheduled: ${change.rescheduled.map((t) => t.title).join(', ')}`);
         }
       },
       error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  changeType(dependency: Dependency, control: HTMLSelectElement): void {
+    const type = control.value as DependencyType;
+    if (type !== dependency.type) {
+      this.changeDependency(dependency, { type }, () => (control.value = dependency.type));
+    }
+  }
+
+  /** A typed lag: whole working days only. An empty box or a fraction puts the old value back. */
+  changeLag(dependency: Dependency, control: HTMLInputElement): void {
+    const lagDays = Number(control.value);
+    const back = () => (control.value = String(dependency.lagDays));
+    if (control.value.trim() === '' || !Number.isInteger(lagDays)) {
+      back();
+      return;
+    }
+    if (lagDays !== dependency.lagDays) {
+      this.changeDependency(dependency, { lagDays }, back);
+    }
+  }
+
+  /**
+   * Sends a new type or lag. The row shows what the store holds, which only changes
+   * with the API's answer; a refused change puts the control back with {@code undo}.
+   */
+  private changeDependency(dependency: Dependency, change: { type?: DependencyType; lagDays?: number }, undo: () => void): void {
+    this.error.set(null);
+    this.notice.set(null);
+    this.store.updateDependency(dependency.id, change).subscribe({
+      next: (result) => {
+        if (result.rescheduled.length) {
+          this.notice.set(`Rescheduled: ${result.rescheduled.map((t) => t.title).join(', ')}`);
+        }
+      },
+      error: (err: unknown) => {
+        this.error.set(messageOf(err));
+        undo();
+      },
     });
   }
 

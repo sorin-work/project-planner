@@ -1379,6 +1379,13 @@ select.compact {
   fill: color-mix(in srgb, var(--good) 55%, var(--surface));
 }
 
+/* The type and lag of a link that is not a plain finish-to-start one, next to the arrow's head. */
+.gantt-svg .link-tag {
+  fill: var(--muted);
+  font-size: 10px;
+  pointer-events: none;
+}
+
 /* Where the task was in the baseline being compared with: grey, thin, under the bar. */
 .gantt-svg .baseline-bar {
   fill: var(--muted);
