@@ -44,6 +44,11 @@ export function keyboardMove(
   }
 }
 
+/** "left", "right", "up" or "down", for saying why a card did not move. */
+function direction(key: string): string {
+  return key.replace('Arrow', '').toLowerCase();
+}
+
 @Component({
   selector: 'app-board-tab',
   imports: [Avatar],
@@ -120,14 +125,21 @@ export class BoardTab {
 
   /** Alt and an arrow key: the same move as a drag, through the same update, and said out loud. */
   onCardKey(event: KeyboardEvent, task: Task): void {
-    if (!event.altKey || !this.org.isTeam()) {
+    if (!event.altKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      return;
+    }
+    // Alt with an arrow is the browser's Back and Forward. On a card it is always the card's,
+    // whether it moves or not, so that a card at the edge does not leave the page.
+    event.preventDefault();
+    if (!this.org.isTeam()) {
+      this.announcer.announce('Only the team can move cards.');
       return;
     }
     const move = keyboardMove(this.columns(), task.id, event.key);
     if (!move) {
+      this.announcer.announce(`${task.title} cannot go further ${direction(event.key)}.`);
       return;
     }
-    event.preventDefault();
     this.error.set(null);
     this.store.updateTask(task.id, move).subscribe({
       next: () => {
