@@ -249,12 +249,12 @@ describe('TimesheetPage', () => {
 
     expect(cell(el, 'WEB, Design, Monday').value).toBe('');
     expect(el.querySelectorAll('.entries li.muted')).toHaveLength(1);
-    expect(JSON.parse(localStorage.getItem('pp.rows.7.2026-03-02') ?? '[]')).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem('pp.user.1.rows.7.2026-03-02') ?? '[]')).toHaveLength(1);
     // A row without time can be taken away again.
     button(el, 'remove').click();
     await harness.fixture.whenStable();
     expect(el.querySelectorAll('.cell-input')).toHaveLength(0);
-    expect(localStorage.getItem('pp.rows.7.2026-03-02')).toBeNull();
+    expect(localStorage.getItem('pp.user.1.rows.7.2026-03-02')).toBeNull();
     http.verify();
   });
 
@@ -367,7 +367,7 @@ describe('TimesheetPage', () => {
 
     expect(cell(el, 'ADM, Admin, Monday').value).toBe('');
     expect(el.querySelector('tbody tr .badge')?.textContent).toContain('non-billable');
-    expect(JSON.parse(localStorage.getItem('pp.rows.7.2026-03-02') ?? '[]')).toEqual([
+    expect(JSON.parse(localStorage.getItem('pp.user.1.rows.7.2026-03-02') ?? '[]')).toEqual([
       { projectId: 2, projectCode: 'ADM', projectName: 'Admin', taskId: null, taskTitle: null, billable: false },
     ]);
 

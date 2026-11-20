@@ -481,7 +481,7 @@ export class TimesheetPage {
     const week = this.week();
     if (week && this.weekOrg !== null) {
       this.rows.set(rows);
-      writeRows(localStorage, this.weekOrg, week.weekStart, rows);
+      writeRows(localStorage, { userId: week.userId, orgId: this.weekOrg }, week.weekStart, rows);
     }
   }
 
@@ -660,7 +660,7 @@ export class TimesheetPage {
     this.weekOrg = orgId;
     // What the API says now is what there is: a create from here on is a new one.
     this.createKeys.clear();
-    this.rows.set(readRows(localStorage, orgId, week.weekStart));
+    this.rows.set(readRows(localStorage, { userId: week.userId, orgId }, week.weekStart));
     this.week.set(week);
   }
 

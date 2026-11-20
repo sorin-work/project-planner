@@ -1,24 +1,31 @@
+import { userKeyPrefix } from '../../core/user-storage';
 import { addDays } from '../../shared/dates';
 import { GridRow, RowRef, rowKey } from './timesheet-grid';
 
 // Rows only exist through their entries, so a row without time has to be kept somewhere
-// else: per organisation and week in localStorage, as the rows somebody added, copied
-// from last week or emptied.
+// else: per person, organisation and week in localStorage, as the rows somebody added,
+// copied from last week or emptied. The keys start with the person's id, so nobody else
+// who signs in on the same browser gets them, and signing out removes them.
 
-const PREFIX = 'pp.rows.';
 /** Rows of weeks older than this many weeks are forgotten when a week is saved. */
 const KEEP_WEEKS = 12;
 
 type RowStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
 
-export function rowsStorageKey(orgId: number, weekStart: string): string {
-  return `${PREFIX}${orgId}.${weekStart}`;
+/** Whose rows, in which organisation. */
+export interface RowOwner {
+  userId: number;
+  orgId: number;
+}
+
+export function rowsStorageKey(owner: RowOwner, weekStart: string): string {
+  return `${userKeyPrefix(owner.userId)}rows.${owner.orgId}.${weekStart}`;
 }
 
 /** The rows kept for a week. Anything that is not a list of rows reads as none. */
-export function readRows(store: Pick<Storage, 'getItem'>, orgId: number, weekStart: string): RowRef[] {
+export function readRows(store: Pick<Storage, 'getItem'>, owner: RowOwner, weekStart: string): RowRef[] {
   try {
-    const parsed: unknown = JSON.parse(store.getItem(rowsStorageKey(orgId, weekStart)) ?? '[]');
+    const parsed: unknown = JSON.parse(store.getItem(rowsStorageKey(owner, weekStart)) ?? '[]');
     return Array.isArray(parsed) ? parsed.filter(isRowRef).map(toRowRef) : [];
   } catch {
     return [];
@@ -26,15 +33,15 @@ export function readRows(store: Pick<Storage, 'getItem'>, orgId: number, weekSta
 }
 
 /** Saves the rows of a week (no rows removes the key) and forgets weeks from long ago. */
-export function writeRows(store: RowStore, orgId: number, weekStart: string, rows: RowRef[]): void {
+export function writeRows(store: RowStore, owner: RowOwner, weekStart: string, rows: RowRef[]): void {
   try {
     if (rows.length) {
-      store.setItem(rowsStorageKey(orgId, weekStart), JSON.stringify(rows.map(toRowRef)));
+      store.setItem(rowsStorageKey(owner, weekStart), JSON.stringify(rows.map(toRowRef)));
     } else {
-      store.removeItem(rowsStorageKey(orgId, weekStart));
+      store.removeItem(rowsStorageKey(owner, weekStart));
     }
-    const oldest = rowsStorageKey(orgId, addDays(weekStart, -7 * KEEP_WEEKS));
-    const mine = `${PREFIX}${orgId}.`;
+    const oldest = rowsStorageKey(owner, addDays(weekStart, -7 * KEEP_WEEKS));
+    const mine = rowsStorageKey(owner, '');
     const stale: string[] = [];
     for (let i = 0; i < store.length; i++) {
       const key = store.key(i);

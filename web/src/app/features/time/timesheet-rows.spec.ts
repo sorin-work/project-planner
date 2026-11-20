@@ -1,4 +1,5 @@
 import { GridRow, RowRef } from './timesheet-grid';
+import { forgetUser } from '../../core/user-storage';
 import { addRows, readRows, removeRow, rowsStorageKey, rowsToCopy, writeRows } from './timesheet-rows';
 
 function row(projectId: number, taskId: number | null, extra: Partial<RowRef> = {}): RowRef {
@@ -12,33 +13,55 @@ function gridRow(projectId: number, taskId: number | null): GridRow {
 describe('remembered rows', () => {
   beforeEach(() => localStorage.clear());
 
-  it('keeps rows per organisation and week', () => {
-    writeRows(localStorage, 7, '2026-03-02', [row(1, 5), row(2, null, { billable: false })]);
-    writeRows(localStorage, 8, '2026-03-02', [row(3, null)]);
+  const tom = { userId: 1, orgId: 7 };
+  const lena = { userId: 3, orgId: 7 };
 
-    expect(rowsStorageKey(7, '2026-03-02')).toBe('pp.rows.7.2026-03-02');
-    expect(readRows(localStorage, 7, '2026-03-02')).toEqual([row(1, 5), row(2, null, { billable: false })]);
-    expect(readRows(localStorage, 7, '2026-03-09')).toEqual([]);
-    expect(readRows(localStorage, 8, '2026-03-02')).toEqual([row(3, null)]);
+  it('keeps rows per person, organisation and week', () => {
+    writeRows(localStorage, tom, '2026-03-02', [row(1, 5), row(2, null, { billable: false })]);
+    writeRows(localStorage, { userId: 1, orgId: 8 }, '2026-03-02', [row(3, null)]);
+
+    expect(rowsStorageKey(tom, '2026-03-02')).toBe('pp.user.1.rows.7.2026-03-02');
+    expect(readRows(localStorage, tom, '2026-03-02')).toEqual([row(1, 5), row(2, null, { billable: false })]);
+    expect(readRows(localStorage, tom, '2026-03-09')).toEqual([]);
+    expect(readRows(localStorage, { userId: 1, orgId: 8 }, '2026-03-02')).toEqual([row(3, null)]);
+    // The next person on this browser, in the same organisation, starts without them.
+    expect(readRows(localStorage, lena, '2026-03-02')).toEqual([]);
+  });
+
+  it('forgets a person\'s rows when they sign out, and nobody else\'s', () => {
+    writeRows(localStorage, tom, '2026-03-02', [row(1, 5)]);
+    writeRows(localStorage, lena, '2026-03-02', [row(2, null)]);
+    writeRows(localStorage, { userId: 11, orgId: 7 }, '2026-03-02', [row(3, null)]);
+    localStorage.setItem('pp.orgId', '7');
+
+    forgetUser(localStorage, 1);
+
+    expect(Object.keys(localStorage).sort()).toEqual(['pp.orgId', 'pp.user.11.rows.7.2026-03-02', 'pp.user.3.rows.7.2026-03-02']);
   });
 
   it('reads anything unexpected as no rows', () => {
-    localStorage.setItem(rowsStorageKey(7, '2026-03-02'), 'not json');
-    expect(readRows(localStorage, 7, '2026-03-02')).toEqual([]);
-    localStorage.setItem(rowsStorageKey(7, '2026-03-02'), JSON.stringify([{ projectId: 'x' }, row(1, null), 42]));
-    expect(readRows(localStorage, 7, '2026-03-02')).toEqual([row(1, null)]);
+    localStorage.setItem(rowsStorageKey(tom, '2026-03-02'), 'not json');
+    expect(readRows(localStorage, tom, '2026-03-02')).toEqual([]);
+    localStorage.setItem(rowsStorageKey(tom, '2026-03-02'), JSON.stringify([{ projectId: 'x' }, row(1, null), 42]));
+    expect(readRows(localStorage, tom, '2026-03-02')).toEqual([row(1, null)]);
   });
 
   it('drops the key when the last row goes and forgets weeks from long ago', () => {
-    writeRows(localStorage, 7, '2025-11-03', [row(1, null)]);
-    writeRows(localStorage, 7, '2026-02-23', [row(1, null)]);
-    writeRows(localStorage, 8, '2025-11-03', [row(1, null)]);
+    writeRows(localStorage, tom, '2025-11-03', [row(1, null)]);
+    writeRows(localStorage, tom, '2026-02-23', [row(1, null)]);
+    writeRows(localStorage, { userId: 1, orgId: 8 }, '2025-11-03', [row(1, null)]);
+    writeRows(localStorage, lena, '2025-11-03', [row(1, null)]);
     localStorage.setItem('pp.orgId', '7');
 
-    writeRows(localStorage, 7, '2026-03-02', [row(2, null)]);
-    writeRows(localStorage, 7, '2026-02-23', []);
+    writeRows(localStorage, tom, '2026-03-02', [row(2, null)]);
+    writeRows(localStorage, tom, '2026-02-23', []);
 
-    expect(Object.keys(localStorage).sort()).toEqual(['pp.orgId', 'pp.rows.7.2026-03-02', 'pp.rows.8.2025-11-03']);
+    expect(Object.keys(localStorage).sort()).toEqual([
+      'pp.orgId',
+      'pp.user.1.rows.7.2026-03-02',
+      'pp.user.1.rows.8.2025-11-03',
+      'pp.user.3.rows.7.2025-11-03',
+    ]);
   });
 
   it('adds a row once and removes it again', () => {

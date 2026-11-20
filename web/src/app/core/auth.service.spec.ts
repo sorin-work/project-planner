@@ -38,6 +38,9 @@ describe('AuthService', () => {
 
   it('forgets everything on logout', () => {
     localStorage.setItem('pp.token', 'abc');
+    // What the browser kept for this person goes too. Somebody else's stays.
+    localStorage.setItem('pp.user.1.rows.7.2026-03-02', '[]');
+    localStorage.setItem('pp.user.12.rows.7.2026-03-02', '[]');
     const auth = setup();
     auth.loadMe().subscribe();
     http.expectOne('/api/me').flush({ user: { id: 1, email: 'a@b.c', name: 'A', handle: 'a' }, organisations: [] });
@@ -46,5 +49,6 @@ describe('AuthService', () => {
     expect(auth.isLoggedIn()).toBe(false);
     expect(auth.user()).toBeNull();
     expect(localStorage.getItem('pp.token')).toBeNull();
+    expect(Object.keys(localStorage)).toEqual(['pp.user.12.rows.7.2026-03-02']);
   });
 });
