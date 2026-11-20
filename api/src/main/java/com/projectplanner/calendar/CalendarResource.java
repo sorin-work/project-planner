@@ -1,12 +1,17 @@
 package com.projectplanner.calendar;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
+import com.projectplanner.org.Organisation;
 import io.quarkus.panache.common.Parameters;
 import io.quarkus.security.Authenticated;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceException;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -22,6 +27,7 @@ import jakarta.ws.rs.QueryParam;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+import org.hibernate.exception.ConstraintViolationException;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.time.Clock;
@@ -45,13 +51,20 @@ public class CalendarResource {
     /** No list of holidays or time off is asked for over more than this many days. */
     static final int MAX_RANGE_DAYS = 800;
 
+    /** The unique constraint on one holiday per organisation and date, from V21. */
+    private static final String HOLIDAY_CONSTRAINT = "uq_holidays_org_date";
+
     private final OrgAccess access;
     private final OrgCalendars calendars;
+    private final ActivityLog activity;
+    private final EntityManager em;
     private final Clock clock;
 
-    public CalendarResource(OrgAccess access, OrgCalendars calendars, Clock clock) {
+    public CalendarResource(OrgAccess access, OrgCalendars calendars, ActivityLog activity, EntityManager em, Clock clock) {
         this.access = access;
         this.calendars = calendars;
+        this.activity = activity;
+        this.em = em;
         this.clock = clock;
     }
 
@@ -78,12 +91,15 @@ public class CalendarResource {
             description = "For owners and managers. Plans are not moved: a task across the day is one working day shorter.")
     @Fails(status = 409, code = "holiday_taken", when = "the organisation already has a holiday on that date")
     public HolidayResponse addHoliday(@PathParam("orgId") long orgId, @Valid @NotNull HolidayRequest request) {
-        access.manager(orgId);
+        Membership me = access.manager(orgId);
+        lockHolidays(orgId);
         Holiday holiday = new Holiday();
         holiday.organisationId = orgId;
         apply(holiday, request);
-        holiday.persist();
+        write(holiday, holiday::persist);
         calendars.changed(orgId);
+        // Every duration, slip and capacity across the day changes with it, so it is on the record.
+        activity.record(orgId, null, null, me.userId, "holiday.added", "Added the holiday " + holiday.name + " on " + holiday.date);
         return HolidayResponse.of(holiday);
     }
 
@@ -94,10 +110,16 @@ public class CalendarResource {
     @Fails(status = 409, code = "holiday_taken", when = "the organisation already has a holiday on that date")
     public HolidayResponse updateHoliday(@PathParam("orgId") long orgId, @PathParam("holidayId") long holidayId,
                                          @Valid @NotNull HolidayRequest request) {
-        access.manager(orgId);
+        Membership me = access.manager(orgId);
+        lockHolidays(orgId);
         Holiday holiday = holidayIn(orgId, holidayId);
+        LocalDate before = holiday.date;
         apply(holiday, request);
+        write(holiday, () -> { });
         calendars.changed(orgId);
+        activity.record(orgId, null, null, me.userId, "holiday.changed", before.equals(holiday.date)
+                ? "Renamed the holiday on " + holiday.date + " to " + holiday.name
+                : "Moved the holiday " + holiday.name + " from " + before + " to " + holiday.date);
         return HolidayResponse.of(holiday);
     }
 
@@ -107,9 +129,12 @@ public class CalendarResource {
     @ResponseStatus(204)
     @Operation(summary = "Remove a holiday", description = "For owners and managers.")
     public void deleteHoliday(@PathParam("orgId") long orgId, @PathParam("holidayId") long holidayId) {
-        access.manager(orgId);
-        holidayIn(orgId, holidayId).delete();
+        Membership me = access.manager(orgId);
+        lockHolidays(orgId);
+        Holiday holiday = holidayIn(orgId, holidayId);
+        holiday.delete();
         calendars.changed(orgId);
+        activity.record(orgId, null, null, me.userId, "holiday.removed", "Removed the holiday " + holiday.name + " on " + holiday.date);
     }
 
     @GET
@@ -142,6 +167,7 @@ public class CalendarResource {
         Membership me = access.team(orgId);
         long userId = request.userId() == null ? me.userId : request.userId();
         checkWhose(me, userId);
+        lockPerson(orgId, userId);
         TimeOff timeOff = new TimeOff();
         timeOff.organisationId = orgId;
         timeOff.userId = userId;
@@ -162,6 +188,7 @@ public class CalendarResource {
         Membership me = access.team(orgId);
         TimeOff timeOff = timeOffIn(orgId, timeOffId);
         checkWhose(me, timeOff.userId);
+        lockPerson(orgId, timeOff.userId);
         apply(timeOff, request);
         return TimeOffResponse.of(timeOff);
     }
@@ -187,6 +214,46 @@ public class CalendarResource {
         return " and " + condition;
     }
 
+    /**
+     * Holiday changes of one organisation happen one after the other: the organisation's row is
+     * locked, so the check for a date that is taken sees what another request just added. The
+     * unique constraint is still there, and {@link #write} answers it the same way.
+     */
+    private static void lockHolidays(long orgId) {
+        Organisation.findById(orgId, LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    /**
+     * Time off of one person is changed one request at a time: their membership row is locked
+     * before the check for overlapping days, which is what keeps them apart, since the database
+     * has no constraint for overlapping ranges that H2 and PostgreSQL share. A membership is a
+     * row that is locked before any project row, as everywhere else.
+     */
+    private static void lockPerson(long orgId, long userId) {
+        Membership.find("organisationId = ?1 and userId = ?2", orgId, userId).withLock(LockModeType.PESSIMISTIC_WRITE).list();
+    }
+
+    /** Writes now, so that a date taken at the same moment is a 409 and not a failure at commit. */
+    private void write(Holiday holiday, Runnable change) {
+        try {
+            change.run();
+            em.flush();
+        } catch (PersistenceException e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+                String text = cause instanceof ConstraintViolationException violation && violation.getConstraintName() != null
+                        ? violation.getConstraintName() : String.valueOf(cause.getMessage());
+                if (text.toLowerCase(java.util.Locale.ROOT).contains(HOLIDAY_CONSTRAINT)) {
+                    throw holidayTaken(holiday.date);
+                }
+            }
+            throw e;
+        }
+    }
+
+    private static ApiException holidayTaken(LocalDate date) {
+        return ApiException.conflict("holiday_taken", "There is already a holiday on " + date);
+    }
+
     private static void checkRange(LocalDate from, LocalDate to) {
         if (from != null && to != null && (to.isBefore(from) || to.toEpochDay() - from.toEpochDay() > MAX_RANGE_DAYS)) {
             throw ApiException.badRequest("invalid_range", "Ask for at most " + MAX_RANGE_DAYS + " days, with to not before from");
@@ -197,7 +264,7 @@ public class CalendarResource {
         boolean taken = Holiday.<Holiday>find("organisationId = ?1 and date = ?2", holiday.organisationId, request.date())
                 .stream().anyMatch(h -> !Objects.equals(h.id, holiday.id));
         if (taken) {
-            throw ApiException.conflict("holiday_taken", "There is already a holiday on " + request.date());
+            throw holidayTaken(request.date());
         }
         holiday.date = request.date();
         holiday.name = request.name().trim();

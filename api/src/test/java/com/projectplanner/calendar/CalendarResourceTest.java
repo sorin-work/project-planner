@@ -8,9 +8,18 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 
@@ -123,5 +132,56 @@ class CalendarResourceTest {
                 .body("members[0].weeks[1].capacityHours", Api.num(24))
                 .body("members[0].weeks[1].daysOff", equalTo(2))
                 .body("members[0].weeks[2].capacityHours", Api.num(40));
+    }
+
+    @Test
+    void holidayChangesAreOnTheRecord() {
+        Account owner = Api.signup("Quentin");
+        long id = holiday(owner, MONDAY, "Spring holiday");
+        owner.as().body(Map.of("date", MONDAY.plusDays(1).toString(), "name", "Spring holiday")).put(org(owner) + "/holidays/" + id)
+                .then().statusCode(200);
+        owner.as().delete(org(owner) + "/holidays/" + id).then().statusCode(204);
+        owner.as().get(org(owner) + "/activity").then().statusCode(200)
+                .body("findAll { it.action.startsWith('holiday.') }.action", containsInAnyOrder("holiday.removed", "holiday.changed", "holiday.added"))
+                .body("find { it.action == 'holiday.changed' }.summary",
+                        equalTo("Moved the holiday Spring holiday from " + MONDAY + " to " + MONDAY.plusDays(1)));
+    }
+
+    @Test
+    void twoRequestsAtTheSameMomentTakeADayOnce() throws Exception {
+        Account owner = Api.signup("Rosa");
+        Account member = Api.signup("Sami");
+        Api.addMember(owner, member, "MEMBER");
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 5; round++) {
+                LocalDate day = MONDAY.plusWeeks(round);
+                Map<String, Object> holiday = Map.of("date", day.toString(), "name", "Race " + round);
+                Map<String, Object> away = Map.of("firstDay", day.toString(), "lastDay", day.plusDays(round % 3).toString());
+                CountDownLatch start = new CountDownLatch(1);
+                List<Future<Integer>> answers = new ArrayList<>();
+                for (int i = 0; i < 2; i++) {
+                    answers.add(pool.submit(() -> {
+                        start.await();
+                        return owner.as().body(holiday).post(org(owner) + "/holidays").statusCode();
+                    }));
+                    answers.add(pool.submit(() -> {
+                        start.await();
+                        return member.as().body(away).post(org(owner) + "/time-off").statusCode();
+                    }));
+                }
+                start.countDown();
+                List<Integer> codes = new ArrayList<>();
+                for (Future<Integer> answer : answers) {
+                    codes.add(answer.get(30, TimeUnit.SECONDS));
+                }
+                // One of each pair is stored, the other is told the day is taken. Never a 500.
+                assertThat(codes).as("round %d", round).containsExactlyInAnyOrder(201, 201, 409, 409);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        member.as().get(org(owner) + "/time-off?userId=" + member.userId()).then().body("$", hasSize(5));
+        member.as().get(org(owner) + "/holidays").then().body("$", hasSize(5));
     }
 }
