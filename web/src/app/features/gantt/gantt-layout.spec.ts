@@ -2,7 +2,7 @@ import { Phase, Task } from '../../core/models';
 import { linkKey } from '../project/schedule-issues';
 import { addDays } from '../../shared/dates';
 import {
-  DAY_WIDTH, HEADER_HEIGHT, MONTH_LABEL_WIDTH, ROW_HEIGHT, barSpan, dateRange, dragDays, layoutGantt, linkEnds, linkPath, monthLabels, xOf,
+  BASELINE_HEIGHT, DAY_WIDTH, HEADER_HEIGHT, MONTH_LABEL_WIDTH, ROW_HEIGHT, barSpan, dateRange, dragDays, layoutGantt, linkEnds, linkPath, monthLabels, xOf,
 } from './gantt-layout';
 
 function task(id: number, startDate?: string, dueDate?: string, extra: Partial<Task> = {}): Task {
@@ -13,6 +13,27 @@ function task(id: number, startDate?: string, dueDate?: string, extra: Partial<T
 }
 
 describe('gantt layout', () => {
+  it('draws the baseline as a thin bar under the bar, inside its row', () => {
+    const baseline = new Map([[1, { start: '2026-03-02', due: '2026-03-04' }]]);
+    const layout = layoutGantt([task(1, '2026-03-04', '2026-03-10'), task(2, '2026-03-05', '2026-03-06')], [], {
+      zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-01', baseline,
+    });
+    const [moved, other] = layout.bars;
+    // Two days earlier and three days long, from the column of 2 March.
+    expect(moved.baseline).toEqual({ x: xOf('2026-03-02', layout.start, 28), y: moved.y + moved.height + 1, width: 3 * 28, height: BASELINE_HEIGHT });
+    expect(moved.baseline!.y + BASELINE_HEIGHT).toBeLessThanOrEqual(HEADER_HEIGHT + ROW_HEIGHT);
+    expect(other.baseline).toBeUndefined();
+  });
+
+  it('widens the range to the baseline, so a plan that slipped keeps its old bars on screen', () => {
+    const tasks = [task(1, '2026-04-06', '2026-04-10')];
+    const baseline = new Map([[1, { start: '2026-03-02', due: '2026-03-06' }]]);
+    const layout = layoutGantt(tasks, [], { zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-01', baseline });
+    expect(layout.start).toBe(dateRange([task(9, '2026-03-02', '2026-03-06')]).start);
+    expect(layout.bars[0].baseline!.x).toBeGreaterThanOrEqual(0);
+    expect(dateRange(tasks, '2026-03-01', ['2026-05-01']).end).toBe(addDays('2026-05-01', 14));
+  });
+
   it('starts the range on a Monday a few days before the first task', () => {
     const range = dateRange([task(1, '2026-03-04', '2026-03-10')]);
     expect(range.start).toBe('2026-02-23');
