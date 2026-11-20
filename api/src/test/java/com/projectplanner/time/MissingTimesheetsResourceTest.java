@@ -6,6 +6,7 @@ import com.projectplanner.org.Membership;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
+import com.projectplanner.support.TestClock;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
@@ -206,6 +207,47 @@ class MissingTimesheetsResourceTest {
                 .then().statusCode(200)
                 .body("reminded", empty()).body("skipped.reason", contains("DAILY_LIMIT"));
         assertThat(reminders(late)).isEqualTo(MissingTimesheets.MAX_REMINDERS_PER_DAY);
+    }
+
+    @Test
+    void theOrganisationsDateDecidesNotTheServers() {
+        // 2026-03-02 is a Monday. Kiritimati is fourteen hours ahead of UTC.
+        LocalDate week = LocalDate.of(2026, 3, 2);
+        Instant sundayEveningUtc = Instant.parse("2026-03-08T20:00:00Z");
+        Account owner = Api.signup("Ivo");
+        Account late = Api.signup("Jun");
+        Api.addMember(owner, late, "MEMBER");
+        owner.as().body(Map.of("timezone", "Pacific/Kiritimati")).patch("/api/orgs/" + owner.orgId()).then().statusCode(200);
+        QuarkusTransaction.requiringNew().run(() -> Membership.update("createdAt = ?1 where organisationId = ?2",
+                Instant.parse("2026-01-05T09:00:00Z"), owner.orgId()));
+        try {
+            // Still Sunday for the server, already Monday morning on the island: the week is over there.
+            TestClock.fix(sundayEveningUtc);
+            owner.as().queryParam("weekStart", week.toString()).get(missing(owner)).then().statusCode(200)
+                    .body("latestWeekStart", equalTo(week.toString()))
+                    .body("people.userName", contains("Ivo", "Jun"));
+            owner.as().queryParam("weekStart", week.plusWeeks(1).toString()).get(missing(owner))
+                    .then().statusCode(400).body("code", equalTo("week_not_over"));
+            owner.as().body(reminder(week, late)).post(remind(owner)).then().statusCode(200)
+                    .body("reminded", contains((int) late.userId()));
+
+            // Six hours on it is Monday for the server too, but the island has not changed days.
+            TestClock.fix(sundayEveningUtc.plus(Duration.ofHours(6)));
+            owner.as().body(reminder(week, late)).post(remind(owner)).then().statusCode(200)
+                    .body("skipped.reason", contains("ALREADY_REMINDED"));
+            owner.as().queryParam("weekStart", week.toString()).get(missing(owner)).then()
+                    .body("people.find { it.userId == " + late.userId() + " }.remindedToday", equalTo(true));
+
+            // Nine hours later the server's day is the same, and on the island it is Tuesday.
+            TestClock.fix(sundayEveningUtc.plus(Duration.ofHours(15)));
+            owner.as().queryParam("weekStart", week.toString()).get(missing(owner)).then()
+                    .body("people.find { it.userId == " + late.userId() + " }.remindedToday", equalTo(false));
+            owner.as().body(reminder(week, late)).post(remind(owner)).then().statusCode(200)
+                    .body("reminded", contains((int) late.userId()));
+        } finally {
+            TestClock.reset();
+        }
+        assertThat(reminders(late)).isEqualTo(2);
     }
 
     @Test
