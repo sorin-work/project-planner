@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
@@ -45,6 +46,22 @@ public class Notifier {
         Map<Long, Map<NotificationType, Delivery>> choices = preferences.of(recipients.keySet());
         recipients.forEach((userId, type) -> create(userId, organisationId, actorId, type, message.apply(type),
                 projectId, taskId, null, choices.get(userId).get(type)));
+    }
+
+    /** Several people, one type, one thing: their choices are read in one query. */
+    public void notifyAll(Collection<Long> userIds, long organisationId, Long actorId, NotificationType type, String message,
+                          Long projectId, Long taskId) {
+        Map<Long, Map<NotificationType, Delivery>> choices = preferences.of(userIds);
+        userIds.forEach(userId -> create(userId, organisationId, actorId, type, message, projectId, taskId, null,
+                choices.get(userId).get(type)));
+    }
+
+    /** {@link #notifyAboutWeek} for several people, with one query for their choices. */
+    public void notifyAllAboutWeek(Collection<Long> userIds, long organisationId, Long actorId, NotificationType type,
+                                   String message, LocalDate weekStart) {
+        Map<Long, Map<NotificationType, Delivery>> choices = preferences.of(userIds);
+        userIds.forEach(userId -> create(userId, organisationId, actorId, type, message, null, null, weekStart,
+                choices.get(userId).get(type)));
     }
 
     /** A timesheet notification: it has no project or task, but says which week it is about. */

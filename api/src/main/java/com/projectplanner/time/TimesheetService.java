@@ -131,12 +131,10 @@ public class TimesheetService {
 
         User user = User.findById(me.userId);
         String message = user.name + " submitted their timesheet for the week of " + weekStart;
-        for (Membership m : Membership.forOrganisation(me.organisationId)) {
-            if (m.role.canManage()) {
-                notifier.notifyAboutWeek(m.userId, me.organisationId, me.userId, NotificationType.TIMESHEET_SUBMITTED,
-                        message, weekStart);
-            }
-        }
+        List<Long> managers = Membership.forOrganisation(me.organisationId).stream()
+                .filter(m -> m.role.canManage()).map(m -> m.userId).toList();
+        notifier.notifyAllAboutWeek(managers, me.organisationId, me.userId, NotificationType.TIMESHEET_SUBMITTED,
+                message, weekStart);
         activity.record(me.organisationId, null, null, me.userId, "timesheet.submitted", message);
         return sheet;
     }
@@ -254,10 +252,10 @@ public class TimesheetService {
                 skipped.add(new SkippedReminder(userId, skip.get()));
                 continue;
             }
-            notifier.notifyAboutWeek(userId, me.organisationId, me.userId, NotificationType.TIMESHEET_REMINDER,
-                    message, week.weekStart());
             reminded.add(userId);
         }
+        notifier.notifyAllAboutWeek(reminded, me.organisationId, me.userId, NotificationType.TIMESHEET_REMINDER,
+                message, week.weekStart());
         return new RemindResponse(week.weekStart(), reminded, skipped);
     }
 

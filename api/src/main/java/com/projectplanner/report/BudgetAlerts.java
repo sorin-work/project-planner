@@ -102,20 +102,17 @@ public class BudgetAlerts {
         String aboutHours = hours.alert() ? hoursMessage(project, budget) : null;
         String aboutMoney = amount.alert()
                 ? moneyMessage(project, budget, Organisation.<Organisation>findById(project.organisationId).currency) : null;
-        for (Membership member : Membership.forOrganisation(project.organisationId)) {
-            // Both go to the people who run projects and see their money. The two messages
-            // are separate, and only the second has amounts in it, so that the first can go
-            // to a wider audience one day without telling anybody what a project costs.
-            if (!member.role.canManage()) {
-                continue;
-            }
-            // No actor: the manager whose own entry crossed the line should hear about it too.
-            if (aboutHours != null) {
-                notifier.notify(member.userId, project.organisationId, null, NotificationType.BUDGET_ALERT, aboutHours, project.id, null);
-            }
-            if (aboutMoney != null) {
-                notifier.notify(member.userId, project.organisationId, null, NotificationType.BUDGET_ALERT, aboutMoney, project.id, null);
-            }
+        // Both go to the people who run projects and see their money. The two messages are
+        // separate, and only the second has amounts in it, so that the first can go to a wider
+        // audience one day without telling anybody what a project costs. No actor: the manager
+        // whose own entry crossed the line should hear about it too.
+        List<Long> managers = Membership.forOrganisation(project.organisationId).stream()
+                .filter(member -> member.role.canManage()).map(member -> member.userId).toList();
+        if (aboutHours != null) {
+            notifier.notifyAll(managers, project.organisationId, null, NotificationType.BUDGET_ALERT, aboutHours, project.id, null);
+        }
+        if (aboutMoney != null) {
+            notifier.notifyAll(managers, project.organisationId, null, NotificationType.BUDGET_ALERT, aboutMoney, project.id, null);
         }
     }
 
