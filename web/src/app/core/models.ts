@@ -128,6 +128,16 @@ export interface ProjectListItem {
   health: HealthSummary;
 }
 
+/** A project as a select needs it, from `/projects/options`: nothing is worked out for it. */
+export interface ProjectOption {
+  id: number;
+  code: string;
+  name: string;
+  status: ProjectStatus;
+  clientId?: number;
+  clientName?: string;
+}
+
 export interface Phase {
   id: number;
   projectId: number;

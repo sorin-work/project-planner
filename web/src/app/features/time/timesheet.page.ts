@@ -187,17 +187,17 @@ export class TimesheetPage {
       // loaded for the other one (projects, tasks, an entry being edited) must not stay.
       untracked(() => this.forgetOrganisation());
       if (orgId !== null) {
-        this.projectApi.list(orgId).subscribe({
+        this.projectApi.options(orgId).subscribe({
           next: (items) => {
             this.projects.set(
               items
-                .filter((i) => i.project.status !== 'DONE')
-                .map((i) => ({
-                  id: i.project.id,
-                  code: i.project.code,
-                  name: i.project.name,
-                  label: `${i.project.code} · ${i.project.name}`,
-                  billableByDefault: !!i.project.clientId,
+                .filter((p) => p.status !== 'DONE')
+                .map((p) => ({
+                  id: p.id,
+                  code: p.code,
+                  name: p.name,
+                  label: `${p.code} · ${p.name}`,
+                  billableByDefault: !!p.clientId,
                 })),
             );
             this.projectsLoaded.set(true);

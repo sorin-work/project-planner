@@ -9,6 +9,7 @@ import {
   Project,
   ProjectHealth,
   ProjectListItem,
+  ProjectOption,
   ProjectStatus,
   ScheduleIssue,
 } from './models';
@@ -56,6 +57,11 @@ export class ProjectApi {
       params = params.set('clientId', filter.clientId);
     }
     return this.http.get<ProjectListItem[]>(`/api/orgs/${orgId}/projects`, { params });
+  }
+
+  /** Every project the caller can see, by name, for a select. Much lighter than `list`. */
+  options(orgId: number): Observable<ProjectOption[]> {
+    return this.http.get<ProjectOption[]>(`/api/orgs/${orgId}/projects/options`);
   }
 
   create(orgId: number, body: ProjectInput): Observable<Project> {
