@@ -143,6 +143,7 @@ describe('ProjectStore baselines', () => {
     http.expectOne('/api/projects/7/critical-path').flush(noPath);
     http.expectOne('/api/projects/7/schedule-issues').flush([]);
     http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/orgs/3/holidays').flush([]);
     http.expectOne('/api/projects/7/baselines').flush([agreed, signedOff]);
   });
 
@@ -217,6 +218,7 @@ describe('ProjectStore baselines', () => {
     http.expectOne('/api/projects/8/critical-path').flush(noPath);
     http.expectOne('/api/projects/8/schedule-issues').flush([]);
     http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/orgs/3/holidays').flush([]);
     http.expectOne('/api/projects/8/baselines').flush('down', { status: 503, statusText: 'Service Unavailable' });
     expect(store.baselines()).toEqual([]);
     expect(store.comparison()).toBeNull();
@@ -234,6 +236,7 @@ describe('ProjectStore baselines', () => {
     http.expectOne('/api/projects/8/critical-path').flush(noPath);
     http.expectOne('/api/projects/8/schedule-issues').flush([]);
     http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/orgs/3/holidays').flush([]);
     http.expectOne('/api/projects/8/baselines').flush([]);
     expect(store.comparison()).toBeNull();
   });
