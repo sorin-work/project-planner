@@ -32,12 +32,26 @@ public class User extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
+    /** Tokens issued before this time no longer work. In whole seconds, see {@link CurrentUser}. */
+    @Column(name = "password_changed_at")
+    public Instant passwordChangedAt;
+
     public static String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
     }
 
     public static Optional<User> findByEmail(String email) {
         return find("email", normalizeEmail(email)).firstResultOptional();
+    }
+
+    /**
+     * Sets a new password and ends every session that was started before, along with
+     * every reset link that still works.
+     */
+    public void changePassword(String newHash, Instant now) {
+        passwordHash = newHash;
+        passwordChangedAt = now.truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        PasswordReset.revokeAll(id, now);
     }
 
     /** The name used for @mentions: the part of the email before the @. */
