@@ -52,7 +52,10 @@ public final class SearchText {
         if (text == null || needle.isEmpty()) {
             return null;
         }
+        // The needle is flattened the same way, or a needle with two spaces in a row would
+        // match the text and never the flattened text.
         String flat = text.strip().replaceAll("\\s+", " ");
+        needle = needle.replaceAll("\\s+", " ");
         int at = flat.toLowerCase(Locale.ROOT).indexOf(needle);
         if (at < 0) {
             return null;
