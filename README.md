@@ -49,6 +49,8 @@ the point is knowing whether a project will land on time and on budget.
 - **CSV export** of timesheets (rate and amount columns for managers), safe to open in
   a spreadsheet.
 
+Ideas for what could come next are in [ROADMAP.md](ROADMAP.md).
+
 ## Stack
 
 | Part     | Tech                                                                                    |
