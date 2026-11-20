@@ -24,7 +24,7 @@ couple of weekends, **L** several weeks of spare time.
 | 1   | Warnings for broken dependencies           | Shipped | both     | S    | -          |
 | 2   | Type hours into the weekly grid            | Shipped | both     | M    | -          |
 | 3   | Missing timesheets and reminders           | Shipped | both     | S    | -          |
-| 4   | Search and quick switcher                  | Next  | both     | M    | -          |
+| 4   | Search and quick switcher                  | Shipped | both     | M    | -          |
 | 5   | Accessibility pass                         | Next  | frontend | M    | -          |
 | 6   | Scheduled backups and a tested restore     | Shipped | infra    | S    | -          |
 | 7   | API reference built from the code          | Shipped | backend  | S    | -          |
@@ -121,54 +121,6 @@ A few things hold for every item:
   `Notifier.notifyAboutWeek` instead and opens `/time?week=`.
 
 ## Next
-
-### 4. Search and quick switcher
-
-There is no search anywhere in the app. Finding a task means remembering which
-project it is in and scrolling through that project's list. I want `Ctrl+K` /
-`Cmd+K`, and a button in the top bar, to open a small dialog: type a few
-letters, arrow down, Enter, land on the task or project.
-
-- API: `GET /api/orgs/{orgId}/search?q=&limit=` in a new `search` package.
-  Hits come grouped: projects (name, code, client name), tasks (title,
-  description) and comments (body). Each hit has a type, an id, the project id
-  and code, a title and a short snippet.
-- Scope: `access.member(orgId)`. For `Role.CLIENT` restrict everything to
-  projects of `membership.clientId`, the way `ProjectResource.list` does.
-  Tasks have no organisation column. Reach them through their project with a
-  subquery, as `DashboardResource` does for the signed-in user's tasks.
-- Matching: `lower(...) like` with `%` and `_` escaped in the input, prefix
-  matches before "contains", open tasks before done ones, at most twenty or so
-  per group, and nothing below two characters.
-- Tricky: the tests run on H2, so Postgres full-text search (`tsvector`,
-  `pg_trgm`) is out unless search gets two implementations. `LIKE` is fine for
-  a few thousand tasks per organisation. Say so in the README instead of
-  pretending it scales.
-- Web: a new `features/search` folder with the dialog, opened from `Shell`,
-  which has no key handling today. The app has no dialog component yet:
-  confirmations use `confirm()` and the task panel is an `aside`. A native
-  `<dialog>` traps focus without extra code. Check that jsdom implements
-  `showModal()` before relying on it in specs.
-- The result list is the same pattern as the mention suggestions in
-  `CommentBox` (a `highlighted` index, arrow keys, Enter, Escape). Worth
-  sharing instead of copying.
-- A task hit goes to `/projects/{projectId}/list?task={id}`, the form the
-  dashboard and the notifications already use. A project hit goes to
-  `/projects/{id}`.
-- Debounce the input, drop the answer to a superseded request, and show the
-  last few picks (from `localStorage`) before anything is typed.
-- Also in this pull request: filters on the List tab, which can only "Hide
-  done" and "Only mine" today. A text filter plus assignee, status and
-  priority filters over `store.tasks()` need no API. `visibleRows` filters row
-  by row, so when only a subtask matches, keep its parent row, greyed out.
-- So the pull request is: the search endpoint (text only), the dialog with its
-  shortcut and top bar button, recent picks, and the List tab filters.
-- Follow-up, not in this pull request: a "My tasks" page. The dashboard lists
-  my overdue tasks, the ones due within seven days (`DUE_SOON_DAYS`) and the
-  ones in progress, so a to-do task due in three weeks shows up nowhere
-  outside its project. The page would call the search endpoint with new
-  `assigneeId` and `status` parameters and no text. Neither the page nor the
-  parameters are built here.
 
 ### 5. Accessibility pass
 
@@ -740,6 +692,43 @@ otherwise be chased one by one. The dashboard count leaves out weeks without
 time, as "Remind all" does. Still open: automatic reminders (they belong to
 the daily summary in item 12), "Approve all", and people who were away, who
 stay under "No time logged" until item 15 knows about time off.
+
+### 4. Search and quick switcher
+
+`GET /api/orgs/{orgId}/search?q=&limit=` finds projects (name, code, client),
+tasks (title, description) and comments, a bounded number of each, with plain
+`lower(...) like` and the wildcards in the text escaped. Who may see what is in
+the queries themselves: tasks and comments are reached through the projects of
+the organisation, and for a client viewer only through those of their client,
+so neither a hit nor a count tells of anything else. `Ctrl+K`, `Cmd+K` on Apple
+platforms, or the Search button in the top bar opens a native `<dialog>` with a
+text field over a listbox. The highlight is followed through
+`aria-activedescendant`, Tab stays inside, and closing gives the focus back.
+Enter waits for the answer to the text as typed and never opens a row that is
+left from earlier text, and an answer to earlier text is dropped. The last
+five picks are kept in `localStorage` under the person's key, so that signing
+out removes them, and only by kind and id: their titles are fetched fresh from
+`POST /api/orgs/{orgId}/search/recent`, which leaves out what the person can no
+longer open. The List
+tab has text, assignee, status and priority filters next to "Hide done" and
+"Only mine", all in the address, and a parent whose subtask matches stays,
+greyed out. Different from the design: the dialog is not loaded lazily (it
+costs a few kB of a bundle that is far below its budget, and so cannot fail to
+load), jsdom has no `showModal()`, so the dialog also opens without it, and
+the arrow-key handling is shared with the mention suggestions as
+`moveHighlight`. Still open: search reads every task
+and comment of the organisation on each request, no portable index helps a
+search for text in the middle, and on PostgreSQL alone a trigram index would.
+After a pick the focus goes back to where it was, not into the page that
+opens. When a kind is cut off at the limit, nothing says that there are more
+hits than the list shows.
+
+Follow-up, not in this pull request: a "My tasks" page. The dashboard lists
+my overdue tasks, the ones due within seven days (`DUE_SOON_DAYS`) and the
+ones in progress, so a to-do task due in three weeks shows up nowhere
+outside its project. The page would call the search endpoint with new
+`assigneeId` and `status` parameters and no text. Neither the page nor the
+parameters are built here.
 
 ### 6. Scheduled backups and a tested restore
 
