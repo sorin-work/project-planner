@@ -1050,6 +1050,16 @@ select.compact {
   flex-wrap: wrap;
 }
 
+/* How a task compares with a baseline: information, not a warning. */
+.baseline-change {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.toolbar label {
+  white-space: nowrap;
+}
+
 .deps .issue-note {
   flex-basis: 100%;
   margin-top: 0;

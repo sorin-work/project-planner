@@ -81,7 +81,7 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
                   } @else {
                     <span>{{ item.name }}</span>
                   }
-                  <span class="grow issue-note">{{ item.text }}</span>
+                  <span class="grow baseline-change">{{ item.text }}</span>
                 </li>
               }
             </ul>
