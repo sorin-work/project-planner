@@ -1,4 +1,4 @@
-<aside class="task-panel card" aria-label="Task details">
+<aside #panel class="task-panel card" aria-label="Task details" tabindex="-1" (keydown.escape)="closed.emit()">
   @if (task(); as t) {
     <header class="panel-header">
       @if (parent(); as p) {

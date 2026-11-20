@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
@@ -95,7 +95,18 @@ export class TaskPanel {
   protected readonly timeAgo = timeAgo;
   protected readonly segments = segments;
 
+  private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+
   constructor() {
+    // A task that opens takes the focus, so that the keyboard and a screen reader are where the
+    // details are. Escape closes the panel, and the page gives the focus back to what opened it.
+    effect(() => {
+      this.taskId();
+      const panel = this.panel()?.nativeElement;
+      if (panel && !panel.contains(document.activeElement)) {
+        setTimeout(() => panel.focus());
+      }
+    });
     effect(() => {
       const id = this.taskId();
       this.error.set(null);
