@@ -67,6 +67,8 @@ the point is knowing whether a project will land on time and on budget.
 - **Backups**: with Docker, an optional service dumps the whole database once a day
   and keeps the last seven dumps, and the same script puts one back. See
   [Backup and restore](#backup-and-restore).
+- **API reference**: an OpenAPI document that is built from the code, and an interactive
+  page to try requests on. See [API reference](#api-reference).
 
 Ideas for what could come next are in [ROADMAP.md](ROADMAP.md).
 
@@ -74,7 +76,7 @@ Ideas for what could come next are in [ROADMAP.md](ROADMAP.md).
 
 | Part     | Tech                                                                                    |
 | -------- | --------------------------------------------------------------------------------------- |
-| API      | Java 21, Quarkus 3 (REST + Jackson, Hibernate ORM with Panache, Hibernate Validator, SmallRye JWT, SmallRye Health) |
+| API      | Java 21, Quarkus 3 (REST + Jackson, Hibernate ORM with Panache, Hibernate Validator, SmallRye JWT, SmallRye Health, SmallRye OpenAPI) |
 | Database | PostgreSQL 17, Flyway migrations                                                        |
 | Web      | Angular 22 (standalone components, signals, router), TypeScript, plain CSS              |
 | Tests    | JUnit 5, AssertJ, `@QuarkusTest` + REST Assured on H2; Vitest (Angular unit-test builder, jsdom) |
@@ -154,7 +156,7 @@ the client's deadline.
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
-| api     | 4411      | http://localhost:4411/q/health                      | Quarkus                           |
+| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; API reference at http://localhost:5191/api/docs |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
@@ -311,6 +313,7 @@ npm start
 | `JWT_SECRET`           | a development value (min. 32 bytes)           | api     |
 | `JWT_TTL`              | `P7D` (ISO-8601 duration)                     | api     |
 | `SEED_DEMO`            | `false` (`true` in compose)                   | api     |
+| `API_DOCS`             | `false` (`true` in compose)                   | api     |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
@@ -373,25 +376,57 @@ with dump files dated in the past and in the future, and fails if the loop makes
 than one dump, makes two without a pause, keeps a dump that was cut short, or leaves
 fewer dumps behind than it should.
 
-## API overview
+The [API reference](#api-reference) is held to the code by `ApiReferenceTest`. Every
+resource method has to be in the document with a summary, a tag, the status it really
+answers with and the error body. Everything but sign-up and login has to ask for the
+token. Every error code that the code can answer with has to be named: with `@Fails` on
+the resource method, or for the ones any endpoint can answer with in the introduction
+(`api/src/main/resources/META-INF/openapi.yaml`).
 
-All endpoints are under `/api` and, apart from sign-up and login, need a bearer
-token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
+The shape of the document is pinned in `api/src/test/resources/api-shape.txt`: paths,
+parameters, statuses and schemas, one fact per line, without the prose. The test fails
+when the shape changes, so that no field or status changes by accident. When the change
+is meant, refresh the file and commit the difference with it:
 
-| Area          | Endpoints                                                                                       |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| Auth          | `POST /auth/signup`, `POST /auth/login`, `GET/PATCH /me`, `POST /me/password`                    |
-| Organisation  | `GET/PATCH /orgs/{org}`, `/orgs/{org}/members`, `/orgs/{org}/invitations`, `/orgs/{org}/role-rates` |
-| Clients       | `/orgs/{org}/clients`                                                                           |
-| Projects      | `GET/POST /orgs/{org}/projects`, `GET/PUT/DELETE /projects/{id}`, `/projects/{id}/phases`, `/phases/{id}` |
-| Tasks         | `GET/POST /projects/{id}/tasks`, `GET/PATCH/DELETE /tasks/{id}`, `POST /tasks/{id}/shift`, `GET /tasks/{id}/subtasks` |
-| Dependencies  | `GET /projects/{id}/dependencies`, `POST /tasks/{id}/dependencies`, `DELETE /dependencies/{id}`   |
-| Planning      | `GET /projects/{id}/critical-path`, `GET /projects/{id}/schedule-issues`, `GET /projects/{id}/health`, `GET /orgs/{org}/workload` |
-| Time          | `/orgs/{org}/time-entries`, `GET /orgs/{org}/timer`, `POST /orgs/{org}/timer/start\|stop`         |
-| Timesheets    | `GET /orgs/{org}/timesheets/week`, `POST .../submit\|withdraw`, `GET /orgs/{org}/timesheets`, `POST .../{id}/approve\|reject`, `GET .../missing?weekStart`, `POST .../remind` |
-| Export        | `GET /orgs/{org}/exports/timesheets.csv?from&to&userId&projectId&billable`                        |
-| Collaboration | `/tasks/{id}/comments`, `/comments/{id}`, `/notifications`, `/orgs/{org}/activity`, `/projects/{id}/activity` |
-| Dashboard     | `GET /orgs/{org}/dashboard`                                                                     |
+```bash
+cd api && ./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update
+```
+
+After a merge that conflicts in that file, take either side and run the same command.
+
+## API reference
+
+All endpoints are under `/api`. What they take and what they answer is written down in
+an OpenAPI document. It is built from the resource classes and their records when the
+API is built, so it cannot fall behind the code:
+
+- `/api/openapi` is the document, in YAML. `/api/openapi.json` is the same in JSON. It
+  is always served and needs no token.
+- `/api/docs` is the same as a page (Swagger UI): every endpoint by area, with its
+  fields, its errors and who may call it. "Authorize" takes the token from
+  `POST /api/auth/login`, and then requests can be tried from the page. It is served
+  when `API_DOCS=true`.
+
+With Docker both go through the web container: http://localhost:5191/api/docs. Compose
+sets `API_DOCS=true`. The API by itself leaves the page off, because it is third-party
+script on the address where the web app keeps the login token. On a host that is open
+to the internet, set `API_DOCS=false` in `.env`. The document stays either way: it says
+nothing that the source does not, and it only describes `/api`.
+
+The rules that hold for every endpoint:
+
+- Apart from sign-up and login, a request needs a token: `Authorization: Bearer <token>`.
+- Errors are JSON: `{ "status", "code", "message", "errors"? }`. The `code` is stable.
+  The reference lists the codes of each endpoint and the ones that any endpoint can
+  answer with.
+- An organisation you are not in answers 404. So does a project of another client for
+  a client viewer.
+- `PATCH` changes only the fields that are sent. Taking a value away has a flag of its
+  own (`clearDates`, `clearAssignee`, `clearPhase`, `clearHourlyRate`).
+- Rates, amounts and money budgets are left out of the answers for members and client
+  viewers.
+
+The rest of this section is what the reference only mentions in passing.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
