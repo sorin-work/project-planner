@@ -48,4 +48,11 @@ public final class Mailbox {
         assertThat(matcher.find()).as("a link with a token in: %s", mail.getText()).isTrue();
         return matcher.group(1);
     }
+
+    /** The token of the first link to {@code page} in the mail, which may hold a dot. */
+    public static String tokenOfLink(Mail mail, String page) {
+        Matcher matcher = Pattern.compile(Pattern.quote(page) + "#token=([A-Za-z0-9_.-]+)").matcher(mail.getText());
+        assertThat(matcher.find()).as("a link to %s in: %s", page, mail.getText()).isTrue();
+        return matcher.group(1);
+    }
 }

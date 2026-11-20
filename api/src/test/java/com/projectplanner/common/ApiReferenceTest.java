@@ -49,7 +49,7 @@ class ApiReferenceTest {
     private static final String REFRESH = "./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update";
 
     private static final Set<String> PUBLIC = Set.of("AuthResource_signup", "AuthResource_login", "AuthResource_options",
-            "AuthResource_forgot", "AuthResource_reset", "AuthResource_invitation");
+            "AuthResource_forgot", "AuthResource_reset", "AuthResource_invitation", "AuthResource_unsubscribe");
     private static final String ERROR_BODY = "#/components/schemas/ApiError";
     private static final String ERROR_RESPONSE = "#/components/responses/Error";
 
