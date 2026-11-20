@@ -312,7 +312,10 @@ public class ProjectDuplicator {
             }
         });
         if (ids.size() != expected) {
-            throw new IllegalStateException("Copied " + expected + " rows but found " + ids.size());
+            // The texts are copied from the source rows by a join. A row that somebody deleted
+            // between reading the plan and copying it is missing here. Nothing is kept of the copy.
+            throw ApiException.conflict("source_changed",
+                    "The project was changed while it was being copied. Nothing was copied, so try again.");
         }
         return ids;
     }
