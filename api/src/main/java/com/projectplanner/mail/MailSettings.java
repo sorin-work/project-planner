@@ -62,7 +62,7 @@ public class MailSettings {
         return enabled;
     }
 
-    /** Only when mail is on: whether joining at sign-up needs the link from the invitation mail. */
+    /** Only when mail is on: whether every sign-up needs the link from an invitation mail. */
     public boolean inviteLinkRequired() {
         return enabled && inviteLinkRequired;
     }

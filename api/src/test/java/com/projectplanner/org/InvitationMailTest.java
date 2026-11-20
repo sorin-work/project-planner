@@ -1,11 +1,14 @@
 package com.projectplanner.org;
 
+import com.projectplanner.auth.PasswordHasher;
+import com.projectplanner.auth.User;
 import com.projectplanner.mail.MailOutbox;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Mailbox;
 import com.projectplanner.support.TestClock;
 import io.quarkus.mailer.Mail;
 import io.quarkus.mailer.MockMailbox;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
 import io.restassured.response.ValidatableResponse;
@@ -31,6 +34,9 @@ class InvitationMailTest {
 
     @Inject
     MailOutbox outbox;
+
+    @Inject
+    PasswordHasher hasher;
 
     private Mailbox mailbox;
 
@@ -146,5 +152,51 @@ class InvitationMailTest {
                 .statusCode(400).body("code", equalTo("invalid_link"));
         // Trying did not use the link up.
         readLink(token).statusCode(200).body("hasAccount", equalTo(false));
+    }
+
+    @Test
+    void signingUpFirstWithTheInvitedAddressDoesNotTakeTheInvitation() {
+        Api.Account olga = Api.signup("Olga");
+        String email = Api.uniqueEmail("victim");
+        invite(olga, email, "MANAGER").statusCode(201);
+        String token = mailbox.lastToken(email);
+
+        // Somebody who only knows the address tries to get in before the invitee.
+        given().contentType(ContentType.JSON)
+                .body(Map.of("name", "Mallory", "email", email, "password", "correct-horse"))
+                .post("/api/auth/signup").then().statusCode(409).body("code", equalTo("invitation_link_required"));
+        given().contentType(ContentType.JSON)
+                .body(Map.of("name", "Mallory", "email", email, "password", "correct-horse", "organisationName", "Mine"))
+                .post("/api/auth/signup").then().statusCode(409).body("code", equalTo("invitation_link_required"));
+
+        // The invitee, with the link from the mail, still can.
+        readLink(token).statusCode(200).body("hasAccount", equalTo(false));
+        signup(email, token).statusCode(201);
+    }
+
+    @Test
+    void anAccountWithTheInvitedAddressAcceptsTheLinkAfterSigningIn() {
+        Api.Account olga = Api.signup("Olga");
+        String email = Api.uniqueEmail("wes");
+        invite(olga, email, "MEMBER").statusCode(201);
+        String token = mailbox.lastToken(email);
+        // The account came about some other way after the invitation, here straight in the database.
+        QuarkusTransaction.requiringNew().run(() -> {
+            User user = new User();
+            user.email = email;
+            user.name = "Wes";
+            user.passwordHash = hasher.hash("correct-horse");
+            user.createdAt = Instant.now();
+            user.persist();
+        });
+        String wes = given().contentType(ContentType.JSON).body(Map.of("email", email, "password", "correct-horse"))
+                .post("/api/auth/login").then().statusCode(200).extract().path("token");
+
+        readLink(token).statusCode(200).body("hasAccount", equalTo(true));
+        given().auth().oauth2(wes).contentType(ContentType.JSON).body(Map.of("token", token))
+                .post("/api/invitations/accept").then().statusCode(200)
+                .body("organisationId", equalTo((int) olga.orgId())).body("role", equalTo("MEMBER"));
+        given().auth().oauth2(wes).contentType(ContentType.JSON).body(Map.of("token", token))
+                .post("/api/invitations/accept").then().statusCode(400).body("code", equalTo("invalid_link"));
     }
 }

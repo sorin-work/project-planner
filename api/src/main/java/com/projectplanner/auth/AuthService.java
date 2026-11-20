@@ -43,9 +43,11 @@ public class AuthService {
     /**
      * Creates the account. With an invitation link, the organisation of that invitation is
      * joined with its role, and the email has to be the invited address. Other invitations
-     * waiting for the address are accepted too, unless joining needs the link
-     * ({@link MailSettings#inviteLinkRequired()}) and none came with the request. Without any
-     * invitation, the user gets a new organisation of their own as owner.
+     * waiting for the address are accepted too. Without a link, an address with a mailed
+     * invitation cannot sign up, and with {@link MailSettings#inviteLinkRequired()} nobody
+     * can. Invitations that were never mailed (mail was off) are still accepted by the
+     * address alone. Without any invitation, the user gets a new organisation of their own
+     * as owner.
      */
     @Transactional
     public AuthResponse signup(SignupRequest request) {
@@ -56,6 +58,19 @@ public class AuthService {
         Instant now = clock.instant();
         String token = request.invitationToken();
         Invitation linked = token == null || token.isBlank() ? null : invitations.open(token, now, email);
+        List<Invitation> pending = Invitation.pendingFor(email);
+        if (linked == null) {
+            if (mail.inviteLinkRequired()) {
+                throw ApiException.conflict("invitation_link_required",
+                        "Signing up needs an invitation. Open the link in the invitation mail.");
+            }
+            // An invitation that was mailed proves nothing until its link is used: without
+            // this, whoever knows the invited address could sign up first and take the role.
+            if (pending.stream().anyMatch(invitation -> invitation.tokenHash != null)) {
+                throw ApiException.conflict("invitation_link_required",
+                        "There is an invitation for this address. Open the link in the invitation mail to sign up.");
+            }
+        }
         User user = new User();
         user.email = email;
         user.name = request.name().trim();
@@ -68,8 +83,10 @@ public class AuthService {
             invitations.acceptByLink(linked, user, now);
             accepted.add(linked);
         }
-        if (linked != null || !mail.inviteLinkRequired()) {
-            for (Invitation invitation : Invitation.pendingFor(email)) {
+        // The others for the address: with the link the person showed that the mail reaches
+        // them, and without mail there are only invitations that were never mailed.
+        for (Invitation invitation : pending) {
+            if (invitation != linked) {
                 invitation.accept(user, now);
                 accepted.add(invitation);
             }
