@@ -3,9 +3,11 @@ import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
-import { Organisation } from '../../core/models';
+import { InboxApi } from '../../core/inbox.api';
+import { Delivery, NotificationPreferences, NotificationType, Organisation } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
+import { DELIVERY_LABELS, NOTIFICATION_LABELS } from './notification-labels';
 
 const TIMEZONES = ['UTC', 'Europe/London', 'Europe/Berlin', 'Europe/Bucharest', 'America/New_York', 'America/Los_Angeles', 'Asia/Singapore'];
 const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
@@ -65,6 +67,32 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
         </section>
       }
     </div>
+    @if (preferences(); as p) {
+      <section class="card" id="notifications">
+        <h2>Notifications</h2>
+        @if (!p.mailAvailable) {
+          <p class="muted small">This server sends no mail, so what you choose to get by mail shows in the app only.</p>
+        }
+        <table class="table">
+          <tbody>
+            @for (pref of p.preferences; track pref.type) {
+              <tr>
+                <th scope="row">{{ labels[pref.type] }}</th>
+                <td>
+                  <select [attr.aria-label]="labels[pref.type]" [value]="pref.delivery"
+                    (change)="setDelivery(pref.type, $any($event.target).value)">
+                    @for (d of deliveries; track d) {
+                      <option [value]="d" [selected]="d === pref.delivery">{{ deliveryLabels[d] }}</option>
+                    }
+                  </select>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        <p class="muted small">This holds for every organisation you are in.</p>
+      </section>
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -81,8 +109,14 @@ export class SettingsPage {
   protected currentPassword = '';
   protected newPassword = '';
   protected readonly currencies = CURRENCIES;
+  private readonly inbox = inject(InboxApi);
+  protected readonly preferences = signal<NotificationPreferences | null>(null);
+  protected readonly labels = NOTIFICATION_LABELS;
+  protected readonly deliveryLabels = DELIVERY_LABELS;
+  protected readonly deliveries: Delivery[] = ['EMAIL', 'IN_APP', 'OFF'];
 
   constructor() {
+    this.inbox.preferences().subscribe({ next: (p) => this.preferences.set(p) });
     effect(() => {
       this.name = this.auth.user()?.name ?? '';
     });
@@ -91,6 +125,18 @@ export class SettingsPage {
       if (orgId !== null) {
         this.orgApi.organisation(orgId).subscribe({ next: (o) => this.organisation.set({ ...o }) });
       }
+    });
+  }
+
+  setDelivery(type: NotificationType, delivery: Delivery): void {
+    this.message.set(null);
+    this.error.set(null);
+    this.inbox.setPreferences([{ type, delivery }]).subscribe({
+      next: (p) => {
+        this.preferences.set(p);
+        this.message.set('Notifications saved.');
+      },
+      error: (err: unknown) => this.error.set(messageOf(err)),
     });
   }
 

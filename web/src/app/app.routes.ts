@@ -29,6 +29,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/auth/invite.page').then((m) => m.InvitePage),
   },
   {
+    // Works without signing in, from the stop link of a notification mail.
+    path: 'unsubscribe',
+    loadComponent: () => import('./features/auth/unsubscribe.page').then((m) => m.UnsubscribePage),
+  },
+  {
     path: '',
     component: Shell,
     canActivate: [authGuard],

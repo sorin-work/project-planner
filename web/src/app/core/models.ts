@@ -563,3 +563,27 @@ export interface SearchResponse {
   tasks: SearchHit[];
   comments: SearchHit[];
 }
+
+export type NotificationType =
+  | 'MENTIONED'
+  | 'ASSIGNED'
+  | 'COMMENTED'
+  | 'TIMESHEET_SUBMITTED'
+  | 'TIMESHEET_APPROVED'
+  | 'TIMESHEET_REJECTED'
+  | 'TIMESHEET_REMINDER'
+  | 'BUDGET_ALERT';
+
+/** How somebody gets one type of notification: mailed (and in the app), in the app only, or not at all. */
+export type Delivery = 'EMAIL' | 'IN_APP' | 'OFF';
+
+export interface NotificationPreference {
+  type: NotificationType;
+  delivery: Delivery;
+  byDefault: Delivery;
+}
+
+export interface NotificationPreferences {
+  mailAvailable: boolean;
+  preferences: NotificationPreference[];
+}

@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ActivityEntry, Dashboard, Notification, Workload } from './models';
+import { ActivityEntry, Dashboard, Delivery, Notification, NotificationPreferences, NotificationType, Workload } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class InboxApi {
@@ -21,6 +21,19 @@ export class InboxApi {
 
   markAllRead(orgId: number): Observable<void> {
     return this.http.post<void>('/api/notifications/read-all', {}, { params: { orgId } });
+  }
+
+  preferences(): Observable<NotificationPreferences> {
+    return this.http.get<NotificationPreferences>('/api/me/notification-preferences');
+  }
+
+  setPreferences(preferences: { type: NotificationType; delivery: Delivery }[]): Observable<NotificationPreferences> {
+    return this.http.put<NotificationPreferences>('/api/me/notification-preferences', { preferences });
+  }
+
+  /** The stop link of a notification mail, which works without signing in. */
+  unsubscribe(token: string): Observable<{ type: NotificationType }> {
+    return this.http.post<{ type: NotificationType }>('/api/auth/unsubscribe', { token });
   }
 
   activity(orgId: number, limit = 50): Observable<ActivityEntry[]> {

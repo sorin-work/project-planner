@@ -9,3 +9,12 @@ export function tokenFromFragment(fragment: string | null | undefined): string |
   const token = new URLSearchParams(fragment.replace(/^#/, '')).get('token');
   return token && /^[A-Za-z0-9_-]{16,100}$/.test(token) ? token : null;
 }
+
+/** The token of a stop link in a notification mail: two base64url parts with a dot between. */
+export function signedTokenFromFragment(fragment: string | null | undefined): string | null {
+  if (!fragment) {
+    return null;
+  }
+  const token = new URLSearchParams(fragment.replace(/^#/, '')).get('token');
+  return token && /^[A-Za-z0-9_-]{8,120}\.[A-Za-z0-9_-]{16,80}$/.test(token) ? token : null;
+}
