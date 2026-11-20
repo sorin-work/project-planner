@@ -46,11 +46,15 @@ export class ProjectStore {
   readonly brokenLinks = computed(() => brokenLinks(this.issues()));
 
   private scheduleRequest = 0;
+  private holidaysRequest = 0;
   private comparisonRequest = 0;
   private baselinesRequest = 0;
 
   load(projectId: number): Observable<void> {
     this.loading.set(true);
+    // Another project may be in another organisation: its holidays must not shade or count here.
+    this.holidays.set(NO_HOLIDAYS);
+    const holidaysFor = ++this.holidaysRequest;
     // Nothing of the project shown before stays on screen while this one loads, or after it fails.
     this.clearBaselines();
     return forkJoin({
@@ -72,8 +76,17 @@ export class ProjectStore {
         this.loading.set(false);
         this.orgApi.members(project.organisationId).subscribe({ next: (m) => this.members.set(m) });
         this.calendar.holidays(project.organisationId).subscribe({
-          next: (list) => this.holidays.set(new Set(list.map((h) => h.date))),
-          error: () => this.holidays.set(NO_HOLIDAYS),
+          next: (list) => {
+            // An answer for a project that is no longer the one loaded does not count.
+            if (holidaysFor === this.holidaysRequest) {
+              this.holidays.set(new Set(list.map((h) => h.date)));
+            }
+          },
+          error: () => {
+            if (holidaysFor === this.holidaysRequest) {
+              this.holidays.set(NO_HOLIDAYS);
+            }
+          },
         });
         this.loadBaselines(true);
       }),

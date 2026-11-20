@@ -53,6 +53,33 @@ describe('ProjectStore schedule issues', () => {
     expect([...store.holidays()]).toEqual(['2026-03-04']);
   });
 
+  it('forgets the holidays of the project before and ignores a late answer for it', () => {
+    load([]);
+    store.load(8).subscribe();
+    expect(store.holidays().size).toBe(0);
+    http.expectOne('/api/projects/8').flush({ id: 8, organisationId: 4, name: 'Other', code: 'OTH', status: 'ACTIVE' });
+    http.expectOne('/api/projects/8/tasks').flush([]);
+    http.expectOne('/api/projects/8/phases').flush([]);
+    http.expectOne('/api/projects/8/critical-path').flush(noPath);
+    http.expectOne('/api/projects/8/schedule-issues').flush([]);
+    http.expectOne('/api/orgs/4/members').flush([]);
+    const late = http.expectOne('/api/orgs/4/holidays');
+    http.expectOne('/api/projects/8/baselines').flush([]);
+    // Meanwhile the first project is opened again, and the answer for the second one arrives late.
+    store.load(7).subscribe();
+    late.flush([{ id: 9, date: '2026-03-05', name: 'Elsewhere' }]);
+    expect(store.holidays().size).toBe(0);
+    http.expectOne('/api/projects/7').flush({ id: 7, organisationId: 3, name: 'Site', code: 'SITE', status: 'ACTIVE' });
+    http.expectOne('/api/projects/7/tasks').flush([]);
+    http.expectOne('/api/projects/7/phases').flush([]);
+    http.expectOne('/api/projects/7/critical-path').flush(noPath);
+    http.expectOne('/api/projects/7/schedule-issues').flush([]);
+    http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/orgs/3/holidays').flush([{ id: 1, date: '2026-03-04', name: 'Holiday' }]);
+    http.expectOne('/api/projects/7/baselines').flush([]);
+    expect([...store.holidays()]).toEqual(['2026-03-04']);
+  });
+
   it('asks again after a change', () => {
     load([early]);
     const moved = { ...build, startDate: '2026-03-09', dueDate: '2026-03-11' };
