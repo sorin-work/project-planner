@@ -59,7 +59,9 @@ A few things hold for every item:
   mode, so the SQL has to be plain enough for both: no `tsvector`, `jsonb`,
   partial indexes or Postgres-only functions. Where an item needs a migration
   I have written down a version number for it, so that two items in progress
-  at the same time do not both take `V16`. Gaps are fine.
+  at the same time do not both take `V16`. Gaps are fine. The numbers run up
+  to `V24`. Item 2 had none and took `V25` for the key on time entries, so the
+  next free one is `V26`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -907,9 +909,11 @@ note can not be seen in the grid. One save runs per cell at a time
 (`save-queue.ts`), the latest typed value wins, and "Submit week" waits for
 saves that are still on their way. A row that loses its last entry is kept,
 and rows of weeks more than twelve weeks back are forgotten. Left and right
-only leave a cell once the caret is at the end of its text. Still open: the
-bulk endpoint, which I left out, and a save whose answer is lost on the way,
-which can still leave two entries in a cell.
+only leave a cell once the caret is at the end of its text. A create carries
+a key that the client makes up (`client_key` on `time_entries`, `V25`), and
+the API answers a repeat of it with the entry it already made, so a create
+whose answer got lost can be sent again without making a second entry. The
+form does the same. Still open: the bulk endpoint, which I left out.
 
 ### 3. Missing timesheets and reminders
 

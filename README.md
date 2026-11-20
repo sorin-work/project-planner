@@ -135,8 +135,9 @@ context; `features/` has one folder per page; the timeline lives in
 `features/gantt` with its layout maths (`gantt-layout.ts`) separate from the
 component so it can be unit tested. The weekly grid is split the same way:
 `timesheet-grid.ts` says what a typed cell means, `save-queue.ts` runs one save per
-cell at a time so that typing again during a slow save never makes a second entry,
-and `timesheet-rows.ts` keeps the rows that have no time yet in `localStorage`.
+cell at a time so that typing again during a slow save never makes a second entry
+(and makes the keys that do the same for a create whose answer got lost), and
+`timesheet-rows.ts` keeps the rows that have no time yet in `localStorage`.
 
 ## Running with Docker
 
@@ -302,6 +303,13 @@ managers, `?userId=`. Without a date it is the current week by the organisation'
 The weekly grid needs no endpoints of its own: a cell is a `POST`, `PUT` or `DELETE` on
 `/orgs/{org}/time-entries`. A `PUT` replaces the entry, so the note has to be sent back
 with it, and a week that is submitted or approved answers `409 timesheet_locked`.
+
+A create can carry a `clientKey` (8 to 64 characters, made up by the client). The same
+key from the same person for the same project, task and day is taken as the same
+request: the answer is the entry that was made the first time, as it is now, and no
+second one is made. That makes it safe to send a create again when its answer never
+arrived. The web app does so for every new entry. A key that was used for something
+else answers `409 client_key_reused`.
 
 `GET .../timesheets/missing` and `POST .../timesheets/remind` are for owners and
 managers and only take weeks that are over by the organisation's date
