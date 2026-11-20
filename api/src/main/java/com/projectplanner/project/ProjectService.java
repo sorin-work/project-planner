@@ -184,6 +184,6 @@ public class ProjectService {
         return new ProjectResponse(p.id, p.organisationId, p.clientId, clientName, p.name, p.code, p.description,
                 p.status, p.startDate, p.endDate, p.budgetHours,
                 showMoney ? p.budgetAmount : null, showMoney ? p.hourlyRate : null,
-                p.color, p.createdAt, p.updatedAt);
+                p.color, p.createdAt, p.updatedAt, null, null);
     }
 }
