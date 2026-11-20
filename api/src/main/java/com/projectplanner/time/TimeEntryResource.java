@@ -95,12 +95,13 @@ public class TimeEntryResource {
     @Transactional
     @ResponseStatus(201)
     @Operation(summary = "Log time",
-            description = "For the team: owners, managers and members, not client viewers.")
+            description = "For the team: owners, managers and members, not client viewers. With a clientKey the same request can be sent again after an answer that got lost: it answers with the entry the first one made, as that entry is now.")
     @Fails(status = 400, code = "unknown_project", when = "projectId is not a project of this organisation")
     @Fails(status = 400, code = "project_done", when = "the project is finished")
     @Fails(status = 400, code = "unknown_task", when = "taskId is not a task of that project")
     @Fails(status = 400, code = "date_in_future", when = "the date is too far ahead")
     @Fails(status = 409, code = "timesheet_locked", when = "the week of the entry is submitted or approved")
+    @Fails(status = 409, code = "client_key_reused", when = "the clientKey was used before, for an entry on another project, task or day")
     public TimeEntryResponse create(@PathParam("orgId") long orgId, @Valid @NotNull TimeEntryRequest request) {
         Membership me = access.team(orgId);
         return time.toResponse(time.create(me, request));

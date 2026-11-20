@@ -27,6 +27,7 @@ public final class TimeDtos {
             @NotNull @Min(value = 1, message = "must be at least one minute") @Max(value = 1440, message = "can't be more than 24 hours") Integer minutes,
             @Size(max = 1000) String description,
             Boolean billable,
+            @Schema(description = "Optional, and only read when an entry is created. A key the client makes up, so that a create that is sent twice makes one entry.")
             @Size(min = 8, max = 64) String clientKey) {
     }
 
