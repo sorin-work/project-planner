@@ -95,4 +95,20 @@ class WorkloadCalculatorTest {
         assertThat(loads).hasSize(1);
         assertThat(loads.getFirst().weeks().getFirst().allocatedHours()).isZero();
     }
+
+    @Test
+    void capacityIsTheWeeklyHoursSpreadOverTheWorkingDays() {
+        Person lena = new Person(3, 32);
+        // A whole week, Monday to Sunday, is exactly what the weeks of the grid show.
+        assertThat(calculator.capacityMinutes(ana, day(0), day(6))).isEqualTo(40 * 60);
+        assertThat(calculator.capacityMinutes(lena, day(0), day(6))).isEqualTo(32 * 60);
+        assertThat(calculator.calculate(List.of(lena), List.of(), day(0), 1).getFirst().weeks().getFirst().capacityHours()).isEqualTo(32.0);
+        // Monday to Wednesday are three fifths of it, and a weekend is nothing.
+        assertThat(calculator.capacityMinutes(ana, day(0), day(2))).isEqualTo(24 * 60);
+        assertThat(calculator.capacityMinutes(lena, day(0), day(2))).isEqualTo(1152);
+        assertThat(calculator.capacityMinutes(ana, day(5), day(6))).isZero();
+        // March 2026 has 22 working days.
+        assertThat(calculator.capacityMinutes(ana, LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 31))).isEqualTo(22 * 8 * 60);
+        assertThat(calculator.capacityMinutes(ana, day(3), day(1))).isZero();
+    }
 }
