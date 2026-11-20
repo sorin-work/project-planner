@@ -28,40 +28,132 @@ const NOT_TEXT: Record<string, string> = {
   '.bar-marker': 'the planned-progress mark on a progress bar; the planned share is written next to it',
 };
 
-/** Where text sits when a rule does not set a background of its own. */
+/** Where text sits when neither its rule nor a container it is in sets a background. */
 const PAGE_BACKGROUNDS = ['--surface', '--bg', '--surface-2'];
 
-function background(rule: Rule, vars: Record<string, string>, under: Rgba): Rgba | null {
+/**
+ * Elements whose rule is not nested under its container's in the stylesheet, with the
+ * containers the templates put them in. Their text is measured on each container's background.
+ */
+const CONTAINERS: Record<string, string[]> = {
+  // The marks in a workload cell: over capacity, and less capacity than usual.
+  '.flag': ['.load-light', '.load-good', '.load-full', '.load-over'],
+  '.less': ['.load-light', '.load-good', '.load-full', '.load-over'],
+};
+
+function ownBackground(rule: Rule, vars: Record<string, string>, under: Rgba): Rgba | null {
   const value = rule.props['background-color'] ?? rule.props['background'];
   if (!value) {
     return null;
   }
   const color = resolve(value, vars);
-  return color ? over(color, under) : null;
+  return color && color[3] > 0 ? over(color, under) : null;
+}
+
+/** The rules that apply in a theme: everything outside a colour-scheme query, and that theme's query. */
+function rulesOf(theme: Theme): Rule[] {
+  return RULES.filter((r) => !r.media?.includes('prefers-color-scheme') || (theme === 'dark') === r.media.includes('dark'));
+}
+
+/** The rule that sets a background for exactly this selector, the last one when there are several. */
+function backgroundRule(rules: Rule[], selector: string): Rule | undefined {
+  return rules.filter((r) => r.selector === selector && (r.props['background'] || r.props['background-color'])).at(-1);
+}
+
+/**
+ * The backgrounds the text of {@code rule} can stand on: its own; or the nearest container
+ * named in its selector that sets one (".load-over .flag" stands on ".load-over"); or the
+ * containers listed in CONTAINERS; or every page background.
+ */
+function backgroundsOf(rule: Rule, rules: Rule[], vars: Record<string, string>): { where: string; color: Rgba }[] {
+  const page = PAGE_BACKGROUNDS.map((name) => ({ where: name, color: resolve(`var(${name})`, vars)! }));
+  const own = ownBackground(rule, vars, page[0].color);
+  if (own) {
+    return [{ where: 'its background', color: own }];
+  }
+  const parts = rule.selector.split(/\s*>\s*|\s+/).filter(Boolean);
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const container = backgroundRule(rules, parts[i]) ?? backgroundRule(rules, parts.slice(0, i + 1).join(' '));
+    const color = container && ownBackground(container, vars, page[0].color);
+    if (color) {
+      return [{ where: parts[i], color }];
+    }
+  }
+  const listed = CONTAINERS[rule.selector];
+  if (listed) {
+    return listed.flatMap((selector) => {
+      const container = backgroundRule(rules, selector);
+      return page.flatMap((p) => {
+        const color = container && ownBackground(container, vars, p.color);
+        return color ? [{ where: `${selector} on ${p.where}`, color }] : [];
+      });
+    });
+  }
+  return page;
+}
+
+/**
+ * The text colour of a rule: its own, or for a rule that only sets an opacity or a
+ * background, the colour it inherits: that of the same selector without its last class
+ * (".tick.minor" from ".tick"), or --text.
+ */
+function textColour(rule: Rule, rules: Rule[], vars: Record<string, string>): { value: string; color: Rgba } | null {
+  const ownColour = rule.props['color'] ?? rule.props['fill'];
+  const svgText = /\.(tick|month|bar-label|link-tag)\b/.test(rule.selector);
+  let value = rule.props['color'] ?? (svgText ? rule.props['fill'] : undefined);
+  if (!value && (rule.props['opacity'] || ownBackground(rule, vars, [255, 255, 255, 1]))) {
+    // Drop states and classes from the end until a rule of the same element sets a colour:
+    // "button.primary:hover:not(:disabled)" takes the colour of "button.primary".
+    let base = rule.selector;
+    let inherited: Rule | undefined;
+    while (!inherited) {
+      const shorter = base.replace(/(\.[\w-]+|:[\w-]+(\([^)]*\))?)$/, '');
+      if (shorter === base || !shorter) {
+        break;
+      }
+      base = shorter;
+      inherited = rules.filter((r) => r.selector === base && (r.props['color'] || r.props['fill'])).at(-1);
+    }
+    value = inherited ? (inherited.props['color'] ?? inherited.props['fill']) : 'var(--text)';
+  }
+  if (!value || (!svgText && !rule.props['color'] && ownColour && !rule.props['opacity'] && !ownBackground(rule, vars, [255, 255, 255, 1]))) {
+    return null;
+  }
+  const color = resolve(value, vars);
+  if (!color) {
+    return null;
+  }
+  // Opacity fades the text into whatever is behind it.
+  const opacity = rule.props['opacity'] ? Number(rule.props['opacity']) : 1;
+  return { value, color: [color[0], color[1], color[2], color[3] * opacity] };
+}
+
+/** A disabled state is exempt from contrast (WCAG 1.4.3); a state that excludes it, ":not(:disabled)", is not. */
+function disabledState(selector: string): boolean {
+  return /:disabled|\[disabled\]/.test(selector.replace(/:not\([^)]*\)/g, ''));
 }
 
 function failures(theme: Theme): string[] {
+  const rules = rulesOf(theme);
   const vars = tokens(RULES, theme);
   const found: string[] = [];
-  for (const rule of RULES) {
-    if (rule.selector === ':root' || NOT_TEXT[rule.selector] || /:disabled|\[disabled\]/.test(rule.selector)) {
+  for (const rule of rules) {
+    if (rule.selector === ':root' || NOT_TEXT[rule.selector] || disabledState(rule.selector)) {
       continue;
     }
-    if (rule.media?.includes('prefers-color-scheme: dark') && theme === 'light') {
+    // In the timeline only the text elements are text; the rest are shapes (bars, dots,
+    // weekend columns), which carry their meaning in their labels as well.
+    if (rule.selector.startsWith('.gantt-svg') && !/\.(tick|month|bar-label|link-tag)\b/.test(rule.selector)) {
       continue;
     }
-    // A rule with a background and no text colour of its own holds the text it inherits, --text.
-    const value = rule.props['color'] ?? (background(rule, vars, resolve('var(--surface)', vars)!) ? 'var(--text)' : undefined);
-    const text = value ? resolve(value, vars) : null;
+    const text = textColour(rule, rules, vars);
     if (!text) {
       continue;
     }
-    const page = PAGE_BACKGROUNDS.map((name) => resolve(`var(${name})`, vars)!);
-    const own = background(rule, vars, page[0]);
-    for (const behind of own ? [own] : page) {
-      const r = ratio(over(text, behind), behind);
+    for (const behind of backgroundsOf(rule, rules, vars)) {
+      const r = ratio(over(text.color, behind.color), behind.color);
       if (r < 4.5) {
-        found.push(`${theme}: "${rule.selector}" ${value} on ${own ? 'its background' : 'the page'}: ${r.toFixed(2)}`);
+        found.push(`${theme}: "${rule.selector}" ${text.value} on ${behind.where}: ${r.toFixed(2)}`);
       }
     }
   }

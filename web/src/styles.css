@@ -116,8 +116,9 @@ summary:focus-visible,
   outline-offset: 1px;
 }
 
-/* The page itself, focused by "Skip to content", needs no ring around all of it. */
-main[tabindex='-1']:focus {
+/* The page itself, focused by "Skip to content", and the tab a deleted task was in, need no ring around all of them. */
+main[tabindex='-1']:focus,
+.tab-content[tabindex='-1']:focus {
   outline: none;
 }
 
@@ -1244,8 +1245,10 @@ select.compact {
   border-left: 3px solid var(--critical);
 }
 
+/* The card being dragged keeps its text readable and shows a dashed edge instead of fading. */
 .board-card.dragging {
-  opacity: 0.4;
+  border-style: dashed;
+  box-shadow: none;
 }
 
 .card-title {
@@ -1352,8 +1355,9 @@ select.compact {
   fill: var(--muted);
 }
 
+/* A weekend day: told apart by the shaded column under it, not by fainter text. */
 .gantt-svg .tick.minor {
-  opacity: 0.5;
+  font-weight: normal;
 }
 
 .gantt-svg .today {
@@ -1745,15 +1749,16 @@ select.compact {
   background: color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
+/* On the tinted cells of the workload, the text colour holds 4.5:1 on all of them. */
 .flag {
-  color: var(--danger);
+  color: var(--text);
   font-weight: 700;
   margin-left: 0.25rem;
 }
 
 /* A week with less capacity than the weekly hours: holidays or time off. */
 .less {
-  color: var(--muted);
+  color: var(--text);
   font-weight: 700;
   margin-left: 0.25rem;
 }
@@ -1830,8 +1835,9 @@ kbd {
   overflow-y: auto;
 }
 
+/* Results of the text before: a little faded while the new ones come, still readable. */
 .search-results.stale {
-  opacity: 0.55;
+  opacity: 0.8;
 }
 
 .search-group {
@@ -1904,7 +1910,7 @@ kbd {
 }
 
 tr.context-row > td {
-  opacity: 0.55;
+  color: var(--muted);
 }
 
 /* Files on a task. */
