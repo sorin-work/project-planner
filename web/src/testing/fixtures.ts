@@ -102,7 +102,7 @@ const FILES: Attachment[] = [
     createdAt: now, previewable: false, canDelete: true },
 ];
 
-const ENTRY: TimeEntry = {
+export const ENTRY: TimeEntry = {
   id: 61, userId: 1, userName: 'Ann Lee', projectId: 7, projectName: 'Website', projectCode: 'WEB', taskId: 1, taskTitle: 'Design',
   date: day(0), minutes: 90, billable: true, running: false, locked: false,
 };
@@ -133,7 +133,7 @@ const NOTIFICATIONS: Notification[] = [
     read: false, createdAt: now },
 ];
 
-const ME = {
+export const ME = {
   user: { id: 1, email: 'ann@example.com', name: 'Ann Lee', handle: 'ann' },
   organisations: [{ organisationId: 3, organisationName: 'Brightline', role: 'OWNER', currency: 'EUR' }],
 };
@@ -181,6 +181,7 @@ export const FIXTURES: FakeRoute[] = [
     dependencies: 2, attachments: 1, attachmentBytes: 14336 } },
   { path: /^\/tasks\/\d+$/, body: taskFrom },
   { method: 'POST', path: /^\/tasks\/\d+\/shift$/, body: (req: HttpRequest<unknown>) => ({ task: taskFrom({ ...req, url: req.url.replace('/shift', '') } as HttpRequest<unknown>), rescheduled: [] }) },
+  { method: 'DELETE', path: /^\/tasks\/\d+$/, body: null },
   { method: 'PATCH', path: /^\/tasks\/\d+$/, body: (req: HttpRequest<unknown>) => ({ task: { ...taskFrom(req), ...(req.body as object) }, rescheduled: [] }) },
   { path: /^\/tasks\/\d+\/comments$/, body: COMMENTS },
   { path: /^\/tasks\/\d+\/attachments$/, body: FILES },

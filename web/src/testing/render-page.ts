@@ -12,7 +12,12 @@ import { FIXTURES } from './fixtures';
  * the owner of the fixtures' organisation, with an API that answers from the fixtures.
  * {@code missed} lists the calls the fixtures had no answer for.
  */
-export async function renderPage(url: string, loggedIn = true, sent: { method: string; url: string; body: unknown }[] = []): Promise<{ harness: RouterTestingHarness; missed: string[] }> {
+export async function renderPage(
+  url: string,
+  loggedIn = true,
+  sent: { method: string; url: string; body: unknown }[] = [],
+  overrides: FakeRoute[] = [],
+): Promise<{ harness: RouterTestingHarness; missed: string[] }> {
   localStorage.clear();
   if (loggedIn) {
     localStorage.setItem('pp.token', 'token');
@@ -20,7 +25,7 @@ export async function renderPage(url: string, loggedIn = true, sent: { method: s
     localStorage.setItem('pp.orgId', '3');
   }
   const missed: string[] = [];
-  const recorded: FakeRoute[] = FIXTURES.map((route) => ({
+  const recorded: FakeRoute[] = [...overrides, ...FIXTURES].map((route) => route.error ? route : ({
     ...route,
     body: (req: HttpRequest<unknown>) => {
       if (req.method !== 'GET') {

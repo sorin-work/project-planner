@@ -6,7 +6,9 @@ import { mergeMap } from 'rxjs/operators';
 export interface FakeRoute {
   method?: string;
   path: RegExp;
-  body: unknown | ((req: HttpRequest<unknown>) => unknown);
+  body?: unknown | ((req: HttpRequest<unknown>) => unknown);
+  /** Answer with this error instead of a body. */
+  error?: { status: number; code: string; message: string };
 }
 
 /**
@@ -21,6 +23,10 @@ export function fakeApi(routes: FakeRoute[], missed: string[] = []): HttpInterce
     if (!route) {
       missed.push(`${req.method} ${req.urlWithParams}`);
       return timer(0).pipe(mergeMap(() => throwError(() => new HttpErrorResponse({ status: 404, url: req.url, error: { status: 404, code: 'not_found', message: 'Not in the fake API' } }))));
+    }
+    if (route.error) {
+      const { status, code, message } = route.error;
+      return timer(0).pipe(mergeMap(() => throwError(() => new HttpErrorResponse({ status, url: req.url, error: { status, code, message } }))));
     }
     const body = typeof route.body === 'function' ? (route.body as (r: HttpRequest<unknown>) => unknown)(req) : route.body;
     // Later, as a server answers: some pages ask again from what an answer changes, and an
