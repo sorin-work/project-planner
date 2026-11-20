@@ -1,9 +1,12 @@
 package com.projectplanner.task;
 
+import com.projectplanner.schedule.DependencyType;
 import com.projectplanner.schedule.Link;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -26,14 +29,19 @@ public class TaskDependency extends PanacheEntityBase {
     @Column(name = "successor_id", nullable = false)
     public Long successorId;
 
+    /** Working days, negative for a lead. */
     @Column(name = "lag_days", nullable = false)
     public int lagDays;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dependency_type", nullable = false, length = 2)
+    public DependencyType type = DependencyType.FS;
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
     public Link toLink() {
-        return new Link(predecessorId, successorId, lagDays);
+        return new Link(predecessorId, successorId, lagDays, type);
     }
 
     /** All dependencies between tasks of a project. Both ends are always in the same project. */

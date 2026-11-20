@@ -2,6 +2,7 @@ package com.projectplanner.task;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.projectplanner.common.ApiDocs;
+import com.projectplanner.schedule.DependencyType;
 import com.projectplanner.schedule.ScheduleCheck;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -62,7 +63,25 @@ public final class TaskDtos {
     public record ShiftRequest(@NotNull @Min(-3650) @Max(3650) Integer days) {
     }
 
-    public record DependencyRequest(@NotNull Long predecessorId, @Min(0) @Max(365) int lagDays) {
+    /** The most working days a lag or a lead can be. */
+    public static final int MAX_LAG_DAYS = 365;
+
+    /**
+     * @param lagDays working days after the point the type counts from. Negative is a lead.
+     * @param type    FS when left out
+     */
+    public record DependencyRequest(@NotNull Long predecessorId,
+                                    @Schema(description = "Working days. Negative is a lead.") @Min(-MAX_LAG_DAYS) @Max(MAX_LAG_DAYS) int lagDays,
+                                    @Schema(description = "FS when left out.") DependencyType type) {
+
+        public DependencyRequest(Long predecessorId, int lagDays) {
+            this(predecessorId, lagDays, null);
+        }
+    }
+
+    /** Changes the type or the lag of a link. A field that is left out stays as it is. */
+    public record UpdateDependencyRequest(@Schema(description = "Working days. Negative is a lead.") @Min(-MAX_LAG_DAYS) @Max(MAX_LAG_DAYS) Integer lagDays,
+                                          DependencyType type) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -74,9 +93,9 @@ public final class TaskDtos {
                                List<DependencyResponse> predecessors, int subtaskCount, double loggedHours) {
     }
 
-    public record DependencyResponse(long id, long predecessorId, long successorId, int lagDays) {
+    public record DependencyResponse(long id, long predecessorId, long successorId, int lagDays, DependencyType type) {
         public static DependencyResponse of(TaskDependency d) {
-            return new DependencyResponse(d.id, d.predecessorId, d.successorId, d.lagDays);
+            return new DependencyResponse(d.id, d.predecessorId, d.successorId, d.lagDays, d.type);
         }
     }
 

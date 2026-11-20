@@ -203,20 +203,22 @@ public class ProjectDuplicator {
         return newIds;
     }
 
-    /** The links between copied tasks, with their lag. Returns how many there were. */
+    /** The links between copied tasks, with their type and lag. Returns how many there were. */
     private int copyDependencies(List<TaskDependency> dependencies, Map<Long, Long> newTask, OffsetDateTime now) {
         List<String> rows = new ArrayList<>();
         for (TaskDependency dependency : dependencies) {
             Long predecessor = newTask.get(dependency.predecessorId);
             Long successor = newTask.get(dependency.successorId);
             if (predecessor != null && successor != null) {
-                rows.add(row(predecessor, successor, dependency.lagDays));
+                // The type goes in as its number, so that the statement text holds nothing but numbers and dates.
+                rows.add(row(predecessor, successor, dependency.lagDays, dependency.type.ordinal()));
             }
         }
         insert("""
-                insert into task_dependencies (predecessor_id, successor_id, lag_days, created_at)
-                select m.predecessor_id, m.successor_id, m.lag_days, ?
-                from (values %s) as m (predecessor_id, successor_id, lag_days)
+                insert into task_dependencies (predecessor_id, successor_id, lag_days, dependency_type, created_at)
+                select m.predecessor_id, m.successor_id, m.lag_days,
+                       case m.type_index when 1 then 'SS' when 2 then 'FF' when 3 then 'SF' else 'FS' end, ?
+                from (values %s) as m (predecessor_id, successor_id, lag_days, type_index)
                 """, rows, now);
         return rows.size();
     }
