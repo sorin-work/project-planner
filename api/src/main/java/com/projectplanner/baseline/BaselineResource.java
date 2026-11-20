@@ -10,6 +10,7 @@ import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.project.Project;
 import io.quarkus.security.Authenticated;
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -64,7 +65,7 @@ public class BaselineResource {
     public BaselineResponse take(@PathParam("projectId") long projectId, @Valid @NotNull BaselineRequest request) {
         Project project = access.project(projectId);
         Membership me = access.manageProject(project);
-        return baselines.take(me, project, request);
+        return baselines.take(me, lock(project), request);
     }
 
     @PATCH
@@ -75,7 +76,10 @@ public class BaselineResource {
     @Fails(status = 409, code = "baseline_name_taken", when = "another baseline of the project has the name")
     public BaselineResponse update(@PathParam("baselineId") long baselineId, @Valid @NotNull UpdateBaselineRequest request) {
         Baseline baseline = find(baselineId);
-        access.manageProject(access.project(baseline.projectId));
+        Project project = access.project(baseline.projectId);
+        access.manageProject(project);
+        lock(project);
+        reread(baseline);
         return baselines.update(baseline, request);
     }
 
@@ -89,6 +93,8 @@ public class BaselineResource {
         Baseline baseline = find(baselineId);
         Project project = access.project(baseline.projectId);
         Membership me = access.manageProject(project);
+        lock(project);
+        reread(baseline);
         baselines.delete(me, project, baseline);
     }
 
@@ -101,6 +107,29 @@ public class BaselineResource {
     public ComparisonResponse comparison(@PathParam("baselineId") long baselineId) {
         Baseline baseline = find(baselineId);
         return baselines.compare(access.project(baseline.projectId), baseline);
+    }
+
+    /**
+     * The project's row, locked until the request ends. Every change to the baselines of a
+     * project takes it first, so two of them run one after the other and the second sees
+     * the first: the limit of ten, a name that was just taken, the one reference. Nothing
+     * else is locked here, so the order the rest of the API keeps (memberships, then
+     * projects) holds.
+     */
+    private static Project lock(Project project) {
+        return Project.locked(project.id);
+    }
+
+    /**
+     * Reads the baseline again after the lock: what another request did in the meantime
+     * counts, and a baseline that it deleted is gone for this one too.
+     */
+    private static void reread(Baseline baseline) {
+        try {
+            Baseline.getEntityManager().refresh(baseline);
+        } catch (EntityNotFoundException e) {
+            throw ApiException.notFound("Baseline");
+        }
     }
 
     /** The baseline if the caller can see its project. Otherwise 404, whether it exists or not. */

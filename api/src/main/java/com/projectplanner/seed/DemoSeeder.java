@@ -684,8 +684,8 @@ public class DemoSeeder {
         Instant takenAt = now.minusSeconds(100 * 86400L);
         Baseline baseline = new Baseline();
         baseline.projectId = acme.id;
-        baseline.name = "Signed off at kick-off";
-        baseline.reference = true;
+        baseline.setName("Signed off at kick-off");
+        baseline.referenceOf = acme.id;
         baseline.projectStart = acme.startDate;
         baseline.projectEnd = acme.endDate;
         baseline.createdBy = users.get("maya").id;

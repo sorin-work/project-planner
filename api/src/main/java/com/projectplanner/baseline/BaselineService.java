@@ -68,13 +68,17 @@ public class BaselineService {
         }
         Baseline baseline = new Baseline();
         baseline.projectId = project.id;
-        baseline.name = freeName(existing, request.name(), null);
+        baseline.setName(freeName(existing, request.name(), null));
         baseline.projectStart = project.startDate;
         baseline.projectEnd = project.endDate;
         baseline.createdBy = me.userId;
         baseline.createdAt = Instant.now(clock);
         // The first baseline is the one to compare against until somebody says otherwise.
-        baseline.reference = existing.isEmpty() || Boolean.TRUE.equals(request.reference());
+        boolean reference = existing.isEmpty() || Boolean.TRUE.equals(request.reference());
+        if (reference) {
+            clearReference(project.id);
+        }
+        baseline.referenceOf = reference ? project.id : null;
         baseline.persist();
         em.flush();
 
@@ -89,9 +93,6 @@ public class BaselineService {
                 insert into baseline_phases (baseline_id, phase_id, name, start_date, end_date)
                 select ?1, p.id, p.name, p.start_date, p.end_date from phases p where p.project_id = ?2
                 """).setParameter(1, baseline.id).setParameter(2, project.id).executeUpdate();
-        if (baseline.reference) {
-            onlyReference(baseline);
-        }
         activity.record(project.organisationId, project.id, null, me.userId, "baseline.saved", "Saved the baseline " + baseline.name);
         return toResponses(List.of(baseline)).getFirst();
     }
@@ -99,18 +100,18 @@ public class BaselineService {
     /** Renames a baseline or makes it the reference. Nothing else about a baseline can change. */
     public BaselineResponse update(Baseline baseline, UpdateBaselineRequest request) {
         if (request.name() != null) {
-            baseline.name = freeName(Baseline.forProject(baseline.projectId), request.name(), baseline.id);
+            baseline.setName(freeName(Baseline.forProject(baseline.projectId), request.name(), baseline.id));
         }
-        if (Boolean.TRUE.equals(request.reference()) && !baseline.reference) {
-            baseline.reference = true;
-            em.flush();
-            onlyReference(baseline);
+        if (Boolean.TRUE.equals(request.reference()) && !baseline.isReference()) {
+            // The old mark goes first: the column is unique, and the database checks it per statement.
+            clearReference(baseline.projectId);
+            baseline.referenceOf = baseline.projectId;
         }
         return toResponses(List.of(baseline)).getFirst();
     }
 
     public void delete(Membership me, Project project, Baseline baseline) {
-        boolean wasReference = baseline.reference;
+        boolean wasReference = baseline.isReference();
         String name = baseline.name;
         baseline.delete();
         em.flush();
@@ -118,7 +119,7 @@ public class BaselineService {
             // The comparison falls back to the latest one that is left.
             List<Baseline> left = Baseline.forProject(project.id);
             if (!left.isEmpty()) {
-                left.getLast().reference = true;
+                left.getLast().referenceOf = project.id;
             }
         }
         activity.record(project.organisationId, project.id, null, me.userId, "baseline.deleted", "Deleted the baseline " + name);
@@ -177,9 +178,10 @@ public class BaselineService {
         return trimmed;
     }
 
-    private void onlyReference(Baseline baseline) {
-        em.createQuery("update Baseline b set b.reference = false where b.projectId = ?1 and b.id <> ?2")
-                .setParameter(1, baseline.projectId).setParameter(2, baseline.id).executeUpdate();
+    /** Takes the reference mark off every baseline of the project, written at once so that a new mark can follow. */
+    private void clearReference(long projectId) {
+        em.flush();
+        em.createQuery("update Baseline b set b.referenceOf = null where b.projectId = ?1").setParameter(1, projectId).executeUpdate();
     }
 
     private List<BaselineResponse> toResponses(List<Baseline> baselines) {
@@ -195,7 +197,7 @@ public class BaselineService {
         if (!userIds.isEmpty()) {
             User.<User>list("id in ?1", userIds).forEach(u -> names.put(u.id, u.name));
         }
-        return baselines.stream().map(b -> new BaselineResponse(b.id, b.projectId, b.name, b.reference, b.projectStart, b.projectEnd,
+        return baselines.stream().map(b -> new BaselineResponse(b.id, b.projectId, b.name, b.isReference(), b.projectStart, b.projectEnd,
                 b.createdBy, b.createdBy == null ? null : names.get(b.createdBy), b.createdAt, tasks.getOrDefault(b.id, 0L))).toList();
     }
 
