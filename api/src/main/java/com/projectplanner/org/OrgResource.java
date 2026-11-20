@@ -89,8 +89,12 @@ public class OrgResource {
             }
         }
         if (request.defaultHourlyRate() != null) {
+            // The settings page always sends the rate, so only a different one counts as a change.
+            boolean changed = !sameRate(org.defaultHourlyRate, request.defaultHourlyRate());
             org.defaultHourlyRate = request.defaultHourlyRate();
-            ratesChanged.fire(new RatesChanged(orgId));
+            if (changed) {
+                ratesChanged.fire(new RatesChanged(orgId));
+            }
         }
         return OrganisationResponse.of(org, membership);
     }
@@ -149,9 +153,9 @@ public class OrgResource {
         } else {
             member.clientId = null;
         }
-        if (roleBefore != member.role || !Objects.equals(rateBefore, member.hourlyRate)) {
+        if (roleBefore != member.role || !sameRate(rateBefore, member.hourlyRate)) {
             // Their time is priced by their own rate, or else by the rate of their role.
-            ratesChanged.fire(new RatesChanged(orgId));
+            ratesChanged.fire(new RatesChanged(orgId, member.id));
         }
         return MemberResponse.of(member, User.findById(member.userId), true);
     }
@@ -272,6 +276,7 @@ public class OrgResource {
             description = "For owners. Roles that are left out lose their rate.")
     public List<RoleRateEntry> setRoleRates(@PathParam("orgId") long orgId, @Valid @NotNull RoleRatesRequest request) {
         access.require(orgId, Role.OWNER);
+        Map<Role, BigDecimal> before = RoleRate.forOrganisation(orgId);
         RoleRate.delete("organisationId", orgId);
         RoleRate.flush();
         Map<Role, BigDecimal> byRole = new java.util.EnumMap<>(Role.class);
@@ -283,8 +288,17 @@ public class OrgResource {
             rate.hourlyRate = hourlyRate;
             rate.persist();
         });
-        ratesChanged.fire(new RatesChanged(orgId));
+        boolean changed = !before.keySet().equals(byRole.keySet())
+                || byRole.entrySet().stream().anyMatch(e -> !sameRate(before.get(e.getKey()), e.getValue()));
+        if (changed) {
+            ratesChanged.fire(new RatesChanged(orgId));
+        }
         return roleRates(orgId);
+    }
+
+    /** 50 and 50.00 are the same rate. */
+    private static boolean sameRate(BigDecimal a, BigDecimal b) {
+        return a == null ? b == null : b != null && a.compareTo(b) == 0;
     }
 
     private long countOwners(long orgId) {
