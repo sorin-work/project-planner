@@ -61,6 +61,13 @@ export class Shell {
     });
   }
 
+  /** A key held down on the search button, Enter after a pick for one, does not open the dialog again. */
+  protected ignoreRepeat(event: KeyboardEvent): void {
+    if (event.repeat) {
+      event.preventDefault();
+    }
+  }
+
   switchOrg(event: Event): void {
     this.org.select(Number((event.target as HTMLSelectElement).value));
     void this.router.navigate(['/']);
