@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Observable } from 'rxjs';
 import { messageOf } from '../../core/errors';
+import { TaskChange } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { formatDate } from '../../shared/dates';
 import { Gantt } from '../gantt/gantt';
@@ -87,25 +89,18 @@ export class TimelineTab {
   protected readonly formatDate = formatDate;
 
   move(taskId: number, days: number): void {
-    this.error.set(null);
-    this.message.set(null);
-    this.store.shiftTask(taskId, days).subscribe({
-      next: (change) => {
-        if (change.rescheduled.length) {
-          this.message.set(
-            `${change.task.title} moved; ${change.rescheduled.length} dependent task${change.rescheduled.length === 1 ? ' was' : 's were'} pushed back.`,
-          );
-        }
-      },
-      error: (err: unknown) => this.error.set(messageOf(err)),
-    });
+    this.apply(this.store.shiftTask(taskId, days));
   }
 
   /** Moves a task to the dates the API suggested for it, exactly as they came. */
   applyFix(fix: MoveTo): void {
+    this.apply(this.store.updateTask(fix.taskId, { startDate: fix.startDate, dueDate: fix.dueDate }));
+  }
+
+  private apply(request: Observable<TaskChange>): void {
     this.error.set(null);
     this.message.set(null);
-    this.store.updateTask(fix.taskId, { startDate: fix.startDate, dueDate: fix.dueDate }).subscribe({
+    request.subscribe({
       next: (change) => {
         if (change.rescheduled.length) {
           this.message.set(
