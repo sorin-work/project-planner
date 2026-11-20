@@ -103,6 +103,16 @@ export interface Project {
   updatedAt: string;
 }
 
+/** What the API offers for a copy of a project, and how much there is to copy. */
+export interface DuplicateDefaults {
+  name: string;
+  code: string;
+  startDate: string;
+  phases: number;
+  tasks: number;
+  dependencies: number;
+}
+
 export interface HealthSummary {
   status: HealthStatus;
   progressPct: number;
