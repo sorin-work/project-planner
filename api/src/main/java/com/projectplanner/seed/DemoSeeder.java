@@ -5,6 +5,7 @@ import com.projectplanner.auth.PasswordHasher;
 import com.projectplanner.auth.User;
 import com.projectplanner.client.Client;
 import com.projectplanner.comment.Comment;
+import com.projectplanner.notification.Notification;
 import com.projectplanner.notification.NotificationType;
 import com.projectplanner.notification.Notifier;
 import com.projectplanner.org.Membership;
@@ -54,7 +55,7 @@ public class DemoSeeder {
 
     private static final Logger LOG = Logger.getLogger(DemoSeeder.class);
     private static final WorkCalendar CAL = WorkCalendar.DEFAULT;
-    private static final ZoneId ZONE = ZoneId.of("Europe/Bucharest");
+    static final ZoneId ZONE = ZoneId.of("Europe/Bucharest");
 
     private final boolean enabled;
     private final PasswordHasher hasher;
@@ -761,9 +762,14 @@ public class DemoSeeder {
                 + lastWeek, null, null, lastWeek, 1, false);
         notification("samir", priya, NotificationType.TIMESHEET_REJECTED, priya.name + " sent back your timesheet for the week of "
                 + lastWeek, null, null, lastWeek, 0, false);
-        // Tom's week is still a draft and Priya has just reminded him, so he can't be reminded again today.
-        notification("tom", priya, NotificationType.TIMESHEET_REMINDER, priya.name + " asked you to submit your timesheet for the week of "
-                + lastWeek, null, null, lastWeek, 0, false);
+        // Tom's week is still a draft and Priya has reminded him today, so he can't be reminded again until tomorrow.
+        Notification reminder = notification("tom", priya, NotificationType.TIMESHEET_REMINDER,
+                priya.name + " asked you to submit your timesheet for the week of " + lastWeek, null, null, lastWeek, 0, false);
+        Instant startOfToday = today.atStartOfDay(ZONE).toInstant();
+        if (reminder.createdAt.isBefore(startOfToday)) {
+            // Seeded just after midnight: an hour ago was yesterday, and yesterday's reminder would not count.
+            reminder.createdAt = startOfToday;
+        }
 
         long maya = users.get("maya").id;
         activity.record(org.id, globex.id, appts.id, priya.id, "task.rescheduled", "Rescheduled Appointment booking after the time zone question");
@@ -791,18 +797,18 @@ public class DemoSeeder {
         c.persist();
     }
 
-    private void notification(String to, User actor, NotificationType type, String message, Project project, Task task,
-                              LocalDate week, int daysAgo, boolean read) {
+    private Notification notification(String to, User actor, NotificationType type, String message, Project project, Task task,
+                                      LocalDate week, int daysAgo, boolean read) {
         if (week != null) {
             notifier.notifyAboutWeek(users.get(to).id, org.id, actor.id, type, message, week);
         } else {
             notifier.notify(users.get(to).id, org.id, actor.id, type, message, project == null ? null : project.id,
                     task == null ? null : task.id);
         }
-        com.projectplanner.notification.Notification n = com.projectplanner.notification.Notification
-                .<com.projectplanner.notification.Notification>find("order by id desc").firstResult();
+        Notification n = Notification.<Notification>find("order by id desc").firstResult();
         n.createdAt = now.minusSeconds(daysAgo * 86400L + 3600);
         n.readAt = read ? n.createdAt.plusSeconds(1800) : null;
+        return n;
     }
 
     private Instant atNoon(LocalDate date) {
