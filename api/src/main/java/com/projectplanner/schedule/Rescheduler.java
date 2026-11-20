@@ -52,10 +52,7 @@ public final class Rescheduler {
             if (earliest == null || !task.start().isBefore(earliest)) {
                 continue;
             }
-            int duration = calendar.duration(task.start(), task.due());
-            LocalDate start = earliest;
-            LocalDate due = calendar.addWorkingDays(start, duration - 1);
-            ScheduledTask shifted = new ScheduledTask(id, start, due);
+            ScheduledTask shifted = startingOn(task, earliest);
             current.put(id, shifted);
             moved.put(id, shifted);
         }
@@ -66,15 +63,29 @@ public final class Rescheduler {
     LocalDate earliestStart(DependencyGraph graph, Map<Long, ScheduledTask> tasks, long id) {
         LocalDate earliest = null;
         for (Link link : graph.predecessors(id)) {
-            ScheduledTask predecessor = tasks.get(link.predecessorId());
-            if (predecessor == null || predecessor.due() == null) {
-                continue;
-            }
-            LocalDate candidate = calendar.addWorkingDays(calendar.nextWorkingDay(predecessor.due()), link.lagDays());
-            if (earliest == null || candidate.isAfter(earliest)) {
+            LocalDate candidate = earliestStart(link, tasks.get(link.predecessorId()));
+            if (candidate != null && (earliest == null || candidate.isAfter(earliest))) {
                 earliest = candidate;
             }
         }
         return earliest;
+    }
+
+    /**
+     * The first day the successor of {@code link} may start: the working day after
+     * the predecessor is due, plus the lag. Null if the predecessor has no due date,
+     * because then the link says nothing.
+     */
+    LocalDate earliestStart(Link link, ScheduledTask predecessor) {
+        if (predecessor == null || predecessor.due() == null) {
+            return null;
+        }
+        return calendar.addWorkingDays(calendar.nextWorkingDay(predecessor.due()), link.lagDays());
+    }
+
+    /** {@code task} moved so that it starts on {@code start}, with the same length in working days. */
+    ScheduledTask startingOn(ScheduledTask task, LocalDate start) {
+        int duration = calendar.duration(task.start(), task.due());
+        return new ScheduledTask(task.id(), start, calendar.addWorkingDays(start, duration - 1));
     }
 }

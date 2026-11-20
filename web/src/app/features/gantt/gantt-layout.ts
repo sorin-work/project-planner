@@ -1,5 +1,6 @@
 import { Phase, Task } from '../../core/models';
 import { addDays, diffDays, isWeekend, maxDate, minDate, monthName, toDate, today, weekStart } from '../../shared/dates';
+import { linkKey } from '../project/schedule-issues';
 import { groupTasks } from '../project/task-groups';
 
 export type Zoom = 'day' | 'week' | 'month';
@@ -35,6 +36,8 @@ export interface GanttLink {
   id: number;
   path: string;
   critical: boolean;
+  /** The API reported this dependency: it does not hold, or it is not enforced. */
+  broken: boolean;
 }
 
 export interface GanttTick {
@@ -97,7 +100,7 @@ export function linkPath(fromX: number, fromY: number, toX: number, toY: number)
 export function layoutGantt(
   tasks: Task[],
   phases: Phase[],
-  options: { zoom: Zoom; critical: Set<number>; collapsed: Set<number>; today?: string },
+  options: { zoom: Zoom; critical: Set<number>; collapsed: Set<number>; today?: string; broken?: Set<string> },
 ): GanttLayout {
   const dayWidth = DAY_WIDTH[options.zoom];
   const now = options.today ?? today();
@@ -169,6 +172,8 @@ export function layoutGantt(
         id: dep.id,
         path: linkPath(from.x + from.width, from.y + from.height / 2, to.x, to.y + to.height / 2),
         critical: from.critical && to.critical,
+        // Taken from the issue list, so the timeline never decides this with its own date maths.
+        broken: options.broken?.has(linkKey(dep.predecessorId, task.id)) ?? false,
       });
     }
   }

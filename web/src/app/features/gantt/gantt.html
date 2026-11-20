@@ -25,6 +25,9 @@
         <marker id="arrow-critical" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M 0 0 L 8 4 L 0 8 z" class="arrow-head critical" />
         </marker>
+        <marker id="arrow-broken" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 8 4 L 0 8 z" class="arrow-head broken" />
+        </marker>
       </defs>
 
       @for (w of layout().weekends; track w.x) {
@@ -53,8 +56,8 @@
       }
 
       @for (link of layout().links; track link.id) {
-        <path [attr.d]="link.path" class="link" [class.critical]="link.critical"
-          [attr.marker-end]="link.critical ? 'url(#arrow-critical)' : 'url(#arrow)'" />
+        <path [attr.d]="link.path" class="link" [class.critical]="link.critical && !link.broken" [class.broken]="link.broken"
+          [attr.marker-end]="link.broken ? 'url(#arrow-broken)' : link.critical ? 'url(#arrow-critical)' : 'url(#arrow)'" />
       }
 
       @for (bar of layout().bars; track bar.task.id) {
