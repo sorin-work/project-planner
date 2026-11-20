@@ -1,5 +1,6 @@
 package com.projectplanner.project;
 
+import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Role;
@@ -21,6 +22,8 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.util.ArrayList;
@@ -29,6 +32,7 @@ import java.util.List;
 
 @Path("/api")
 @Authenticated
+@Tag(name = "Projects")
 public class ProjectResource {
 
     /** Active work first, finished projects last. */
@@ -49,6 +53,8 @@ public class ProjectResource {
 
     @GET
     @Path("/orgs/{orgId}/projects")
+    @Operation(summary = "List the projects, each with a summary of its health",
+            description = "Active work first, finished projects last. A client viewer only gets the projects of their client.")
     public List<ProjectListItem> list(@PathParam("orgId") long orgId,
                                       @QueryParam("status") ProjectStatus status,
                                       @QueryParam("clientId") Long clientId) {
@@ -82,6 +88,11 @@ public class ProjectResource {
     @Path("/orgs/{orgId}/projects")
     @Transactional
     @ResponseStatus(201)
+    @Operation(summary = "Create a project",
+            description = "For owners and managers.")
+    @Fails(status = 400, code = "invalid_dates", when = "endDate is before startDate")
+    @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
+    @Fails(status = 409, code = "code_taken", when = "another project in the organisation already uses the code")
     public ProjectResponse create(@PathParam("orgId") long orgId, @Valid @NotNull ProjectRequest request) {
         Membership me = access.manager(orgId);
         return ProjectService.toResponse(projects.create(me, request), true);
@@ -89,6 +100,7 @@ public class ProjectResource {
 
     @GET
     @Path("/projects/{projectId}")
+    @Operation(summary = "Get a project")
     public ProjectResponse get(@PathParam("projectId") long projectId) {
         Project project = access.project(projectId);
         return ProjectService.toResponse(project, access.member(project.organisationId).role.canManage());
@@ -97,6 +109,11 @@ public class ProjectResource {
     @PUT
     @Path("/projects/{projectId}")
     @Transactional
+    @Operation(summary = "Change a project",
+            description = "For owners and managers. The project is replaced: a field that is left out is cleared, apart from status and color.")
+    @Fails(status = 400, code = "invalid_dates", when = "endDate is before startDate")
+    @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
+    @Fails(status = 409, code = "code_taken", when = "another project in the organisation already uses the code")
     public ProjectResponse update(@PathParam("projectId") long projectId, @Valid @NotNull ProjectRequest request) {
         Project project = access.project(projectId);
         Membership me = access.manageProject(project);
@@ -108,6 +125,8 @@ public class ProjectResource {
     @Path("/projects/{projectId}")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Delete a project",
+            description = "For owners and managers. Its phases, tasks and logged time are deleted with it.")
     public void delete(@PathParam("projectId") long projectId) {
         Project project = access.project(projectId);
         access.manageProject(project);

@@ -1,12 +1,14 @@
 package com.projectplanner.project;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.common.ApiDocs;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -33,10 +35,13 @@ public final class ProjectDtos {
 
     /** Money fields are left out for members and client viewers. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Schema(description = "A field without a value is left out.")
     public record ProjectResponse(long id, long organisationId, Long clientId, String clientName, String name,
                                   String code, String description, ProjectStatus status, LocalDate startDate,
-                                  LocalDate endDate, BigDecimal budgetHours, BigDecimal budgetAmount,
-                                  BigDecimal hourlyRate, String color, Instant createdAt, Instant updatedAt) {
+                                  LocalDate endDate, BigDecimal budgetHours,
+                                  @Schema(description = ApiDocs.MANAGERS_ONLY) BigDecimal budgetAmount,
+                                  @Schema(description = "A fixed rate for all time on this project. " + ApiDocs.MANAGERS_ONLY) BigDecimal hourlyRate,
+                                  String color, Instant createdAt, Instant updatedAt) {
     }
 
     /**
