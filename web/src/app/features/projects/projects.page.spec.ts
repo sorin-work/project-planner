@@ -56,7 +56,7 @@ describe('ProjectsPage, copying a plan', () => {
     copy.selectedIndex = 2;
     copy.dispatchEvent(new Event('change'));
     await fixture.whenStable();
-    http.expectOne('/api/projects/5/duplicate').flush({ name: 'Intranet (copy)', code: 'NET-2', startDate: '2026-06-10', phases: 1, tasks: 2, dependencies: 1 });
+    http.expectOne('/api/projects/5/duplicate').flush({ name: 'Intranet (copy)', code: 'NET-2', startDate: '2026-06-10', phases: 1, tasks: 2, dependencies: 1, attachments: 0, attachmentBytes: 0 });
     await fixture.whenStable();
     expect(el.querySelector<HTMLInputElement>('#df-code')!.value).toBe('NET-2');
     expect(el.querySelector('app-project-form')).toBeNull();

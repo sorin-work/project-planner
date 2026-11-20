@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { messageOf } from '../../core/errors';
+import { formatBytes } from '../project/attachment-files';
 import { Client, Project } from '../../core/models';
 import { ProjectApi } from '../../core/project.api';
 import { copySummary, duplicateBody } from './duplicate';
@@ -55,6 +56,15 @@ import { copySummary, duplicateBody } from './duplicate';
           Keep who each task is assigned to
         </label>
       </div>
+      @if (files(); as f) {
+        <div class="field">
+          <span class="label">Files</span>
+          <label class="checkbox" for="df-files">
+            <input id="df-files" type="checkbox" formControlName="copyAttachments" />
+            Copy the {{ f }} attached to the tasks
+          </label>
+        </div>
+      }
       @if (error()) {
         <p class="alert error span-2" role="alert">{{ error() }}</p>
       }
@@ -86,7 +96,11 @@ export class DuplicateForm {
     clientId: [null as number | null],
     startDate: ['', Validators.required],
     keepAssignees: [false],
+    copyAttachments: [false],
   });
+
+  /** "3 files, 2.1 MB" when the source has files attached, which are only copied when asked for. */
+  protected readonly files = signal<string | null>(null);
 
   constructor() {
     // Ask what to propose whenever the source changes. The answer never overwrites
@@ -95,11 +109,17 @@ export class DuplicateForm {
       const source = this.source();
       this.summary.set(null);
       this.error.set(null);
-      this.form.reset({ name: '', code: '', clientId: null, startDate: '', keepAssignees: false });
+      this.files.set(null);
+      this.form.reset({ name: '', code: '', clientId: null, startDate: '', keepAssignees: false, copyAttachments: false });
       this.api.duplicateDefaults(source.id).subscribe({
         next: (defaults) => {
           if (this.source().id === source.id) {
-            this.form.reset({ name: defaults.name, code: defaults.code, clientId: null, startDate: defaults.startDate, keepAssignees: false });
+            this.form.reset({
+              name: defaults.name, code: defaults.code, clientId: null, startDate: defaults.startDate, keepAssignees: false, copyAttachments: false,
+            });
+            this.files.set(defaults.attachments
+              ? `${defaults.attachments} file${defaults.attachments === 1 ? '' : 's'} (${formatBytes(defaults.attachmentBytes)})`
+              : null);
             this.summary.set(copySummary(source.name, defaults));
           }
         },
