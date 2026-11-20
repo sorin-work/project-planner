@@ -11,6 +11,8 @@ What the app does today is in the [README](README.md).
 - **Next**: small or well understood. I would start with these.
 - **Later**: worth doing, but bigger or waiting on a decision.
 - **Maybe**: not sure yet that they are worth the extra complexity.
+- **Shipped**: built. What was done, and how it differs from the plan, is at
+  the end.
 
 Sizes are rough: **S** is an evening or two, **M** a few evenings up to a
 couple of weekends, **L** several weeks of spare time.
@@ -21,7 +23,7 @@ couple of weekends, **L** several weeks of spare time.
 | --- | ------------------------------------------ | ----- | -------- | ---- | ---------- |
 | 1   | Warnings for broken dependencies           | Next  | both     | S    | -          |
 | 2   | Type hours into the weekly grid            | Next  | both     | M    | -          |
-| 3   | Missing timesheets and reminders           | Next  | both     | S    | -          |
+| 3   | Missing timesheets and reminders           | Shipped | both     | S    | -          |
 | 4   | Search and quick switcher                  | Next  | both     | M    | -          |
 | 5   | Accessibility pass                         | Next  | frontend | M    | -          |
 | 6   | Scheduled backups and a tested restore     | Next  | infra    | S    | -          |
@@ -82,7 +84,9 @@ A few things hold for every item:
   shares one `ProjectStore`.
 - A new kind of notification is a new `NotificationType` value (the column has
   no check constraint, so no migration), a call to `Notifier.notify`, and an
-  icon and a target in `notifications.page.ts`.
+  icon and a target in `notifications.page.ts` (`ICONS` and
+  `notificationTarget`). A notification about a week of time goes through
+  `Notifier.notifyAboutWeek` instead and opens `/time?week=`.
 
 ## Next
 
@@ -195,53 +199,6 @@ a new week with last week's rows.
 - Undecided: a bulk endpoint that saves a whole week in one transaction. Fewer
   requests and all or nothing, but then the server has to answer the
   several-entries question. I would start without it.
-
-### 3. Missing timesheets and reminders
-
-The approvals page only knows about weeks that somebody submitted. A week that
-nobody submitted has no `timesheets` row at all (`TimesheetService.submit`
-creates it), so a manager cannot see who is late, and the only way to chase is
-to ask in person. Harvest has an "unsubmitted" filter and a reminder button
-for this.
-
-- API: `GET /api/orgs/{orgId}/timesheets/missing?weekStart=` for managers. For
-  each team member (`Membership.forOrganisation`, `role.isTeam()`): the status
-  from `Timesheet.statusOf`, the minutes logged in that week and
-  `weeklyCapacityHours`. Return the people whose week is a draft or was sent
-  back. Leave out people who joined after that week (`Membership.createdAt`).
-- `POST /api/orgs/{orgId}/timesheets/remind` with a week and a list of users
-  creates a `NotificationType.TIMESHEET_REMINDER` for each: "Priya asked you
-  to submit your timesheet for the week of 2026-11-09", in the wording the
-  other timesheet messages use.
-- Deep link: a `Notification` only carries `projectId` and `taskId`, so a
-  timesheet notification cannot say which week it is about.
-  `NotificationsPage.open` sends `TIMESHEET_SUBMITTED` to `/approvals` and the
-  other timesheet types to `/time`, which always opens the current week
-  because `TimesheetPage.weekOf` is not in the URL. Add a nullable
-  `week_start` to `notifications` (`V16__add_notification_week_start.sql`),
-  fill it for all timesheet notifications, and let `TimesheetPage` read
-  `?week=`.
-- With that column "already reminded today" is one query on type, user and
-  week. Do not remind the same person about the same week twice in a day.
-- Web: a "Not submitted" tab in `ApprovalsPage` (`tabs` holds the three
-  statuses today) with a week picker that starts on last week, hours logged
-  against capacity, "Remind" per person and "Remind all".
-- Dashboard: next to `pendingApprovals`, a count of missing timesheets for
-  last week. Managers also never see their own `lastWeekTimesheet`, because
-  the template shows either the approvals card or that one.
-- Tricky: the current week is not late yet. Only offer weeks that have ended
-  by the organisation's date.
-- Tricky: somebody who was away all week has no time, and `submit` refuses an
-  empty week (`empty_timesheet`), so they stay "missing" for good. Until item
-  15 knows about time off, list zero-hour weeks separately and do not include
-  them in "Remind all".
-- Not in this pull request: automatic reminders (Harvest sends one before and
-  one after a weekly deadline). They need a scheduler and a deadline setting
-  per organisation, and really want email. They belong to the daily summary
-  that item 12 lists as its follow-up.
-- Undecided: "Approve all" on the submitted tab.
-  `TimesheetService.checkReviewer` stops managers approving their own week, so
-  a bulk call needs a result per sheet. I would leave it out.
 
 ### 4. Search and quick switcher
 
@@ -561,7 +518,7 @@ and that is the one thing of theirs I miss.
   is wasteful on a long project. The hours threshold only needs a
   `sum(minutes)`. Money needs minutes per person, since the rate depends on
   project and person, so one grouped query.
-- Web: an icon in `ICONS`. `NotificationsPage.open` does nothing for a
+- Web: an icon in `ICONS`. `notificationTarget` has nowhere to send a
   notification that has a project but no task, so add that case (to the
   project's overview tab).
 - Tricky: a changed rate (on the project, a member, a role or the
@@ -651,10 +608,11 @@ timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
   mailed.
 - Preferences: which types are mailed, per user. A `notification_preferences`
   table (user, type, email on or off) with the defaults in code: on for
-  `MENTIONED`, `ASSIGNED` and `TIMESHEET_REJECTED`, off for `COMMENTED`.
+  `MENTIONED`, `ASSIGNED`, `TIMESHEET_REJECTED` and `TIMESHEET_REMINDER`, off
+  for `COMMENTED`.
   `GET` and `PUT /api/me/notification-preferences`, and a card in
   `SettingsPage`. Both schema changes go in `V19__notification_emails.sql`.
-- Links: `APP_URL` plus the targets `NotificationsPage.open` uses, and a
+- Links: `APP_URL` plus the targets `notificationTarget` returns, and a
   footer link to the settings card.
 - Tests: switch the scheduler off in the test profile
   (`quarkus.scheduler.enabled=false`), call the job method directly and assert
@@ -1006,3 +964,26 @@ whether file storage is worth it for a planner.
 - Undecided: whether this is worth it at all, when a link to the shared drive
   in the description works. Attachments on comments and pasted images are what
   people would ask for next, so it does not stay small.
+
+## Shipped
+
+### 3. Missing timesheets and reminders
+
+The approvals page has a "Not submitted" tab. For a week that is over it
+lists who has not submitted (`GET /api/orgs/{orgId}/timesheets/missing`,
+drafts and weeks that were sent back) with the hours logged against capacity,
+and "Remind" and "Remind all" send a `TIMESHEET_REMINDER`
+(`POST .../timesheets/remind`). People without any time in the week are
+listed apart and "Remind all" skips them. The dashboard counts last week's
+missing timesheets for managers and now shows them their own last week too.
+`V16` adds `week_start` to `notifications`, every timesheet notification
+fills it, and the Timesheet page keeps its week in `?week=`, so a
+notification opens the week it is about. Different from the design: the rules
+are a plain class, `MissingTimesheets`. A reminder request answers with who
+was reminded and who was left out and why, instead of failing as a whole. On
+top of "once per person, week and day" nobody gets more than five reminders a
+day, because every old week without a timesheet counts as missing and could
+otherwise be chased one by one. The dashboard count leaves out weeks without
+time, as "Remind all" does. Still open: automatic reminders (they belong to
+the daily summary in item 12), "Approve all", and people who were away, who
+stay under "No time logged" until item 15 knows about time off.
