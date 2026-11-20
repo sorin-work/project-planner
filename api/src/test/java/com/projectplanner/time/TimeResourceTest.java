@@ -153,6 +153,46 @@ class TimeResourceTest {
     }
 
     @Test
+    void aCreateThatIsSentAgainMakesOneEntry() {
+        Account owner = Api.signup("Rex");
+        Account member = Api.signup("Sam");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = Api.createProject(owner, "TWICE");
+        String entries = "/api/orgs/" + owner.orgId() + "/time-entries";
+        Map<String, Object> create = Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 90,
+                "clientKey", "0f2c4e6a8b1d3f57");
+
+        Number first = owner.as().body(create).post(entries).then().statusCode(201).body("minutes", equalTo(90)).extract().path("id");
+        // The answer got lost and the same create is sent again, the second time with another time typed.
+        owner.as().body(create).post(entries).then().statusCode(201).body("id", equalTo(first));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 120, "clientKey", "0f2c4e6a8b1d3f57"))
+                .post(entries).then().statusCode(201).body("id", equalTo(first)).body("minutes", equalTo(90));
+        owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("entries", hasSize(1)).body("totalMinutes", equalTo(90));
+
+        // Another key is another entry, and so is the same key from somebody else or without a key at all.
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 30, "clientKey", "another-key-1"))
+                .post(entries).then().statusCode(201).body("id", not(equalTo(first)));
+        member.as().body(create).post(entries).then().statusCode(201).body("id", not(equalTo(first))).body("userId", equalTo((int) member.userId()));
+        owner.as().body(entry(projectId, WEEK, 15)).post(entries).then().statusCode(201);
+        owner.as().body(entry(projectId, WEEK, 15)).post(entries).then().statusCode(201);
+        owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("entries", hasSize(4)).body("totalMinutes", equalTo(150));
+
+        // A key stands for one cell: it is not taken for another day, and it has a sensible length.
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.plusDays(1).toString(), "minutes", 90, "clientKey", "0f2c4e6a8b1d3f57"))
+                .post(entries).then().statusCode(409).body("code", equalTo("client_key_reused"));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 90, "clientKey", "short"))
+                .post(entries).then().statusCode(400).body("errors.field", hasItem("clientKey"));
+
+        // A repeat still gets its entry back once the week is submitted. It changes nothing.
+        owner.as().body(Map.of("weekStart", WEEK.toString())).post("/api/orgs/" + owner.orgId() + "/timesheets/submit").then().statusCode(200);
+        owner.as().body(create).post(entries).then().statusCode(201).body("id", equalTo(first)).body("locked", equalTo(true));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 90, "clientKey", "a-brand-new-key"))
+                .post(entries).then().statusCode(409).body("code", equalTo("timesheet_locked"));
+    }
+
+    @Test
     void thisWeekIsTheOrganisationsWeek() {
         Account owner = Api.signup("Quy");
         owner.as().body(Map.of("timezone", "Pacific/Kiritimati")).patch("/api/orgs/" + owner.orgId()).then().statusCode(200);
