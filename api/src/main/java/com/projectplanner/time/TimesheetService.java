@@ -4,27 +4,41 @@ import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.User;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Money;
+import com.projectplanner.notification.Notification;
 import com.projectplanner.notification.NotificationType;
 import com.projectplanner.notification.Notifier;
 import com.projectplanner.org.Membership;
+import com.projectplanner.org.Organisation;
 import com.projectplanner.org.RateBook;
 import com.projectplanner.org.Role;
 import com.projectplanner.project.Project;
 import com.projectplanner.schedule.WorkCalendar;
+import com.projectplanner.time.MissingTimesheets.Missing;
+import com.projectplanner.time.MissingTimesheets.Person;
+import com.projectplanner.time.MissingTimesheets.Skip;
 import com.projectplanner.time.TimeDtos.DayTotal;
+import com.projectplanner.time.TimeDtos.MissingResponse;
+import com.projectplanner.time.TimeDtos.RemindResponse;
+import com.projectplanner.time.TimeDtos.SkippedReminder;
 import com.projectplanner.time.TimeDtos.TimesheetSummary;
 import com.projectplanner.time.TimeDtos.WeekResponse;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import static com.projectplanner.common.Text.blankToNull;
 
@@ -112,7 +126,8 @@ public class TimesheetService {
         String message = user.name + " submitted their timesheet for the week of " + weekStart;
         for (Membership m : Membership.forOrganisation(me.organisationId)) {
             if (m.role.canManage()) {
-                notifier.notify(m.userId, me.organisationId, me.userId, NotificationType.TIMESHEET_SUBMITTED, message, null, null);
+                notifier.notifyAboutWeek(m.userId, me.organisationId, me.userId, NotificationType.TIMESHEET_SUBMITTED,
+                        message, weekStart);
             }
         }
         activity.record(me.organisationId, null, null, me.userId, "timesheet.submitted", message);
@@ -139,8 +154,8 @@ public class TimesheetService {
         sheet.reviewedBy = me.userId;
         sheet.reviewNote = null;
         User reviewer = User.findById(me.userId);
-        notifier.notify(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_APPROVED,
-                reviewer.name + " approved your timesheet for the week of " + sheet.weekStart, null, null);
+        notifier.notifyAboutWeek(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_APPROVED,
+                reviewer.name + " approved your timesheet for the week of " + sheet.weekStart, sheet.weekStart);
         User owner = User.findById(sheet.userId);
         activity.record(sheet.organisationId, null, null, me.userId, "timesheet.approved",
                 "Approved " + owner.name + "'s timesheet for the week of " + sheet.weekStart);
@@ -156,11 +171,104 @@ public class TimesheetService {
         User reviewer = User.findById(me.userId);
         String message = reviewer.name + " sent back your timesheet for the week of " + sheet.weekStart
                 + (sheet.reviewNote == null ? "" : ": " + sheet.reviewNote);
-        notifier.notify(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_REJECTED, message, null, null);
+        notifier.notifyAboutWeek(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_REJECTED,
+                message, sheet.weekStart);
         User owner = User.findById(sheet.userId);
         activity.record(sheet.organisationId, null, null, me.userId, "timesheet.rejected",
                 "Sent back " + owner.name + "'s timesheet for the week of " + sheet.weekStart);
         return sheet;
+    }
+
+    /**
+     * The team members whose week is still a draft or was sent back. Without a day it is
+     * the most recent week that is over; a week that is still running is not late yet.
+     */
+    public MissingResponse missing(long organisationId, LocalDate anyDay) {
+        Organisation org = Organisation.findById(organisationId);
+        return missing(org, org.today(clock), anyDay);
+    }
+
+    private MissingResponse missing(Organisation org, LocalDate today, LocalDate anyDay) {
+        long organisationId = org.id;
+        LocalDate latest = MissingTimesheets.latestEndedWeek(today);
+        LocalDate weekStart = anyDay == null ? latest : WorkCalendar.weekStart(anyDay);
+        if (weekStart.isAfter(latest)) {
+            throw ApiException.badRequest("week_not_over", "The week of " + weekStart + " has not ended yet");
+        }
+
+        List<Membership> team = Membership.forOrganisation(organisationId).stream().filter(m -> m.role.isTeam()).toList();
+        Set<Long> userIds = team.stream().map(m -> m.userId).collect(Collectors.toSet());
+        Map<Long, String> names = new HashMap<>();
+        User.<User>list("id in ?1", userIds).forEach(u -> names.put(u.id, u.name));
+        List<Person> people = team.stream()
+                .map(m -> new Person(m.userId, names.get(m.userId), LocalDate.ofInstant(m.createdAt, org.zone()),
+                        m.weeklyCapacityHours))
+                .toList();
+
+        Map<Long, TimesheetStatus> statuses = new HashMap<>();
+        Timesheet.<Timesheet>list("organisationId = ?1 and weekStart = ?2", organisationId, weekStart)
+                .forEach(sheet -> statuses.put(sheet.userId, sheet.status));
+        Map<Long, Integer> minutes = new HashMap<>();
+        TimeEntry.<TimeEntry>list("organisationId = ?1 and entryDate between ?2 and ?3",
+                        organisationId, weekStart, weekStart.plusDays(6))
+                .forEach(entry -> minutes.merge(entry.userId, entry.minutes, Integer::sum));
+        Set<Long> reminded = Notification.<Notification>list(
+                        "userId in ?1 and organisationId = ?2 and type = ?3 and weekStart = ?4 and createdAt >= ?5",
+                        userIds, organisationId, NotificationType.TIMESHEET_REMINDER, weekStart, startOfDay(org, today))
+                .stream().map(n -> n.userId).collect(Collectors.toSet());
+
+        return new MissingResponse(weekStart, latest, MissingTimesheets.find(weekStart, people, statuses, minutes, reminded));
+    }
+
+    /**
+     * Reminds each of {@code userIds} whose week is missing, and says who was left out and why.
+     * Whoever asks, nobody is reminded about the same week twice on the same day, or more than
+     * {@link MissingTimesheets#MAX_REMINDERS_PER_DAY} times a day in all.
+     */
+    public RemindResponse remind(Membership me, LocalDate anyDay, Collection<Long> userIds) {
+        Organisation org = Organisation.findById(me.organisationId);
+        LocalDate today = org.today(clock);
+        MissingResponse week = missing(org, today, anyDay);
+        Map<Long, Missing> missing = new HashMap<>();
+        week.people().forEach(person -> missing.put(person.userId(), person));
+        Instant since = startOfDay(org, today);
+        User actor = User.findById(me.userId);
+        String message = actor.name + " asked you to submit your timesheet for the week of " + week.weekStart();
+
+        List<Long> reminded = new ArrayList<>();
+        List<SkippedReminder> skipped = new ArrayList<>();
+        // In id order, so two requests for the same people take the locks below in the same order.
+        for (Long userId : new TreeSet<>(userIds)) {
+            Optional<Skip> skip = MissingTimesheets.skipReason(missing.get(userId), me.userId);
+            if (skip.isEmpty()) {
+                skip = MissingTimesheets.reminderLimit(week.weekStart(), weeksRemindedSince(me.organisationId, userId, since));
+            }
+            if (skip.isPresent()) {
+                skipped.add(new SkippedReminder(userId, skip.get()));
+                continue;
+            }
+            notifier.notifyAboutWeek(userId, me.organisationId, me.userId, NotificationType.TIMESHEET_REMINDER,
+                    message, week.weekStart());
+            reminded.add(userId);
+        }
+        return new RemindResponse(week.weekStart(), reminded, skipped);
+    }
+
+    /**
+     * The weeks this person has been reminded about from {@code since} on. Takes a lock on their
+     * membership first: requests that arrive together wait for each other here, so the second
+     * one sees the reminder the first one wrote.
+     */
+    private static List<LocalDate> weeksRemindedSince(long organisationId, long userId, Instant since) {
+        Membership.find("organisationId = ?1 and userId = ?2", organisationId, userId)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).list();
+        return Notification.<Notification>list("userId = ?1 and organisationId = ?2 and type = ?3 and createdAt >= ?4",
+                        userId, organisationId, NotificationType.TIMESHEET_REMINDER, since)
+                .stream().map(n -> n.weekStart).toList();
+    }
+
+    private static Instant startOfDay(Organisation org, LocalDate day) {
+        return day.atStartOfDay(org.zone()).toInstant();
     }
 
     public List<TimesheetSummary> summaries(long organisationId, List<Timesheet> sheets) {

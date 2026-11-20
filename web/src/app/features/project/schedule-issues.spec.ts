@@ -1,6 +1,8 @@
 import { ScheduleIssue, Task } from '../../core/models';
 import { formatDate } from '../../shared/dates';
-import { brokenLinks, issueLines, issueText, linkIssue, linkKey, linkNote, moveTo, planEndNote } from './schedule-issues';
+import {
+  brokenLinks, finishedOverlaps, issueLines, issueText, linkIssue, linkKey, linkNote, moveCost, moveTo, planEndNote,
+} from './schedule-issues';
 
 const titles: Record<number, string> = { 1: 'Design', 2: 'Build', 3: 'Endpoints', 4: 'Copy' };
 const titleOf = (id: number) => titles[id] ?? `#${id}`;
@@ -13,12 +15,19 @@ const undated: ScheduleIssue = { type: 'WAITS_FOR_UNSCHEDULED', taskId: 2, relat
 const late: ScheduleIssue = { type: 'AFTER_PROJECT_END', taskId: 2, days: 1 };
 const outside: ScheduleIssue = { type: 'OUTSIDE_PARENT', taskId: 3, relatedTaskId: 2, days: 2 };
 
-function task(id: number, dueDate?: string): Task {
+function task(id: number, dueDate?: string, extra: Partial<Task> = {}): Task {
   return {
     id, projectId: 1, title: titleOf(id), status: 'TODO', priority: 'MEDIUM', milestone: false, position: 0,
-    createdAt: '', updatedAt: '', predecessors: [], subtaskCount: 0, loggedHours: 0, dueDate,
+    createdAt: '', updatedAt: '', predecessors: [], subtaskCount: 0, loggedHours: 0, dueDate, ...extra,
   };
 }
+
+/** Design runs 2 to 6 March. Build waits for it and starts on the 4th, while Design is still running. */
+const design = task(1, '2026-03-06', { startDate: '2026-03-02' });
+const build = task(2, '2026-03-06', {
+  startDate: '2026-03-04', predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }],
+});
+const SIXTH = formatDate('2026-03-06');
 
 describe('schedule issues', () => {
   it('says what is wrong in a sentence', () => {
@@ -47,8 +56,19 @@ describe('schedule issues', () => {
   });
 
   it('takes the move from the issue as it came', () => {
-    expect(moveTo([late, undated, early])).toEqual({ taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11' });
+    expect(moveTo([late, undated, early])).toEqual({ taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11', causes: [] });
     expect(moveTo([late, undated, outside])).toBeNull();
+    expect(moveTo([{ ...early, suggestionCauses: ['AFTER_PROJECT_END'] }])?.causes).toEqual(['AFTER_PROJECT_END']);
+  });
+
+  it('says what the move would cost when the API reports that it breaks something else', () => {
+    const fix = { taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11' };
+    expect(moveCost({ ...fix, causes: [] })).toBeNull();
+    expect(moveCost({ ...fix, causes: ['AFTER_PROJECT_END'] })).toBe("That puts it after the project's end date.");
+    expect(moveCost({ ...fix, causes: ['OUTSIDE_PARENT'] })).toBe('That puts it outside the dates of its parent.');
+    expect(moveCost({ ...fix, causes: ['AFTER_PROJECT_END', 'OUTSIDE_PARENT'] })).toBe(
+      "That puts it after the project's end date and outside the dates of its parent.",
+    );
   });
 
   it('lists one row per issue and offers the move once per task', () => {
@@ -60,7 +80,7 @@ describe('schedule issues', () => {
       'Endpoints: Has 2 working days outside the dates of Build',
     ]);
     expect(lines.map((l) => l.fix)).toEqual([
-      { taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11' },
+      { taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11', causes: [] },
       undefined,
       undefined,
       undefined,
@@ -68,19 +88,57 @@ describe('schedule issues', () => {
     expect(new Set(lines.map((l) => l.key)).size).toBe(4);
   });
 
-  it('explains a plan that ends after the latest due date', () => {
-    const tasks = [task(1, '2026-03-06'), task(2, '2026-03-06'), task(3)];
-    expect(planEndNote('2026-03-11', tasks, [early, earlyToo])).toBe(
-      `The latest due date is ${formatDate('2026-03-06')}. The plan ends later because a task that starts too early is counted from the first day it can start.`,
+  it('explains a plan that ends after the latest due date by the tasks that start too early', () => {
+    expect(planEndNote('2026-03-11', [design, build], [early, earlyToo])).toBe(
+      `The latest due date is ${SIXTH}. The plan ends later because the critical path counts a task that starts too early from the first day its dependencies allow.`,
     );
-    expect(planEndNote('2026-03-11', tasks, [early, { ...early, taskId: 3 }])).toContain('2 tasks that start too early are counted');
+    expect(planEndNote('2026-03-11', [design, build, task(3)], [early, { ...early, taskId: 3 }])).toBe(
+      `The latest due date is ${SIXTH}. The plan ends later because the critical path counts 2 tasks that start too early from the first day their dependencies allow.`,
+    );
   });
 
-  it('says nothing when the two dates agree or no open task starts too early', () => {
-    const tasks = [task(1, '2026-03-06'), task(2, '2026-03-11')];
-    expect(planEndNote('2026-03-11', tasks, [early])).toBeNull();
-    expect(planEndNote('2026-03-12', tasks, [late, undated])).toBeNull();
-    expect(planEndNote(undefined, tasks, [early])).toBeNull();
+  it('explains it by a finished task that overlapped, which has no issue of its own', () => {
+    // Build is done: the check leaves it out, the critical path still moves it behind Design.
+    const done = { ...build, status: 'DONE' as const };
+    expect(finishedOverlaps([design, done]).map((t) => t.id)).toEqual([2]);
+    expect(planEndNote('2026-03-11', [design, done], [])).toBe(
+      `The latest due date is ${SIXTH}. The plan ends later because the critical path counts a finished task that overlapped a task it waited for from the first day its dependencies allow.`,
+    );
+    const other = task(3, '2026-03-05', { startDate: '2026-03-03', predecessors: [{ id: 51, predecessorId: 1, successorId: 3, lagDays: 0 }] });
+    expect(planEndNote('2026-03-11', [design, done, other], [{ ...early, taskId: 3 }])).toBe(
+      `The latest due date is ${SIXTH}. The plan ends later because the critical path counts a task that starts too early and a finished task that overlapped a task it waited for from the first day their dependencies allow.`,
+    );
+  });
+
+  it('only calls a finished task an overlap when the dates say so', () => {
+    const after = { ...build, status: 'DONE' as const, startDate: '2026-03-07' }; // the Saturday after Design is due
+    const open = build; // overlaps, but it is not finished: that is an issue, not this
+    const undatedBefore = { ...build, status: 'DONE' as const, predecessors: [{ id: 52, predecessorId: 4, successorId: 2, lagDays: 0 }] };
+    expect(finishedOverlaps([design, after])).toEqual([]);
+    expect(finishedOverlaps([design, open])).toEqual([]);
+    expect(finishedOverlaps([design, task(4), undatedBefore])).toEqual([]);
+  });
+
+  it('still says something when the plan ends later for a reason it cannot see', () => {
+    // A launch on a Saturday is counted on the Monday after.
+    expect(planEndNote('2026-03-09', [task(1, '2026-03-07', { startDate: '2026-03-07' })], [late, undated])).toBe(
+      `The latest due date is ${formatDate('2026-03-07')}. The plan ends later because the critical path counts every task from the first working day its dependencies allow.`,
+    );
+  });
+
+  it('explains a plan that ends before the latest due date', () => {
+    expect(planEndNote('2026-03-06', [design, task(3, '2026-03-10')], [])).toBe(
+      `The latest due date is ${formatDate('2026-03-10')}. The plan ends earlier because the critical path only counts tasks that have a start date as well.`,
+    );
+    expect(planEndNote('2026-03-06', [task(1, '2026-03-07', { startDate: '2026-03-05' })], [])).toBe(
+      `The latest due date is ${formatDate('2026-03-07')}. The plan ends earlier because the critical path counts working days only.`,
+    );
+  });
+
+  it('says nothing when the plan ends on the latest due date or there is nothing to compare', () => {
+    expect(planEndNote('2026-03-06', [design, build], [early])).toBeNull();
+    expect(planEndNote(undefined, [design, build], [early])).toBeNull();
+    expect(planEndNote(null, [design, build], [early])).toBeNull();
     expect(planEndNote('2026-03-12', [task(1)], [early])).toBeNull();
   });
 });

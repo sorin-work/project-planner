@@ -4,7 +4,7 @@ import { messageOf } from '../../core/errors';
 import { InboxApi } from '../../core/inbox.api';
 import { ActivityEntry, Dashboard } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
-import { formatDate, timeAgo } from '../../shared/dates';
+import { addDays, formatDate, timeAgo, weekStart } from '../../shared/dates';
 import { TIMESHEET_LABELS, formatMinutes, formatPercent } from '../../shared/format';
 import { HealthBadge } from '../../shared/health-badge';
 import { ProgressBar } from '../../shared/progress-bar';
@@ -44,5 +44,10 @@ export class DashboardPage {
         this.api.activity(orgId, 12).subscribe({ next: (a) => this.activity.set(a) });
       }
     });
+  }
+
+  /** Monday of the week before {@code today}, which is the organisation's day as the API reports it. */
+  lastWeek(today: string): string {
+    return addDays(weekStart(today), -7);
   }
 }

@@ -239,7 +239,8 @@ class TaskResourceTest {
                 .body("[0].relatedTaskId", equalTo((int) design))
                 .body("[0].days", equalTo(3))
                 .body("[0].suggestedStart", equalTo("2026-03-09"))
-                .body("[0].suggestedDue", equalTo("2026-03-11"));
+                .body("[0].suggestedDue", equalTo("2026-03-11"))
+                .body("[0].suggestionCauses", nullValue());
         // The critical path counts Build from the day it can start, so it ends after the latest due date.
         owner.as().get("/api/projects/" + projectId + "/critical-path").then().body("finish", equalTo("2026-03-11"));
         owner.as().get("/api/projects/" + projectId + "/health").then().body("forecastEnd", equalTo("2026-03-06"));
@@ -282,6 +283,28 @@ class TaskResourceTest {
         owner.as().body(Map.of("status", "DONE")).patch("/api/tasks/" + research).then().statusCode(200);
         owner.as().get("/api/projects/" + projectId + "/schedule-issues").then()
                 .body("type", equalTo(java.util.List.of("OUTSIDE_PARENT", "AFTER_PROJECT_END")));
+    }
+
+    @Test
+    void theSuggestedDatesSayWhatTheyWouldCause() {
+        Account owner = Api.signup("Hal");
+        Number id = owner.as().body(Map.of("name", "Tight", "code", "TIGHT", "status", "ACTIVE",
+                        "startDate", "2026-03-02", "endDate", "2026-03-13"))
+                .post("/api/orgs/" + owner.orgId() + "/projects").then().statusCode(201).extract().path("id");
+        long projectId = id.longValue();
+        long design = Api.createTask(owner, projectId, Map.of("title", "Design", "startDate", "2026-03-09", "dueDate", "2026-03-13"));
+        long build = Api.createTask(owner, projectId, Map.of("title", "Build", "startDate", "2026-03-16", "dueDate", "2026-03-18"));
+        owner.as().body(Map.of("predecessorId", design)).post("/api/tasks/" + build + "/dependencies").then().statusCode(201);
+        // Build is pulled back inside the project, in front of Design.
+        owner.as().body(Map.of("startDate", "2026-03-11", "dueDate", "2026-03-13")).patch("/api/tasks/" + build).then().statusCode(200);
+
+        // The way out of the broken link leads past the project's end, and the API says so.
+        owner.as().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(200)
+                .body("$", hasSize(1))
+                .body("[0].type", equalTo("STARTS_TOO_EARLY"))
+                .body("[0].suggestedStart", equalTo("2026-03-16"))
+                .body("[0].suggestedDue", equalTo("2026-03-18"))
+                .body("[0].suggestionCauses", equalTo(java.util.List.of("AFTER_PROJECT_END")));
     }
 
     @Test

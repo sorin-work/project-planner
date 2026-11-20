@@ -3,6 +3,9 @@ package com.projectplanner.time;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
+import com.projectplanner.time.TimeDtos.MissingResponse;
+import com.projectplanner.time.TimeDtos.RemindRequest;
+import com.projectplanner.time.TimeDtos.RemindResponse;
 import com.projectplanner.time.TimeDtos.ReviewRequest;
 import com.projectplanner.time.TimeDtos.SubmitRequest;
 import com.projectplanner.time.TimeDtos.TimesheetSummary;
@@ -82,6 +85,26 @@ public class TimesheetResource {
                         "organisationId = ?1 and status = ?2 order by weekStart desc, id", orgId, status)
                 .page(0, Math.max(1, Math.min(200, limit))).list();
         return timesheets.summaries(orgId, sheets);
+    }
+
+    /**
+     * Who has not submitted a week that is over: drafts and weeks that were sent back, with
+     * the time logged so far. For managers.
+     */
+    @GET
+    @Path("/missing")
+    public MissingResponse missing(@PathParam("orgId") long orgId, @QueryParam("weekStart") LocalDate weekStart) {
+        access.manager(orgId);
+        return timesheets.missing(orgId, weekStart);
+    }
+
+    /** Asks people to submit a missing week. The answer says who was reminded and who was left out, and why. */
+    @POST
+    @Path("/remind")
+    @Transactional
+    public RemindResponse remind(@PathParam("orgId") long orgId, @Valid @NotNull RemindRequest request) {
+        Membership me = access.manager(orgId);
+        return timesheets.remind(me, request.weekStart(), request.userIds());
     }
 
     @GET

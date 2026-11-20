@@ -1063,6 +1063,10 @@ select.compact {
   margin: 0.4rem 0 0;
 }
 
+.issue-fix .issue-note {
+  margin-top: 0;
+}
+
 .issues-card {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
@@ -1490,6 +1494,40 @@ select.compact {
 
 .review-actions {
   margin-top: 1rem;
+}
+
+.missing-nav {
+  justify-content: center;
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.list-header h2 {
+  margin: 0;
+}
+
+.missing-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.missing-row .row-button {
+  flex: 1;
+  width: auto;
+  border-bottom: none;
+}
+
+.missing-row > button.small,
+.missing-row > a {
+  white-space: nowrap;
 }
 
 .presets {

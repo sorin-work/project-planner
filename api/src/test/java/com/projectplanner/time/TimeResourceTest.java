@@ -96,12 +96,14 @@ class TimeResourceTest {
 
         owner.as().get("/api/orgs/" + owner.orgId() + "/timesheets")
                 .then().statusCode(200).body("id", hasItem(sheetId.intValue()));
-        owner.as().get("/api/notifications").then().body("type", hasItem("TIMESHEET_SUBMITTED"));
+        owner.as().get("/api/notifications").then().body("type", hasItem("TIMESHEET_SUBMITTED"))
+                .body("weekStart", hasItem(WEEK.toString()));
 
         owner.as().body(Map.of("note", "Wrong project on Monday"))
                 .post("/api/orgs/" + owner.orgId() + "/timesheets/" + sheetId + "/reject")
                 .then().statusCode(200).body("status", equalTo("REJECTED")).body("reviewNote", equalTo("Wrong project on Monday"));
-        member.as().get("/api/notifications").then().body("[0].type", equalTo("TIMESHEET_REJECTED"));
+        member.as().get("/api/notifications").then().body("[0].type", equalTo("TIMESHEET_REJECTED"))
+                .body("[0].weekStart", equalTo(WEEK.toString()));
         member.as().delete("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId).then().statusCode(204);
     }
 

@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { TimeEntry, TimesheetStatus, TimesheetSummary, Week } from './models';
+import { MissingTimesheets, RemindResult, TimeEntry, TimesheetStatus, TimesheetSummary, Week } from './models';
 
 export interface TimeEntryInput {
   projectId: number;
@@ -77,6 +77,16 @@ export class TimeApi {
 
   timesheets(orgId: number, status: TimesheetStatus = 'SUBMITTED'): Observable<TimesheetSummary[]> {
     return this.http.get<TimesheetSummary[]>(`/api/orgs/${orgId}/timesheets`, { params: { status } });
+  }
+
+  /** Who has not submitted a week that is over; the last such week when none is given. */
+  missing(orgId: number, weekStart?: string | null): Observable<MissingTimesheets> {
+    const params = weekStart ? new HttpParams().set('weekStart', weekStart) : undefined;
+    return this.http.get<MissingTimesheets>(`/api/orgs/${orgId}/timesheets/missing`, { params });
+  }
+
+  remind(orgId: number, weekStart: string, userIds: number[]): Observable<RemindResult> {
+    return this.http.post<RemindResult>(`/api/orgs/${orgId}/timesheets/remind`, { weekStart, userIds });
   }
 
   timesheet(orgId: number, id: number): Observable<Week> {

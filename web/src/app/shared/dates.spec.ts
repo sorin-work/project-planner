@@ -7,6 +7,7 @@ import {
   isWeekend,
   maxDate,
   minDate,
+  parseIsoDate,
   timeAgo,
   today,
   weekStart,
@@ -29,6 +30,15 @@ describe('dates', () => {
     expect(isWeekend('2026-03-07')).toBe(true);
     expect(isWeekend('2026-03-06')).toBe(false);
     expect(dayName('2026-03-04')).toBe('Wed');
+  });
+
+  it('only accepts real dates from a URL', () => {
+    expect(parseIsoDate('2026-03-02')).toBe('2026-03-02');
+    expect(parseIsoDate('2026-02-30')).toBeNull();
+    expect(parseIsoDate('2026-3-2')).toBeNull();
+    expect(parseIsoDate('next week')).toBeNull();
+    expect(parseIsoDate('')).toBeNull();
+    expect(parseIsoDate(null)).toBeNull();
   });
 
   it('starts weeks on Monday', () => {

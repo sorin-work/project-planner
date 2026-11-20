@@ -1,5 +1,5 @@
 import { TimeEntry } from '../../core/models';
-import { buildGrid } from './timesheet-grid';
+import { buildGrid, weekOfParam } from './timesheet-grid';
 import { formatElapsed } from './timer.service';
 
 function entry(id: number, date: string, minutes: number, extra: Partial<TimeEntry> = {}): TimeEntry {
@@ -29,6 +29,19 @@ describe('buildGrid', () => {
     const grid = buildGrid('2026-03-02', [entry(1, '2026-03-09', 60)]);
     expect(grid.rows).toHaveLength(0);
     expect(grid.total).toBe(0);
+  });
+});
+
+describe('weekOfParam', () => {
+  // 2026-03-11 is a Wednesday.
+  it('opens the week a link names, from any day of it', () => {
+    expect(weekOfParam('2026-03-02', '2026-03-11')).toBe('2026-03-02');
+    expect(weekOfParam('2026-03-05', '2026-03-11')).toBe('2026-03-02');
+  });
+
+  it('falls back to the current week', () => {
+    expect(weekOfParam(null, '2026-03-11')).toBe('2026-03-09');
+    expect(weekOfParam('last-week', '2026-03-11')).toBe('2026-03-09');
   });
 });
 

@@ -11,7 +11,7 @@ import { segments } from '../../shared/mentions';
 import { TimerService } from '../time/timer.service';
 import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
-import { issueText, linkIssue, linkNote, moveTo } from './schedule-issues';
+import { issueText, linkIssue, linkNote, moveCost, moveTo } from './schedule-issues';
 
 @Component({
   selector: 'app-task-panel',
@@ -79,6 +79,7 @@ export class TaskPanel {
   protected readonly formatHours = formatHours;
   protected readonly linkIssue = linkIssue;
   protected readonly linkNote = linkNote;
+  protected readonly moveCost = moveCost;
   protected readonly timeAgo = timeAgo;
   protected readonly segments = segments;
 

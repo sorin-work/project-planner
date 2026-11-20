@@ -9,7 +9,7 @@ import { Gantt } from '../gantt/gantt';
 import { Zoom } from '../gantt/gantt-layout';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
-import { MoveTo, issueLines, planEndNote } from './schedule-issues';
+import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
 
 @Component({
   selector: 'app-timeline-tab',
@@ -37,6 +37,12 @@ import { MoveTo, issueLines, planEndNote } from './schedule-issues';
     @if (endNote(); as note) {
       <p class="muted small plan-end-note">{{ note }}</p>
     }
+    @if (store.scheduleError(); as problem) {
+      <p class="alert error" role="alert">
+        The schedule could not be checked after the last change, so warnings are not shown: {{ problem }}
+        <button type="button" class="link" (click)="store.refreshSchedule()">Try again</button>
+      </p>
+    }
     @if (showIssues() && lines().length) {
       <section class="card issues-card" aria-label="Schedule issues">
         <ul class="task-lines">
@@ -45,6 +51,9 @@ import { MoveTo, issueLines, planEndNote } from './schedule-issues';
               <button type="button" class="link" (click)="openTask(line.taskId)">{{ line.title }}</button>
               <span class="grow issue-note">{{ line.text }}</span>
               @if (org.isTeam() && line.fix; as fix) {
+                @if (moveCost(fix); as cost) {
+                  <span class="muted small">{{ cost }}</span>
+                }
                 <button type="button" class="small" (click)="applyFix(fix)">Move to {{ formatDate(fix.startDate) }}</button>
               }
             </li>
@@ -91,6 +100,7 @@ export class TimelineTab {
   protected readonly message = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly formatDate = formatDate;
+  protected readonly moveCost = moveCost;
 
   /** A bar was dragged or moved with the arrow keys, by working days. */
   move(taskId: number, days: number): void {

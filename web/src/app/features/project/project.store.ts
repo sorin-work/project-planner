@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, forkJoin, map, tap } from 'rxjs';
+import { messageOf } from '../../core/errors';
 import { CriticalPath, Member, Phase, Project, ScheduleIssue, Task, TaskChange } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { ProjectApi } from '../../core/project.api';
@@ -20,6 +21,8 @@ export class ProjectStore {
   readonly criticalPath = signal<CriticalPath | null>(null);
   /** Where the plan contradicts itself, as the API sees it. Refetched with the critical path. */
   readonly issues = signal<ScheduleIssue[]>([]);
+  /** Why the critical path and the issues could not be refreshed after a change, or null when they are current. */
+  readonly scheduleError = signal<string | null>(null);
   readonly loading = signal(true);
   /** Bumped after every change so tabs with their own data (health, activity) can reload. */
   readonly version = signal(0);
@@ -49,6 +52,7 @@ export class ProjectStore {
         this.scheduleRequest++;
         this.criticalPath.set(critical);
         this.issues.set(issues);
+        this.scheduleError.set(null);
         this.loading.set(false);
         this.orgApi.members(project.organisationId).subscribe({ next: (m) => this.members.set(m) });
       }),
@@ -138,6 +142,10 @@ export class ProjectStore {
    * Refetches what the API works out from the plan: the critical path and the
    * schedule issues. Changes can follow each other quickly (arrow keys on a bar),
    * so an answer is dropped when a newer request has gone out since.
+   *
+   * When the refresh fails, what was on screen is from before the change. It is
+   * dropped and the error kept for the tabs to show: an old "Move to" could pull a
+   * task back in front of a predecessor that has just been moved later.
    */
   refreshSchedule(): void {
     const project = this.project();
@@ -145,17 +153,22 @@ export class ProjectStore {
       return;
     }
     const request = ++this.scheduleRequest;
-    this.projects.criticalPath(project.id).subscribe({
-      next: (c) => {
+    forkJoin({
+      critical: this.projects.criticalPath(project.id),
+      issues: this.projects.scheduleIssues(project.id),
+    }).subscribe({
+      next: ({ critical, issues }) => {
         if (request === this.scheduleRequest) {
-          this.criticalPath.set(c);
+          this.criticalPath.set(critical);
+          this.issues.set(issues);
+          this.scheduleError.set(null);
         }
       },
-    });
-    this.projects.scheduleIssues(project.id).subscribe({
-      next: (i) => {
+      error: (err: unknown) => {
         if (request === this.scheduleRequest) {
-          this.issues.set(i);
+          this.criticalPath.set(null);
+          this.issues.set([]);
+          this.scheduleError.set(messageOf(err));
         }
       },
     });
