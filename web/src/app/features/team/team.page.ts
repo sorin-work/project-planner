@@ -6,10 +6,11 @@ import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { Avatar } from '../../shared/avatar';
 import { ROLE_LABELS, formatMoney } from '../../shared/format';
+import { TimeOffCard } from './time-off.card';
 
 @Component({
   selector: 'app-team-page',
-  imports: [FormsModule, Avatar],
+  imports: [FormsModule, Avatar, TimeOffCard],
   templateUrl: './team.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

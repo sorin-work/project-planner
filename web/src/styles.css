@@ -680,6 +680,11 @@ select.compact {
   background: color-mix(in srgb, var(--surface-2) 60%, transparent);
 }
 
+.holiday-name {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .person {
   display: flex;
   gap: 0.6rem;
@@ -797,7 +802,8 @@ select.compact {
 .comments,
 .deps,
 .checklist,
-.phase-list {
+.phase-list,
+.calendar-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -901,6 +907,15 @@ select.compact {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 0.4rem;
+}
+
+/* Holidays and time off: one line each, the button at the end. */
+.calendar-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .danger-zone {
@@ -1656,6 +1671,13 @@ select.compact {
 
 .flag {
   color: var(--danger);
+  font-weight: 700;
+  margin-left: 0.25rem;
+}
+
+/* A week with less capacity than the weekly hours: holidays or time off. */
+.less {
+  color: var(--muted);
   font-weight: 700;
   margin-left: 0.25rem;
 }

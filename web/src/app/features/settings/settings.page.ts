@@ -6,13 +6,14 @@ import { messageOf } from '../../core/errors';
 import { Organisation } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
+import { HolidaysCard } from './holidays.card';
 
 const TIMEZONES = ['UTC', 'Europe/London', 'Europe/Berlin', 'Europe/Bucharest', 'America/New_York', 'America/Los_Angeles', 'Asia/Singapore'];
 const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
 
 @Component({
   selector: 'app-settings-page',
-  imports: [FormsModule],
+  imports: [FormsModule, HolidaysCard],
   template: `
     <h1>Settings</h1>
     @if (message()) {
@@ -63,6 +64,9 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
             }
           </form>
         </section>
+      }
+      @if (org.canManage()) {
+        <app-holidays-card />
       }
     </div>
   `,
