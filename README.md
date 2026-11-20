@@ -86,6 +86,13 @@ the point is knowing whether a project will land on time and on budget.
   and an on track / at risk / off track status.
 - **Comments with @mentions** (handles are the part of the email before the @, with
   autocomplete), in-app notifications, an activity log per project and organisation.
+- **Budget alerts**: when a project's hours burn or money burn reaches 80% of its
+  budget, and again when it reaches 100%, every owner and manager gets a notification
+  that opens the project's overview. Hours and money are announced separately, and the
+  hours message has no amounts in it. Each threshold is announced once. A burn that
+  falls back under one (time deleted, the budget raised) can announce it again later.
+  The check runs when time is logged, changed, moved, deleted or a timer stops, and when
+  a budget or a rate changes. A project without a budget is never looked at.
 - **Reports**: logged time per project, client, person or task for this or last week
   or month, or any range up to two years, with the billable time and, for owners and
   managers, the billable amount. A click on a project shows its tasks. Utilisation
@@ -146,6 +153,7 @@ dependencies, so they are tested in isolation:
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
 | `BudgetCalculator`    | Hours and money burn against the budgets                             |
 | `HealthStatus`        | Turns progress and burn into on track / at risk / off track          |
+| `BudgetThresholds`    | The 80% and 100% budget alerts, once each per burn, upwards only     |
 | `WorkloadCalculator`  | Allocated hours per person per week vs capacity, and capacity for a range |
 | `TimeReport`          | Time per project, client, person or task, priced entry by entry in cents |
 | `Utilisation`         | Billable time as a share of capacity, per person and in total        |
@@ -187,7 +195,8 @@ creates a demo agency, *Brightline Studio*, with eight projects at different sta
 planned), phases, milestones and about ninety tasks with dependencies, a year of
 time entries for five people, timesheets
 (older weeks approved, last week waiting for review, one sent back and one still a
-draft with a reminder), comments with mentions and some notifications. All dates are
+draft with a reminder), comments with mentions and some notifications, among them the
+budget alert of the Globex patient portal, which is over its hours budget. All dates are
 relative to the day it runs. Set `SEED_DEMO=false` for an empty database.
 
 Two of the demo projects have schedule issues to look at on their timeline: in the

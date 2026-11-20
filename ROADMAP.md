@@ -30,7 +30,7 @@ couple of weekends, **L** several weeks of spare time.
 | 7   | API reference built from the code          | Shipped | backend  | S    | -          |
 | 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
 | 9   | Time and utilisation reports               | Shipped | both     | M    | -          |
-| 10  | Budget alerts                              | Later | both     | S    | -          |
+| 10  | Budget alerts                              | Shipped | both     | S    | -          |
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
 | 13  | Duplicate a project as a template          | Later | both     | M    | -          |
@@ -216,57 +216,6 @@ only a keyboard or with a screen reader. Gaps I already know about:
   towards a small live-region service of my own and plain key handlers.
 
 ## Later
-
-### 10. Budget alerts
-
-The point of the app is knowing whether a project will land on budget, but it
-only tells you when you open the project. Nobody hears about it when a project
-crosses 80% of its hours or goes over. Harvest sends a message at a threshold,
-and that is the one thing of theirs I miss.
-
-- When: after time changes on a project, which is `TimeService.create`,
-  `update`, `delete` and `finish` (a stopped timer). Compare the hours burn
-  and the money burn with the thresholds and notify when either burn crosses
-  one for the first time.
-- One threshold setting, two alert states. The thresholds (80 and 100) are the
-  same for hours and for money, kept as constants next to
-  `HealthStatus.BURN_AHEAD_TOLERANCE`. What has been announced is kept per
-  burn: two integer columns on `projects`, `hours_alert_pct` and
-  `amount_alert_pct`, both defaulting to 0
-  (`V17__add_project_budget_alert.sql`). Each holds the highest threshold
-  already announced for its own burn. With a single column, hours reaching
-  100 would swallow the later message that money passed 80.
-- Reset each state on its own: when its burn falls back under a threshold
-  (entries deleted) or its budget changes in `ProjectService`.
-- Who: every owner and manager of the organisation, with the loop
-  `TimesheetService.submit` uses. A new `NotificationType.BUDGET_ALERT` with
-  the project set and no actor. Pass `null` as the actor: `Notifier.notify`
-  skips people's own actions, and the manager whose entry crossed the line
-  should still hear about it.
-- Money is only for owners and managers. They are the only recipients for now,
-  but keep the hours message and the money message separate so that widening
-  the audience later cannot leak amounts.
-- Where: a small `BudgetAlerts` bean in `report/`. `TimeService` either calls
-  it or fires a CDI event that it observes, which keeps `time` from depending
-  on `report`.
-- Tricky: cost. `ProjectHealthService.budget` loads every time entry of the
-  project and a full `RateBook` on each call. Doing that on every saved entry
-  is wasteful on a long project. The hours threshold only needs a
-  `sum(minutes)`. Money needs minutes per person, since the rate depends on
-  project and person, so one grouped query.
-- Web: an icon in `ICONS`. `notificationTarget` has nowhere to send a
-  notification that has a project but no task, so add that case (to the
-  project's overview tab).
-- Tricky: a changed rate (on the project, a member, a role or the
-  organisation) moves the money burn without any time being logged. Nothing
-  fires at that moment. The next entry on the project picks it up.
-- Undecided: who a project belongs to. There is no project lead, so every
-  manager is told about every project, which is noise in a bigger team. A lead
-  on `projects` would fix that, and would help the daily summary that item 12
-  leaves as a follow-up.
-- Undecided: alerts for the schedule (health turning off track, or the plan
-  running past `Project.endDate` after a cascade). Those need hooks in
-  `TaskService` as well. Not here.
 
 ### 11. Invitation and password reset emails
 
@@ -887,3 +836,36 @@ organisation still has their time in the summary, and can be filtered by, but
 is not in utilisation, which the page says.
 The summary has no filters of its own on the page beyond the grouping and
 the project click, although the API takes them.
+
+### 10. Budget alerts
+
+`BudgetAlerts` in `report/` observes three CDI events fired inside the
+transaction of the change: `TimeChanged` (`TimeService.create`, `update`,
+`delete`, `finish`, and both projects when an entry moves), `BudgetChanged`
+(`ProjectService.update` when the hours budget, the money budget or the
+project's rate changes) and `RatesChanged` (the organisation's default rate,
+a role's rate, a member's rate or role, a member removed). The thresholds are
+80 and 100, the same for hours and money, in `BudgetThresholds`. The burn is
+compared as the overview shows it, a whole percentage, so a project that
+reads 80% there has had its alert. `hours_alert_pct` and `amount_alert_pct`
+(`V17`) hold the highest threshold announced per burn. Going from under 80
+straight past 100 is one alert, for 100. A burn that falls back takes its
+level down with it, so a later real crossing alerts again. Every owner and
+manager gets a `BUDGET_ALERT` with the project and no actor, one message for
+hours (no amounts) and one for money. The numbers come from
+`BudgetCalculator` through `ProjectHealthService.budget`, which now groups
+the entries in the database by person, billable flag and length with a count,
+so money is still rounded per entry and the overview reads the same way.
+Changes to a project's time lock its row first (two projects lowest id
+first), so two entries saved at the same moment give one alert. A replayed
+create with a client key returns before anything is saved and does not
+alert. A project without a budget and nothing to take back costs no query.
+The demo projects start at the level of their burn, and only the patient
+portal, which is over its hours budget, has told the managers.
+Different from the design: the thresholds are not next to
+`HealthStatus.BURN_AHEAD_TOLERANCE` but in a class of their own with the
+rule for when an alert goes out. A changed rate is looked at the moment it
+changes, for every project of the organisation with a money budget, instead
+of waiting for the next entry. Still open: every manager hears about every
+project, since there is no project lead, and there are no alerts for the
+schedule. Email is item 12.
