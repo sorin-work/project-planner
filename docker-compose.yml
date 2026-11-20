@@ -30,6 +30,10 @@ services:
       # Serves the interactive API reference at /api/docs. Off unless asked for: this file
       # is also how the app runs for real. .env.example turns it on for development.
       API_DOCS: ${API_DOCS:-false}
+      # Files attached to tasks, on their own volume. The backup service archives it with every dump.
+      ATTACHMENTS_DIR: /data/attachments
+    volumes:
+      - attachments:/data/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -56,8 +60,9 @@ services:
       retries: 5
 
   # Optional, start it with: docker compose --profile backup up -d
-  # Dumps the database once a day into BACKUP_DIR and keeps the newest
-  # BACKUP_KEEP dumps. See "Backup and restore" in the README.
+  # Dumps the database once a day into BACKUP_DIR, with an archive of the
+  # attachments next to each dump, and keeps the newest BACKUP_KEEP of them.
+  # See "Backup and restore" in the README.
   backup:
     # The same image as db, so that pg_dump matches the server.
     image: postgres:17-alpine
@@ -70,12 +75,18 @@ services:
       PGDATABASE: ${POSTGRES_DB:-planner}
       BACKUP_KEEP: ${BACKUP_KEEP:-7}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      ATTACHMENTS_DIR: /attachments
+      # The api's user (api/Dockerfile): restored attachments, and a volume this
+      # service happens to create, are given to it.
+      ATTACHMENTS_OWNER: '1000:1000'
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./scripts:/scripts:ro
       - ${BACKUP_DIR:-./backups}:/backups
+      - attachments:/attachments
 
 volumes:
   db-data:
+  attachments:

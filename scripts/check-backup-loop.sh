@@ -9,6 +9,9 @@
 # pauses after every attempt, and never leaves fewer dumps behind than
 # BACKUP_KEEP allows.
 set -eu
+# The loop is the same with and without attachments, and the stand-ins write
+# no archives. check-backup.sh checks the archives for real.
+unset ATTACHMENTS_DIR
 
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)

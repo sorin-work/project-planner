@@ -10,6 +10,15 @@
 # Dumps go to $BACKUP_DIR as planner-<UTC time>.dump in pg_dump's custom
 # format. After every dump only the newest $BACKUP_KEEP are kept.
 #
+# With ATTACHMENTS_DIR set, the files attached to tasks are archived next to
+# each dump as planner-<UTC time>.files.tar, written and pruned with it, and
+# a restore puts them back from the archive that goes with the dump. The
+# dump is taken first and the archive right after it. Files are only ever
+# added or removed, never changed, so a file attached in between is an
+# extra file in the archive, which the api's sweep removes, and a file
+# removed in between is missing from it: its row is in the dump, and the
+# api answers 404 for it.
+#
 # The time in the name is the only time that counts, for the age of a dump
 # and for the order they are pruned in. Modification times are not looked
 # at: on a network share they come from another machine's clock.
@@ -18,13 +27,18 @@ set -eu
 dir=${BACKUP_DIR:-/backups}
 keep=${BACKUP_KEEP:-7}
 interval=${BACKUP_INTERVAL_SECONDS:-86400}
+files=${ATTACHMENTS_DIR:-}
+# Who the attachments belong to, as uid:gid. Without it, the owner of the folder.
+files_owner=${ATTACHMENTS_OWNER:-}
 
 # A dump holds the password hashes, the rates and every hour that was
 # logged: owner only.
 umask 077
 
-# The dump being written, if any, so that it can be removed when stopped.
+# The dump and the archive being written, if any, so that they can be
+# removed when stopped.
 partial=''
+partial_files=''
 
 log() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"
@@ -48,6 +62,19 @@ check_settings() {
   if [ ! -d "$dir" ] || [ ! -w "$dir" ]; then
     fail "cannot write to $dir"
   fi
+  if [ -n "$files" ] && { [ ! -d "$files" ] || [ ! -r "$files" ]; }; then
+    fail "cannot read the attachments in $files"
+  fi
+  # A volume that this service mounted before the api did belongs to root, and
+  # the api could not write to it.
+  if [ -n "$files" ] && [ -n "$files_owner" ] && [ "$(id -u)" = 0 ]; then
+    chown "$files_owner" "$files" || fail "could not give $files to $files_owner"
+  fi
+}
+
+# The archive of the attachments that goes with a dump.
+archive_of() {
+  echo "${1%.dump}.files.tar"
 }
 
 # File names of the finished dumps, newest first, going by the time in the
@@ -67,7 +94,7 @@ dump_time() {
 # below older dumps, and it is still the one worth keeping.
 prune() {
   dumps | grep -v -x -F "$1" | tail -n +"$keep" | while read -r old; do
-    rm -f "$dir/$old"
+    rm -f "$dir/$old" "$dir/$(archive_of "$old")"
     log "removed $old"
   done
 }
@@ -78,25 +105,54 @@ prune() {
 # off inside "if dump".
 dump() {
   name="planner-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  archive=$(archive_of "$name")
   partial="$dir/.$name.partial"
+  partial_files=''
   if ! pg_dump --format=custom --file="$partial"; then
-    rm -f "$partial"
-    partial=''
+    give_up
     return 1
+  fi
+  # The attachments, as they are right after the dump. Without both there
+  # is no backup, and neither file is kept.
+  if [ -n "$files" ]; then
+    partial_files="$dir/.$archive.partial"
+    if ! tar -C "$files" -cf "$partial_files" .; then
+      log "could not archive the attachments in $files"
+      give_up
+      return 1
+    fi
   fi
   # Docker runs this as root. Give the dump to whoever owns the folder, so
   # that on the host it belongs to the same user as the folder it is in.
   if [ "$(id -u)" = 0 ]; then
-    chown "$(stat -c %u:%g "$dir")" "$partial" 2>/dev/null || true
+    chown "$(stat -c %u:%g "$dir")" "$partial" ${partial_files:+"$partial_files"} 2>/dev/null || true
+  fi
+  # The archive is in place before the dump, so a dump never counts as a
+  # backup without its files.
+  if [ -n "$partial_files" ] && ! mv "$partial_files" "$dir/$archive"; then
+    give_up
+    return 1
   fi
   if ! mv "$partial" "$dir/$name"; then
-    rm -f "$partial"
-    partial=''
+    rm -f "$dir/$archive"
+    give_up
     return 1
   fi
   partial=''
-  log "wrote $name ($(wc -c <"$dir/$name") bytes)"
+  partial_files=''
+  if [ -n "$files" ]; then
+    log "wrote $name ($(wc -c <"$dir/$name") bytes) and $archive ($(wc -c <"$dir/$archive") bytes)"
+  else
+    log "wrote $name ($(wc -c <"$dir/$name") bytes)"
+  fi
   prune "$name"
+}
+
+# Removes what a dump that did not work left behind.
+give_up() {
+  rm -f "$partial" ${partial_files:+"$partial_files"}
+  partial=''
+  partial_files=''
 }
 
 # When the newest dump was made, as seconds since 1970, for a clock that
@@ -135,7 +191,7 @@ nap() {
 #     suspended, and the dumps would come less often than daily.
 run() {
   check_settings
-  trap 'rm -f "$partial"; log "stopping"; exit 0' TERM INT
+  trap 'rm -f "$partial" ${partial_files:+"$partial_files"}; log "stopping"; exit 0' TERM INT
   step=$((interval < 60 ? interval : 60))
   # Left behind if the last run was killed in the middle of a dump.
   rm -f "$dir"/.planner-*.partial
@@ -200,6 +256,26 @@ restore() {
   [ -f "$file" ] || file="$dir/$file"
   [ -f "$file" ] || fail "no such dump: $1"
 
+  # The attachments are unpacked first, next to the ones in use, so that an
+  # archive that cannot be read stops the restore before anything changed.
+  staged=''
+  if [ -n "$files" ]; then
+    archive=$(archive_of "$file")
+    if [ -f "$archive" ]; then
+      staged="$files/.restoring"
+      rm -rf "$staged"
+      mkdir "$staged"
+      # Until the swap starts, a restore that stops leaves no unpacked copy behind.
+      trap '[ -z "$staged" ] || rm -rf "$staged"' EXIT
+      if ! tar -C "$staged" -xf "$archive"; then
+        rm -rf "$staged"
+        fail "could not unpack $(basename "$archive"), nothing was restored"
+      fi
+    else
+      log "there is no archive of the attachments next to $(basename "$file"), the attachments are left as they are"
+    fi
+  fi
+
   # On a new volume "docker compose run" starts the database for this, and
   # the image can pass its health check while it is still setting itself up,
   # a moment before it takes connections from other containers.
@@ -250,6 +326,26 @@ restore() {
     drop "$replaced" || log "the old database is still there as $replaced, remove it with: dropdb $replaced" >&2
   fi
   log "restored $PGDATABASE from $(basename "$file")"
+  [ -z "$staged" ] || swap_files
+}
+
+# Puts the unpacked attachments in the place of the ones in use. Only what
+# the archive holds is there afterwards, owned by whoever owns the folder,
+# which is the api's user.
+swap_files() {
+  # From here on what is unpacked is the only copy of some of it: keep it if this fails.
+  trap - EXIT
+  find "$files" -mindepth 1 -maxdepth 1 ! -name .restoring -exec rm -rf {} \; ||
+    fail "$PGDATABASE was restored, but the attachments could not be cleared. The ones from the backup are in $staged."
+  for entry in "$staged"/* "$staged"/.[!.]*; do
+    [ ! -e "$entry" ] || mv "$entry" "$files/" ||
+      fail "$PGDATABASE was restored, but the attachments could not all be put back. The rest are in $staged."
+  done
+  rmdir "$staged"
+  if [ "$(id -u)" = 0 ]; then
+    chown -R "${files_owner:-$(stat -c %u:%g "$files")}" "$files" 2>/dev/null || true
+  fi
+  log "restored the attachments from $(basename "$(archive_of "$file")") ($(find "$files" -type f | wc -l) files)"
 }
 
 case ${1:-run} in
