@@ -57,9 +57,14 @@ A few things hold for every item:
   mode, so the SQL has to be plain enough for both: no `tsvector`, `jsonb`,
   partial indexes or Postgres-only functions. Where an item needs a migration
   I have written down a version number for it, so that two items in progress
-  at the same time do not both take `V16`. Gaps are fine. Flyway refuses a
-  lower version on a database that already has a higher one, so a development
-  volume may need `docker compose down -v` when items land out of order.
+  at the same time do not both take `V16`. Gaps are fine.
+- The items can land in any order, so the migrations can too. Flyway runs with
+  `quarkus.flyway.out-of-order=true` for that reason: a database that already
+  ran `V18` still gets `V16` applied when it shows up. With the default,
+  Flyway would refuse to start there, and the only way out would be to throw
+  the data away. This only works while every migration stands on its own, so
+  build on the schema up to `V15` and on your own item's file, never on
+  another item's.
 - Tests go where the existing ones are: plain JUnit for the rule classes
   (`schedule`, `report`, `workload`), `@QuarkusTest` with REST Assured and the
   `support/Api` helper for endpoints, and Vitest specs next to the file on the
@@ -343,8 +348,10 @@ hours, that is the first thing anyone hosting it should ask about.
 - A "Backup and restore" section in the README with the restore steps: stop
   `api`, `pg_restore --clean --if-exists`, start `api`.
 - Tricky: Flyway. The dump contains `flyway_schema_history`. An older dump
-  under a newer API is fine, because pending migrations run at start
-  (`quarkus.flyway.migrate-at-start=true`). A newer dump under an older API is
+  under a newer API is fine: the migrations it lacks run at start
+  (`quarkus.flyway.migrate-at-start=true`), and since out-of-order is on that
+  includes one with a lower number than the dump's latest. Cover that case in
+  the CI check if it is cheap. A newer dump under an older API is
   the risky direction: as far as I know Flyway only warns about applied
   versions it has no file for, and the old code then runs against a newer
   schema. Try it, and have the README say to restore into the same version or
