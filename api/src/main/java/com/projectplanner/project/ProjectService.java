@@ -16,8 +16,13 @@ import org.hibernate.exception.ConstraintViolationException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.projectplanner.common.Text.blankToNull;
 
@@ -156,9 +161,29 @@ public class ProjectService {
             Client client = Client.findById(p.clientId);
             clientName = client == null ? null : client.name;
         }
+        return toResponse(p, showMoney, clientName);
+    }
+
+    /** The same for a list of projects, with the names of their clients from one query. */
+    public static List<ProjectResponse> toResponses(List<Project> projects, boolean showMoney) {
+        Map<Long, String> clients = clientNames(projects);
+        return projects.stream().map(p -> toResponse(p, showMoney, p.clientId == null ? null : clients.get(p.clientId))).toList();
+    }
+
+    /** The name of the client of each project that has one, by client id, from one query. */
+    public static Map<Long, String> clientNames(List<Project> projects) {
+        Set<Long> ids = projects.stream().map(p -> p.clientId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> names = new HashMap<>();
+        if (!ids.isEmpty()) {
+            Client.<Client>list("id in ?1", ids).forEach(c -> names.put(c.id, c.name));
+        }
+        return names;
+    }
+
+    private static ProjectResponse toResponse(Project p, boolean showMoney, String clientName) {
         return new ProjectResponse(p.id, p.organisationId, p.clientId, clientName, p.name, p.code, p.description,
                 p.status, p.startDate, p.endDate, p.budgetHours,
                 showMoney ? p.budgetAmount : null, showMoney ? p.hourlyRate : null,
-                p.color, p.createdAt, p.updatedAt);
+                p.color, p.createdAt, p.updatedAt, null, null);
     }
 }

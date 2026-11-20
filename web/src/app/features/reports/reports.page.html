@@ -43,8 +43,8 @@
         <label for="ex-project">Project</label>
         <select id="ex-project" name="project" [(ngModel)]="projectId">
           <option [ngValue]="null">All projects</option>
-          @for (p of projects(); track p.project.id) {
-            <option [ngValue]="p.project.id">{{ p.project.code }} · {{ p.project.name }}</option>
+          @for (p of projects(); track p.id) {
+            <option [ngValue]="p.id">{{ p.code }} · {{ p.name }}</option>
           }
         </select>
       </div>

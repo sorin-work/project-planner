@@ -3,10 +3,20 @@ package com.projectplanner.schedule;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
+import java.util.Collection;
+import java.util.NavigableSet;
+import java.util.TreeSet;
 
 /**
- * Working days are Monday to Friday. Task durations, lags and rescheduling are all
- * counted in working days, so a two day task that starts on Friday ends on Monday.
+ * Working days are Monday to Friday, apart from the organisation's holidays. Task
+ * durations, lags and rescheduling are all counted in working days, so a two day task
+ * that starts on Friday ends on Monday, or on Tuesday when Monday is a holiday.
+ *
+ * <p>This is the one place where working days are worked out. Everything that counts
+ * them on the API (the rescheduler, the critical path, the schedule check, the plan
+ * shift of a copy, progress, workload and the capacity in the reports) takes the
+ * organisation's calendar from {@code OrgCalendars}. {@link #DEFAULT}, without holidays,
+ * is for the tests and the demo seed.
  */
 public final class WorkCalendar {
 
@@ -15,7 +25,26 @@ public final class WorkCalendar {
     /** Monday to Friday. */
     public static final int WORKING_DAYS_PER_WEEK = 5;
 
+    /** The holidays that fall on a weekday. One on a Saturday changes nothing. */
+    private final NavigableSet<LocalDate> holidays = new TreeSet<>();
+
+    public WorkCalendar() {
+    }
+
+    /** A calendar whose working days are Monday to Friday without {@code holidays}. */
+    public WorkCalendar(Collection<LocalDate> holidays) {
+        holidays.stream().filter(WorkCalendar::isWeekday).forEach(this.holidays::add);
+    }
+
     public boolean isWorkingDay(LocalDate date) {
+        return isWeekday(date) && !holidays.contains(date);
+    }
+
+    public boolean isHoliday(LocalDate date) {
+        return holidays.contains(date);
+    }
+
+    private static boolean isWeekday(LocalDate date) {
         DayOfWeek day = date.getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
@@ -66,18 +95,19 @@ public final class WorkCalendar {
             return 0;
         }
         int count = 0;
-        // Whole weeks first so long projects don't loop day by day.
+        // Whole weeks first so long projects don't loop day by day, then the holidays in the
+        // range, which all fall on weekdays.
         long days = end.toEpochDay() - start.toEpochDay() + 1;
         long weeks = days / 7;
         count += (int) (weeks * 5);
         LocalDate d = start.plusDays(weeks * 7);
         while (!d.isAfter(end)) {
-            if (isWorkingDay(d)) {
+            if (isWeekday(d)) {
                 count++;
             }
             d = d.plusDays(1);
         }
-        return count;
+        return count - holidays.subSet(start, true, end, true).size();
     }
 
     /**

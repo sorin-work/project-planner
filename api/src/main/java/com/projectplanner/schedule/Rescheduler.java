@@ -9,16 +9,18 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Pushes dependants later when a task moves so that every finish-to-start link
- * still holds. Tasks are only ever moved forward and keep their duration in
+ * Pushes dependants later when a task moves so that every link still holds, by
+ * the {@link LinkRule}. Tasks are only ever moved forward and keep their duration in
  * working days; dependants that already start late enough are left alone.
  */
 public final class Rescheduler {
 
     private final WorkCalendar calendar;
+    private final LinkRule rule;
 
     public Rescheduler(WorkCalendar calendar) {
         this.calendar = calendar;
+        this.rule = new LinkRule(calendar);
     }
 
     /**
@@ -28,6 +30,20 @@ public final class Rescheduler {
      * @return the tasks that had to move, with their new dates, in the order they were moved
      */
     public Map<Long, ScheduledTask> propagate(Collection<ScheduledTask> tasks, Collection<Link> links, Set<Long> changed) {
+        return propagate(tasks, links, changed, false);
+    }
+
+    /**
+     * Like {@link #propagate}, for a change to the links of {@code tasks} rather than to
+     * their dates: the tasks themselves are checked and moved if they now come too
+     * early, and then what is downstream of them. Tasks that only share a predecessor
+     * with them are left alone.
+     */
+    public Map<Long, ScheduledTask> propagateFrom(Collection<ScheduledTask> tasks, Collection<Link> links, Set<Long> tasksToCheck) {
+        return propagate(tasks, links, tasksToCheck, true);
+    }
+
+    private Map<Long, ScheduledTask> propagate(Collection<ScheduledTask> tasks, Collection<Link> links, Set<Long> changed, boolean includeChanged) {
         Map<Long, ScheduledTask> current = new HashMap<>();
         for (ScheduledTask task : tasks) {
             current.put(task.id(), task);
@@ -37,6 +53,9 @@ public final class Rescheduler {
         Set<Long> affected = new HashSet<>();
         for (long id : changed) {
             affected.addAll(graph.reachable(id));
+            if (includeChanged) {
+                affected.add(id);
+            }
         }
 
         Map<Long, ScheduledTask> moved = new LinkedHashMap<>();
@@ -82,24 +101,12 @@ public final class Rescheduler {
     LocalDate earliestStart(DependencyGraph graph, Map<Long, ScheduledTask> tasks, long id) {
         LocalDate earliest = null;
         for (Link link : graph.predecessors(id)) {
-            LocalDate candidate = earliestStart(link, tasks.get(link.predecessorId()));
+            LocalDate candidate = rule.earliestStart(link, tasks.get(link.predecessorId()), tasks.get(id));
             if (candidate != null && (earliest == null || candidate.isAfter(earliest))) {
                 earliest = candidate;
             }
         }
         return earliest;
-    }
-
-    /**
-     * The first day the successor of {@code link} may start: the working day after
-     * the predecessor is due, plus the lag. Null if the predecessor has no due date,
-     * because then the link says nothing.
-     */
-    LocalDate earliestStart(Link link, ScheduledTask predecessor) {
-        if (predecessor == null || predecessor.due() == null) {
-            return null;
-        }
-        return calendar.addWorkingDays(calendar.nextWorkingDay(predecessor.due()), link.lagDays());
     }
 
     /** {@code task} moved so that it starts on {@code start}, with the same length in working days. */

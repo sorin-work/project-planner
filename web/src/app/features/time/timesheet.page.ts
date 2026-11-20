@@ -97,6 +97,10 @@ export class TimesheetPage {
   private readonly currentWeek = signal<string | null>(null);
   protected readonly weekOf = computed(() => this.linkedWeek() ?? this.currentWeek() ?? weekStart(today()));
   protected readonly week = signal<Week | null>(null);
+  /** The holidays of the week on screen, by date. Time can still be logged on them. */
+  protected readonly holidays = computed(
+    () => new Map((this.week()?.days ?? []).filter((d) => d.holiday).map((d) => [d.date, d.holiday!] as const)),
+  );
   protected readonly projects = signal<ProjectOption[]>([]);
   protected readonly projectsLoaded = signal(false);
   protected readonly tasks = signal<Task[]>([]);
@@ -187,17 +191,17 @@ export class TimesheetPage {
       // loaded for the other one (projects, tasks, an entry being edited) must not stay.
       untracked(() => this.forgetOrganisation());
       if (orgId !== null) {
-        this.projectApi.list(orgId).subscribe({
+        this.projectApi.options(orgId).subscribe({
           next: (items) => {
             this.projects.set(
               items
-                .filter((i) => i.project.status !== 'DONE')
-                .map((i) => ({
-                  id: i.project.id,
-                  code: i.project.code,
-                  name: i.project.name,
-                  label: `${i.project.code} · ${i.project.name}`,
-                  billableByDefault: !!i.project.clientId,
+                .filter((p) => p.status !== 'DONE')
+                .map((p) => ({
+                  id: p.id,
+                  code: p.code,
+                  name: p.name,
+                  label: `${p.code} · ${p.name}`,
+                  billableByDefault: !!p.clientId,
                 })),
             );
             this.projectsLoaded.set(true);

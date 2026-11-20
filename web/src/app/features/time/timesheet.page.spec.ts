@@ -14,9 +14,9 @@ const ENTRIES_URL = '/api/orgs/7/time-entries';
 const MONDAY = '2026-03-02';
 
 const PROJECTS = [
-  { project: { id: 1, code: 'WEB', name: 'Website', status: 'ACTIVE', clientId: 4 } },
-  { project: { id: 2, code: 'ADM', name: 'Admin', status: 'ACTIVE' } },
-  { project: { id: 3, code: 'OLD', name: 'Old site', status: 'DONE', clientId: 4 } },
+  { id: 1, code: 'WEB', name: 'Website', status: 'ACTIVE', clientId: 4 },
+  { id: 2, code: 'ADM', name: 'Admin', status: 'ACTIVE' },
+  { id: 3, code: 'OLD', name: 'Old site', status: 'DONE', clientId: 4 },
 ];
 
 function entry(id: number, date: string, minutes: number, extra: Partial<TimeEntry> = {}): TimeEntry {
@@ -52,11 +52,26 @@ describe('TimesheetPage', () => {
   /** Opens the week of 2 March with these entries. */
   async function open(entries: TimeEntry[], status: TimesheetStatus = 'DRAFT') {
     const harness = await RouterTestingHarness.create(`/time?week=${MONDAY}`);
-    http.expectOne('/api/orgs/7/projects').flush(PROJECTS);
+    http.expectOne('/api/orgs/7/projects/options').flush(PROJECTS);
     http.expectOne((r) => r.url === WEEK_URL).flush(week(MONDAY, entries, status));
     await harness.fixture.whenStable();
     return { harness, el: harness.routeNativeElement as HTMLElement };
   }
+
+  it('marks the holidays of the week in the header and still takes time on them', async () => {
+    const harness = await RouterTestingHarness.create(`/time?week=${MONDAY}`);
+    http.expectOne('/api/orgs/7/projects/options').flush(PROJECTS);
+    const withHoliday = { ...week(MONDAY, [entry(1, MONDAY, 60)]), days: [{ date: '2026-03-04', minutes: 0, holiday: 'Spring holiday' }] };
+    http.expectOne((r) => r.url === WEEK_URL).flush(withHoliday);
+    await harness.fixture.whenStable();
+    const el = harness.routeNativeElement as HTMLElement;
+    const headers = [...el.querySelectorAll('.timesheet-grid thead th')];
+    const wednesday = headers.find((th) => th.textContent.includes('Wed'))!;
+    expect(wednesday.textContent).toContain('Spring holiday');
+    expect(wednesday.classList.contains('weekend')).toBe(true);
+    expect(headers.find((th) => th.textContent.includes('Tue'))!.classList.contains('weekend')).toBe(false);
+    expect(cell(el, 'WEB, Design, Wednesday').disabled).toBe(false);
+  });
 
   function cell(el: HTMLElement, label: string): HTMLInputElement {
     const input = el.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
@@ -563,11 +578,11 @@ describe('TimesheetPage', () => {
     // The switcher in the side bar changes the organisation without leaving the page.
     TestBed.inject(OrgContext).select(8);
     await harness.fixture.whenStable();
-    const projects = http.expectOne('/api/orgs/8/projects');
+    const projects = http.expectOne('/api/orgs/8/projects/options');
     const week8 = http.expectOne((r) => r.url === '/api/orgs/8/timesheets/week');
     // The week of the first organisation is off the screen at once, with what was typed into it.
     expect(el.querySelector('.timesheet-grid')).toBeNull();
-    projects.flush([{ project: { id: 21, code: 'SIDE', name: 'Side', status: 'ACTIVE' } }]);
+    projects.flush([{ id: 21, code: 'SIDE', name: 'Side', status: 'ACTIVE' }]);
     week8.flush(week(MONDAY, []));
     await harness.fixture.whenStable();
 
@@ -593,7 +608,7 @@ describe('TimesheetPage', () => {
 
   it('asks the API for this week, and keeps another week in the link', async () => {
     const harness = await RouterTestingHarness.create('/time');
-    http.expectOne('/api/orgs/7/projects').flush(PROJECTS);
+    http.expectOne('/api/orgs/7/projects/options').flush(PROJECTS);
     const el = harness.routeNativeElement as HTMLElement;
     const router = TestBed.inject(Router);
 
@@ -631,7 +646,7 @@ describe('TimesheetPage', () => {
 
   it('opens the week a link names, from any day of it', async () => {
     const harness = await RouterTestingHarness.create('/time?week=2026-03-04');
-    http.expectOne('/api/orgs/7/projects').flush(PROJECTS);
+    http.expectOne('/api/orgs/7/projects/options').flush(PROJECTS);
     const request = http.expectOne((r) => r.url === WEEK_URL);
     expect(request.request.params.get('date')).toBe(MONDAY);
     request.flush(week(MONDAY));

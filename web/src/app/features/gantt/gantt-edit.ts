@@ -1,9 +1,10 @@
 import { Task } from '../../core/models';
-import { addDays, addWorkingDays, formatDate, isWeekend, workingDaysBetween } from '../../shared/dates';
+import { Holidays, NO_HOLIDAYS, addDays, addWorkingDays, formatDate, isWorkingDay, workingDaysBetween } from '../../shared/dates';
 import { BarBox, GanttBar, MILESTONE_RADIUS, ROW_HEIGHT } from './gantt-layout';
 
 // What a drag on the timeline means in dates. The component only measures pixels
 // and hands them over as whole day columns (dragDays); everything else is here.
+// Working days are counted with the organisation's holidays, as the API counts them.
 
 /** What is being dragged: the whole bar, one of its ends, or the connector that draws a link. */
 export type DragMode = 'move' | 'start' | 'end' | 'link';
@@ -36,18 +37,18 @@ export function barDates(task: Dates): { from: string; to: string } | null {
   return from && to ? { from, to } : null;
 }
 
-/** {@code date} itself on a working day; from a weekend, the next working day in the direction of the drag. */
-export function snapToWorkingDay(date: string, direction: number): string {
+/** {@code date} itself on a working day; from a weekend or a holiday, the next working day in the direction of the drag. */
+export function snapToWorkingDay(date: string, direction: number, holidays: Holidays = NO_HOLIDAYS): string {
   let day = date;
-  while (isWeekend(day)) {
+  while (!isWorkingDay(day, holidays)) {
     day = addDays(day, direction < 0 ? -1 : 1);
   }
   return day;
 }
 
 /** Where the first day of a bar lands when it is dropped {@code calendarDays} columns away. */
-export function dropDate(from: string, calendarDays: number): string {
-  return calendarDays === 0 ? from : snapToWorkingDay(addDays(from, calendarDays), calendarDays);
+export function dropDate(from: string, calendarDays: number, holidays: Holidays = NO_HOLIDAYS): string {
+  return calendarDays === 0 ? from : snapToWorkingDay(addDays(from, calendarDays), calendarDays, holidays);
 }
 
 /**
@@ -57,12 +58,14 @@ export function dropDate(from: string, calendarDays: number): string {
  * That is what the API adds, so the bar ends up on the drop day even when it
  * started on a weekend.
  */
-export function moveWorkingDays(from: string, calendarDays: number): number {
+export function moveWorkingDays(from: string, calendarDays: number, holidays: Holidays = NO_HOLIDAYS): number {
   if (calendarDays === 0) {
     return 0;
   }
-  const target = dropDate(from, calendarDays);
-  return calendarDays > 0 ? workingDaysBetween(addDays(from, 1), target) : -workingDaysBetween(target, addDays(from, -1));
+  const target = dropDate(from, calendarDays, holidays);
+  return calendarDays > 0
+    ? workingDaysBetween(addDays(from, 1), target, holidays)
+    : -workingDaysBetween(target, addDays(from, -1), holidays);
 }
 
 /**
@@ -72,18 +75,18 @@ export function moveWorkingDays(from: string, calendarDays: number): number {
  * date moves that date. This is Rescheduler.shift in the API, repeated here so
  * that a bar can be drawn where it will land.
  */
-export function shiftedDates(task: Dates, workingDays: number): Dates {
+export function shiftedDates(task: Dates, workingDays: number, holidays: Holidays = NO_HOLIDAYS): Dates {
   if (workingDays === 0) {
     return { startDate: task.startDate, dueDate: task.dueDate };
   }
   if (task.startDate && task.dueDate) {
-    const length = Math.max(1, workingDaysBetween(task.startDate, task.dueDate));
-    const startDate = addWorkingDays(task.startDate, workingDays);
-    return { startDate, dueDate: addWorkingDays(startDate, length - 1) };
+    const length = Math.max(1, workingDaysBetween(task.startDate, task.dueDate, holidays));
+    const startDate = addWorkingDays(task.startDate, workingDays, holidays);
+    return { startDate, dueDate: addWorkingDays(startDate, length - 1, holidays) };
   }
   return {
-    startDate: task.startDate ? addWorkingDays(task.startDate, workingDays) : undefined,
-    dueDate: task.dueDate ? addWorkingDays(task.dueDate, workingDays) : undefined,
+    startDate: task.startDate ? addWorkingDays(task.startDate, workingDays, holidays) : undefined,
+    dueDate: task.dueDate ? addWorkingDays(task.dueDate, workingDays, holidays) : undefined,
   };
 }
 
@@ -96,17 +99,22 @@ export function shiftedDates(task: Dates, workingDays: number): Dates {
  * moves freely, there is nothing to run into. The other end gives the task the
  * date it lacks, and only away from the one it has.
  */
-export function resizeDates(task: Dates, edge: 'start' | 'end', calendarDays: number): { startDate: string } | { dueDate: string } | null {
+export function resizeDates(
+  task: Dates,
+  edge: 'start' | 'end',
+  calendarDays: number,
+  holidays: Holidays = NO_HOLIDAYS,
+): { startDate: string } | { dueDate: string } | null {
   const dates = barDates(task);
   if (!dates || calendarDays === 0) {
     return null;
   }
   if (edge === 'start') {
-    const start = dropDate(dates.from, calendarDays);
+    const start = dropDate(dates.from, calendarDays, holidays);
     const startDate = task.dueDate && start > task.dueDate ? task.dueDate : start;
     return startDate === dates.from ? null : { startDate };
   }
-  const due = dropDate(dates.to, calendarDays);
+  const due = dropDate(dates.to, calendarDays, holidays);
   const dueDate = task.startDate && due < task.startDate ? task.startDate : due;
   return dueDate === dates.to ? null : { dueDate };
 }
@@ -116,29 +124,39 @@ export function resizeDates(task: Dates, edge: 'start' | 'end', calendarDays: nu
  * drop would put it: a moved bar with the dates the API will answer, a resized
  * one with the date that would be saved.
  */
-export function previewDates(task: Dates, mode: Exclude<DragMode, 'link'>, calendarDays: number): { from: string; to: string } | null {
+export function previewDates(
+  task: Dates,
+  mode: Exclude<DragMode, 'link'>,
+  calendarDays: number,
+  holidays: Holidays = NO_HOLIDAYS,
+): { from: string; to: string } | null {
   const dates = barDates(task);
   if (!dates) {
     return null;
   }
   if (mode === 'move') {
-    return barDates(shiftedDates(task, moveWorkingDays(dates.from, calendarDays)));
+    return barDates(shiftedDates(task, moveWorkingDays(dates.from, calendarDays, holidays), holidays));
   }
-  const resized = resizeDates(task, mode, calendarDays);
+  const resized = resizeDates(task, mode, calendarDays, holidays);
   return resized ? barDates({ startDate: task.startDate, dueDate: task.dueDate, ...resized }) : dates;
 }
 
 /** What dropping the bar now would do, in words. Null while nothing would change. */
-export function dragHint(task: Dates, mode: Exclude<DragMode, 'link'>, calendarDays: number): string | null {
+export function dragHint(
+  task: Dates,
+  mode: Exclude<DragMode, 'link'>,
+  calendarDays: number,
+  holidays: Holidays = NO_HOLIDAYS,
+): string | null {
   const dates = barDates(task);
   if (!dates) {
     return null;
   }
   if (mode === 'move') {
-    const days = moveWorkingDays(dates.from, calendarDays);
+    const days = moveWorkingDays(dates.from, calendarDays, holidays);
     return days === 0 ? null : `Move by ${days > 0 ? '+' : ''}${days} working day${Math.abs(days) === 1 ? '' : 's'}`;
   }
-  const resized = resizeDates(task, mode, calendarDays);
+  const resized = resizeDates(task, mode, calendarDays, holidays);
   if (!resized) {
     return null;
   }

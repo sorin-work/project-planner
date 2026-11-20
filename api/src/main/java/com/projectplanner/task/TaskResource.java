@@ -11,6 +11,7 @@ import com.projectplanner.task.TaskDtos.DependencyResponse;
 import com.projectplanner.task.TaskDtos.ShiftRequest;
 import com.projectplanner.task.TaskDtos.TaskChange;
 import com.projectplanner.task.TaskDtos.TaskResponse;
+import com.projectplanner.task.TaskDtos.UpdateDependencyRequest;
 import com.projectplanner.task.TaskDtos.UpdateTaskRequest;
 import io.quarkus.security.Authenticated;
 import jakarta.transaction.Transactional;
@@ -152,6 +153,24 @@ public class TaskResource {
         Project project = Project.findById(successor.projectId);
         Membership me = access.editProject(project);
         return dependencies.add(me, project, successor, request);
+    }
+
+    @PATCH
+    @Path("/dependencies/{dependencyId}")
+    @Transactional
+    @Tag(name = "Dependencies")
+    @Operation(summary = "Change the type or the lag of a dependency",
+            description = "For the team: owners, managers and members, not client viewers. A negative lag is a lead. If the successor now comes "
+                    + "too early it is pushed back, together with its own dependants. Nothing is pulled earlier.")
+    public TaskChange updateDependency(@PathParam("dependencyId") long dependencyId, @Valid @NotNull UpdateDependencyRequest request) {
+        TaskDependency dependency = TaskDependency.findById(dependencyId);
+        if (dependency == null) {
+            throw ApiException.notFound("Dependency");
+        }
+        Task successor = find(dependency.successorId);
+        Project project = Project.findById(successor.projectId);
+        Membership me = access.editProject(project);
+        return dependencies.update(me, project, dependency, request);
     }
 
     @DELETE

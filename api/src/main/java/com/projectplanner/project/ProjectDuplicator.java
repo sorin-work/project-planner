@@ -1,6 +1,8 @@
 package com.projectplanner.project;
 
 import com.projectplanner.activity.ActivityLog;
+import com.projectplanner.attachment.AttachmentService;
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
@@ -62,14 +64,19 @@ public class ProjectDuplicator {
     private final ActivityLog activity;
     private final EntityManager em;
     private final Clock clock;
-    // The organisation's own calendar belongs here once there is one (roadmap item 15).
-    private final WorkCalendar calendar = WorkCalendar.DEFAULT;
+    /** The dates of a copy are moved in the working days of the organisation, holidays included. */
+    private final OrgCalendars calendars;
 
-    public ProjectDuplicator(ProjectService projects, ActivityLog activity, EntityManager em, Clock clock) {
+    private final AttachmentService attachments;
+
+    public ProjectDuplicator(ProjectService projects, ActivityLog activity, EntityManager em, Clock clock, OrgCalendars calendars,
+                             AttachmentService attachments) {
+        this.attachments = attachments;
         this.projects = projects;
         this.activity = activity;
         this.em = em;
         this.clock = clock;
+        this.calendars = calendars;
     }
 
     /** A name, a free code and a start date to offer for a copy of {@code source}. */
@@ -79,26 +86,39 @@ public class ProjectDuplicator {
         List<String> taken = em.createQuery("select p.code from Project p where p.organisationId = ?1", String.class)
                 .setParameter(1, source.organisationId).getResultList();
         Organisation organisation = Organisation.findById(source.organisationId);
+        WorkCalendar calendar = calendars.of(source.organisationId);
         return new DuplicateDefaults(stem + COPY_SUFFIX, ProjectCodes.next(source.code, taken),
                 calendar.onOrAfter(organisation.today(clock)),
                 Phase.count("projectId", source.id),
                 count("select count(t) from Task t where t.projectId = ?1", source.id),
-                count("select count(d) from TaskDependency d, Task t where t.id = d.successorId and t.projectId = ?1", source.id));
+                count("select count(d) from TaskDependency d, Task t where t.id = d.successorId and t.projectId = ?1", source.id),
+                count("select count(a) from Attachment a, Task t where t.id = a.taskId and t.projectId = ?1", source.id),
+                count("select coalesce(sum(a.sizeBytes), 0) from Attachment a, Task t where t.id = a.taskId and t.projectId = ?1", source.id));
     }
 
-    public Project duplicate(Membership me, Project source, DuplicateRequest request) {
+    /** The new project, and what became of the files when they were asked for. */
+    public record Duplicate(Project project, AttachmentService.CopiedFiles files) {
+    }
+
+    public Duplicate duplicate(Membership me, Project source, DuplicateRequest request) {
+        if (request.copyAttachments()) {
+            // The files count against the organisation's space, which is checked under its row's lock. That row
+            // comes before any project row, the copy's own included, so it is taken first.
+            AttachmentService.lockOrganisation(source.organisationId);
+        }
         List<Phase> phases = Phase.forProject(source.id);
         List<SourceTask> tasks = sourceTasks(source.id);
         List<TaskDependency> dependencies = TaskDependency.forProject(source.id);
         Set<Long> team = request.keepAssignees() ? teamOf(source.organisationId) : Set.of();
 
         // The first day of the plan lands on the day that was asked for, and everything else keeps its distance from it.
+        WorkCalendar calendar = calendars.of(source.organisationId);
         LocalDate first = PlanShift.firstDay(calendar, tasks.stream().map(SourceTask::dates).toList(), source.startDate);
         PlanShift shift = first == null ? null : new PlanShift(calendar, first, request.startDate());
 
         Project copy = projects.insert(source.organisationId, new ProjectRequest(request.name(), request.code(),
                 source.description, request.clientId(), ProjectStatus.PLANNED,
-                newStart(source, shift, request.startDate()), newEnd(source, shift),
+                newStart(calendar, source, shift, request.startDate()), newEnd(source, shift),
                 source.budgetHours, source.budgetAmount, source.hourlyRate, source.color));
         em.flush();
 
@@ -106,18 +126,21 @@ public class ProjectDuplicator {
         Map<Long, Long> newPhase = copyPhases(phases, copy.id, shift);
         Map<Long, Long> newTask = copyTasks(tasks, copy.id, newPhase, shift, team, now);
         int links = copyDependencies(dependencies, newTask, now);
+        // Files only when asked for: they take room, and a template rarely wants the old project's papers.
+        AttachmentService.CopiedFiles files = request.copyAttachments() ? attachments.copy(copy.organisationId, newTask) : null;
 
         // The entry is read by everybody who sees the copy, and not all of them may see the source:
         // a copy can be made for another client. So the text does not name it. Its id is kept next
         // to the entry, and the name is added for the readers who may know it.
         activity.record(copy.organisationId, copy.id, null, me.userId, "project.duplicated",
                 "Copied the plan from another project: " + count(phases.size(), "phase") + ", "
-                        + count(tasks.size(), "task") + " and " + count(links, "link"), source.id);
-        return copy;
+                        + count(tasks.size(), "task") + " and " + count(links, "link")
+                        + (files != null && files.copied() > 0 ? ", with " + count(files.copied(), "file") : ""), source.id);
+        return new Duplicate(copy, files);
     }
 
     /** The project's own start moves with the plan. A project where nothing has a date starts on the day that was asked for. */
-    private LocalDate newStart(Project source, PlanShift shift, LocalDate asked) {
+    private static LocalDate newStart(WorkCalendar calendar, Project source, PlanShift shift, LocalDate asked) {
         return shift == null ? calendar.onOrAfter(asked) : shift.start(source.startDate);
     }
 
@@ -203,20 +226,22 @@ public class ProjectDuplicator {
         return newIds;
     }
 
-    /** The links between copied tasks, with their lag. Returns how many there were. */
+    /** The links between copied tasks, with their type and lag. Returns how many there were. */
     private int copyDependencies(List<TaskDependency> dependencies, Map<Long, Long> newTask, OffsetDateTime now) {
         List<String> rows = new ArrayList<>();
         for (TaskDependency dependency : dependencies) {
             Long predecessor = newTask.get(dependency.predecessorId);
             Long successor = newTask.get(dependency.successorId);
             if (predecessor != null && successor != null) {
-                rows.add(row(predecessor, successor, dependency.lagDays));
+                // The type goes in as its number, so that the statement text holds nothing but numbers and dates.
+                rows.add(row(predecessor, successor, dependency.lagDays, dependency.type.ordinal()));
             }
         }
         insert("""
-                insert into task_dependencies (predecessor_id, successor_id, lag_days, created_at)
-                select m.predecessor_id, m.successor_id, m.lag_days, ?
-                from (values %s) as m (predecessor_id, successor_id, lag_days)
+                insert into task_dependencies (predecessor_id, successor_id, lag_days, dependency_type, created_at)
+                select m.predecessor_id, m.successor_id, m.lag_days,
+                       case m.type_index when 1 then 'SS' when 2 then 'FF' when 3 then 'SF' else 'FS' end, ?
+                from (values %s) as m (predecessor_id, successor_id, lag_days, type_index)
                 """, rows, now);
         return rows.size();
     }

@@ -6,6 +6,8 @@ hs_err_pid*
 
 # Quarkus
 .quarkus/
+# Attachments of an API run outside Docker (ATTACHMENTS_DIR)
+api/data/
 
 # Node / Angular
 node_modules/

@@ -26,7 +26,11 @@ import java.util.Set;
 public final class ScheduleCheck {
 
     public enum IssueType {
-        /** The task starts before {@code relatedTaskId}, which it waits for, is due (plus the lag). */
+        /**
+         * The task is earlier than its link to {@code relatedTaskId} allows: it starts before the
+         * predecessor is due (finish-to-start) or starts (start-to-start), or is due before the
+         * predecessor is due (finish-to-finish) or starts (start-to-finish), plus the lag.
+         */
         STARTS_TOO_EARLY,
         /** The task waits for {@code relatedTaskId}, which has no due date, so the link is not enforced. */
         WAITS_FOR_UNSCHEDULED,
@@ -47,21 +51,30 @@ public final class ScheduleCheck {
      *                         for: {@link IssueType#AFTER_PROJECT_END}, {@link IssueType#OUTSIDE_PARENT},
      *                         both or nothing. The suggestion only looks at the dependencies, so this
      *                         is the price to show next to it.
+     * @param linkType         for the two link issues: the type of the link, so that "too early" can
+     *                         say whether the start or the finish is too early
      */
     public record Issue(IssueType type, long taskId, Long relatedTaskId, Integer days,
-                        LocalDate suggestedStart, LocalDate suggestedDue, List<IssueType> suggestionCauses) {
+                        LocalDate suggestedStart, LocalDate suggestedDue, List<IssueType> suggestionCauses, DependencyType linkType) {
+
+        public Issue(IssueType type, long taskId, Long relatedTaskId, Integer days, LocalDate suggestedStart, LocalDate suggestedDue,
+                     List<IssueType> suggestionCauses) {
+            this(type, taskId, relatedTaskId, days, suggestedStart, suggestedDue, suggestionCauses, null);
+        }
 
         public Issue(IssueType type, long taskId, Long relatedTaskId, Integer days, LocalDate suggestedStart, LocalDate suggestedDue) {
-            this(type, taskId, relatedTaskId, days, suggestedStart, suggestedDue, List.of());
+            this(type, taskId, relatedTaskId, days, suggestedStart, suggestedDue, List.of(), null);
         }
     }
 
     private final WorkCalendar calendar;
     private final Rescheduler rescheduler;
+    private final LinkRule rule;
 
     public ScheduleCheck(WorkCalendar calendar) {
         this.calendar = calendar;
         this.rescheduler = new Rescheduler(calendar);
+        this.rule = new LinkRule(calendar);
     }
 
     /**
@@ -115,10 +128,11 @@ public final class ScheduleCheck {
             if (predecessor == null) {
                 continue;
             }
-            LocalDate allowed = rescheduler.earliestStart(link, predecessor);
+            LocalDate allowed = rule.earliestStart(link, predecessor, task);
             if (allowed == null) {
                 if (!done.contains(predecessor.id())) {
-                    issues.add(new Issue(IssueType.WAITS_FOR_UNSCHEDULED, task.id(), predecessor.id(), null, null, null));
+                    issues.add(new Issue(IssueType.WAITS_FOR_UNSCHEDULED, task.id(), predecessor.id(), null, null, null, List.of(),
+                            link.type()));
                 }
                 continue;
             }
@@ -127,7 +141,7 @@ public final class ScheduleCheck {
                 // The fix has to satisfy every predecessor, not only this one.
                 ScheduledTask fix = rescheduler.startingOn(task, earliest);
                 issues.add(new Issue(IssueType.STARTS_TOO_EARLY, task.id(), predecessor.id(), early, fix.start(), fix.due(),
-                        causedBy(task, fix, parent, projectEnd)));
+                        causedBy(task, fix, parent, projectEnd), link.type()));
             }
         }
     }

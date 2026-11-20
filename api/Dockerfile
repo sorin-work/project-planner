@@ -8,7 +8,10 @@ RUN mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-RUN addgroup -S app && adduser -S app -G app
+# A fixed id, so that the backup service can give restored attachments back to this user.
+RUN addgroup -S -g 1000 app && adduser -S -u 1000 -G app app
+# Where the attachments go. A new named volume takes the owner of the folder it is mounted on.
+RUN mkdir -p /data/attachments && chown -R app:app /data
 # Quarkus fast-jar layout: libraries first, they change least often.
 COPY --from=build --chown=app:app /app/target/quarkus-app/lib/ lib/
 COPY --from=build --chown=app:app /app/target/quarkus-app/*.jar ./

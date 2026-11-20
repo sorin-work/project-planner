@@ -88,4 +88,57 @@ class CriticalPathTest {
         assertThat(result.tasks()).hasSize(1);
         assertThat(result.criticalTaskIds()).containsExactly(1L);
     }
+
+    @Test
+    void startToStartBranchesRunSideBySide() {
+        // A Mon - Fri, B starts with A plus two days and takes three: Wed - Fri. Both end together, both critical.
+        var a = new ScheduledTask(1, day(0), day(4));
+        var b = new ScheduledTask(2, day(2), day(4));
+        CriticalPath.Result result = cpm.calculate(List.of(a, b), List.of(new Link(1, 2, 2, DependencyType.SS)));
+        assertThat(result.finish()).isEqualTo(day(4));
+        assertThat(result.durationDays()).isEqualTo(5);
+        assertThat(result.criticalTaskIds()).containsExactly(1L, 2L);
+    }
+
+    @Test
+    void finishToFinishPushesTheSuccessorsFinishAndCountsTowardsTheEnd() {
+        // A Mon - Fri the week after; B (two days) must end one day after A: Monday of the third week.
+        var a = new ScheduledTask(1, day(7), day(11));
+        var b = new ScheduledTask(2, day(0), day(1));
+        CriticalPath.Result result = cpm.calculate(List.of(a, b), List.of(new Link(1, 2, 1, DependencyType.FF)));
+        CriticalPath.TaskTiming timing = result.tasks().stream().filter(t -> t.taskId() == 2).findFirst().orElseThrow();
+        assertThat(timing.earlyStart()).isEqualTo(day(11));
+        assertThat(timing.earlyFinish()).isEqualTo(day(14));
+        assertThat(result.finish()).isEqualTo(day(14));
+        assertThat(result.criticalTaskIds()).containsExactly(1L, 2L);
+    }
+
+    @Test
+    void startToFinishAndALeadGiveTheSameFloatBothWays() {
+        // C ends Friday the 13th; A (Mon - Tue) waits for nothing, B must end no earlier than C starts.
+        var a = new ScheduledTask(1, day(0), day(1));
+        var b = new ScheduledTask(2, day(0), day(1));
+        var c = new ScheduledTask(3, day(7), day(11));
+        CriticalPath.Result result = cpm.calculate(List.of(a, b, c),
+                List.of(new Link(1, 3, -1), new Link(3, 2, 0, DependencyType.SF)));
+        CriticalPath.TaskTiming late = result.tasks().stream().filter(t -> t.taskId() == 2).findFirst().orElseThrow();
+        // B ends on the working day before C starts at the earliest: Thursday to Friday the 6th.
+        assertThat(late.earlyFinish()).isEqualTo(day(4));
+        // The lead lets A end a day after C starts without moving C, so A has float.
+        CriticalPath.TaskTiming first = result.tasks().stream().filter(t -> t.taskId() == 1).findFirst().orElseThrow();
+        assertThat(first.floatDays()).isPositive();
+        assertThat(result.finish()).isEqualTo(day(11));
+    }
+
+    @Test
+    void aMilestoneOnASaturdayCountsAsTheMondayAfterItAsInTheRescheduler() {
+        // Saturday the 7th, then a task five working days after it.
+        var milestone = new ScheduledTask(1, day(5), day(5));
+        var next = new ScheduledTask(2, day(0), day(0));
+        List<Link> links = List.of(new Link(1, 2, 5));
+        CriticalPath.TaskTiming timing = cpm.calculate(List.of(milestone, next), links).tasks().stream()
+                .filter(t -> t.taskId() == 2).findFirst().orElseThrow();
+        ScheduledTask moved = new Rescheduler(WorkCalendar.DEFAULT).propagate(List.of(milestone, next), links, java.util.Set.of(1L)).get(2L);
+        assertThat(timing.earlyStart()).isEqualTo(moved.start()).isEqualTo(day(15));
+    }
 }

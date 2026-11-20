@@ -22,6 +22,7 @@ export function duplicateBody(form: {
   clientId?: number | null;
   startDate?: string | null;
   keepAssignees?: boolean | null;
+  copyAttachments?: boolean | null;
 }): DuplicateInput {
   return {
     name: (form.name ?? '').trim(),
@@ -29,5 +30,6 @@ export function duplicateBody(form: {
     clientId: form.clientId ?? null,
     startDate: form.startDate ?? '',
     keepAssignees: form.keepAssignees === true,
+    copyAttachments: form.copyAttachments === true,
   };
 }

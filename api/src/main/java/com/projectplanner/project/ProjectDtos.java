@@ -41,7 +41,15 @@ public final class ProjectDtos {
                                   LocalDate endDate, BigDecimal budgetHours,
                                   @Schema(description = ApiDocs.MANAGERS_ONLY) BigDecimal budgetAmount,
                                   @Schema(description = "A fixed rate for all time on this project. " + ApiDocs.MANAGERS_ONLY) BigDecimal hourlyRate,
-                                  String color, Instant createdAt, Instant updatedAt) {
+                                  String color, Instant createdAt, Instant updatedAt,
+                                  @Schema(description = "Only in the answer to a copy with copyAttachments: the files that were copied.") Integer attachmentsCopied,
+                                  @Schema(description = "Only in the answer to a copy with copyAttachments: the files that were left out because "
+                                          + "their file was missing on the server.") Integer attachmentsSkipped) {
+
+        public ProjectResponse withCopiedFiles(int copied, int skipped) {
+            return new ProjectResponse(id, organisationId, clientId, clientName, name, code, description, status, startDate, endDate,
+                    budgetHours, budgetAmount, hourlyRate, color, createdAt, updatedAt, copied, skipped);
+        }
     }
 
     /**
@@ -57,11 +65,18 @@ public final class ProjectDtos {
             @NotBlank @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9-]{0,15}", message = "use up to 16 letters, digits or dashes") String code,
             Long clientId,
             @NotNull LocalDate startDate,
-            boolean keepAssignees) {
+            boolean keepAssignees,
+            @Schema(description = "Copy the files attached to the tasks as well. Left out, they are not copied.") boolean copyAttachments) {
+
+        public DuplicateRequest(String name, String code, Long clientId, LocalDate startDate, boolean keepAssignees) {
+            this(name, code, clientId, startDate, keepAssignees, false);
+        }
     }
 
     /** What to offer before a project is copied: a name, a code that is free, a start date, and how much there is to copy. */
-    public record DuplicateDefaults(String name, String code, LocalDate startDate, long phases, long tasks, long dependencies) {
+    /** {@code attachments} and {@code attachmentBytes}: the files on the tasks, which are only copied when asked for. */
+    public record DuplicateDefaults(String name, String code, LocalDate startDate, long phases, long tasks, long dependencies,
+                                    long attachments, long attachmentBytes) {
     }
 
     public record PhaseRequest(

@@ -1,5 +1,6 @@
 package com.projectplanner.time;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -40,7 +41,9 @@ public final class TimeDtos {
                                     boolean running, boolean locked) {
     }
 
-    public record DayTotal(LocalDate date, int minutes) {
+    /** {@code holiday} is the name of the organisation's holiday on that day, left out on other days. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record DayTotal(LocalDate date, int minutes, String holiday) {
     }
 
     public record WeekResponse(Long timesheetId, long userId, String userName, LocalDate weekStart,

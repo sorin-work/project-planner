@@ -127,6 +127,32 @@ export interface DuplicateDefaults {
   phases: number;
   tasks: number;
   dependencies: number;
+  /** The files on the tasks, which are only copied when asked for. */
+  attachments: number;
+  attachmentBytes: number;
+}
+
+/** A file attached to a task. Its bytes are fetched through a short-lived link. */
+export interface Attachment {
+  id: number;
+  taskId: number;
+  fileName: string;
+  /** What the server found the file to be, not what the browser said. */
+  contentType: string;
+  sizeBytes: number;
+  uploaderId?: number;
+  uploaderName?: string;
+  createdAt: string;
+  /** An image that may be shown in the page. Everything else is a download. */
+  previewable: boolean;
+  /** Whoever attached it, owners and managers. */
+  canDelete: boolean;
+}
+
+/** A link to the bytes of an attachment. It needs no token and works until {@code expiresAt}. */
+export interface AttachmentLink {
+  url: string;
+  expiresAt: string;
 }
 
 /** A saved copy of a plan's dates. Only its name and whether it is the reference can change. */
@@ -214,6 +240,16 @@ export interface ProjectListItem {
   health: HealthSummary;
 }
 
+/** A project as a select needs it, from `/projects/options`: nothing is worked out for it. */
+export interface ProjectOption {
+  id: number;
+  code: string;
+  name: string;
+  status: ProjectStatus;
+  clientId?: number;
+  clientName?: string;
+}
+
 export interface Phase {
   id: number;
   projectId: number;
@@ -223,11 +259,20 @@ export interface Phase {
   endDate?: string;
 }
 
+/**
+ * How a task waits for another: finish-to-start, start-to-start, finish-to-finish or
+ * start-to-finish. The first letter is the predecessor's end that counts, the second
+ * the successor's.
+ */
+export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
+
 export interface Dependency {
   id: number;
   predecessorId: number;
   successorId: number;
+  /** Working days. Negative is a lead. */
   lagDays: number;
+  type: DependencyType;
 }
 
 export interface Task {
@@ -291,6 +336,8 @@ export interface ScheduleIssue {
   suggestedDue?: string;
   /** What that move would get the task reported for instead: AFTER_PROJECT_END, OUTSIDE_PARENT or both. */
   suggestionCauses?: ScheduleIssueType[];
+  /** For the two link issues: the link's type. With FF and SF it is the finish that is too early. */
+  linkType?: DependencyType;
 }
 
 export interface Progress {
@@ -412,7 +459,8 @@ export interface Week {
   reviewedByName?: string;
   reviewNote?: string;
   entries: TimeEntry[];
-  days: { date: string; minutes: number }[];
+  /** Each day of the week, with the name of the organisation's holiday when it is one. */
+  days: { date: string; minutes: number; holiday?: string }[];
   totalMinutes: number;
   billableMinutes: number;
 }
@@ -499,9 +547,28 @@ export interface UtilisationReport {
 export interface WeekLoad {
   weekStart: string;
   allocatedHours: number;
+  /** The week's capacity: the weekly hours, less a fifth for each holiday and each day off. */
   capacityHours: number;
   overallocated: boolean;
   taskIds: number[];
+  holidays: number;
+  daysOff: number;
+}
+
+/** A day nobody in the organisation works. */
+export interface Holiday {
+  id: number;
+  date: string;
+  name: string;
+}
+
+/** Days one person is away, both included. It lowers their capacity and moves no plan. */
+export interface TimeOff {
+  id: number;
+  userId: number;
+  firstDay: string;
+  lastDay: string;
+  note?: string;
 }
 
 export interface MemberWorkload {

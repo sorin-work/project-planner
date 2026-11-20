@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, input, output, signal, viewChild } from '@angular/core';
 import { Phase, Task } from '../../core/models';
 import { formatRange } from '../../shared/dates';
+import { Holidays, NO_HOLIDAYS } from '../../shared/dates';
 import { CONNECTOR_RADIUS, DragMode, barAt, barDates, barHandles, dragHint, moveWorkingDays, previewDates, resizeDates } from './gantt-edit';
+import { dependencyPhrase } from '../project/dependency-text';
 import { GanttBar, GanttLink, MILESTONE_RADIUS, ROW_HEIGHT, Zoom, barSpan, dragDays, layoutGantt } from './gantt-layout';
 
 interface Drag {
@@ -45,6 +47,8 @@ export class Gantt {
   readonly showCritical = input(true);
   readonly zoom = input<Zoom>('day');
   readonly editable = input(false);
+  /** The organisation's holidays: shaded like weekends, and skipped when a drag counts working days. */
+  readonly holidays = input<Holidays>(NO_HOLIDAYS);
   /** Baseline dates by task, drawn as a thin bar under each bar. Empty when nothing is compared. */
   readonly baseline = input<Map<number, { start: string; due: string }>>(new Map());
   /** What the comparison says about each task, read out with its bar since the thin bar alone is only a picture. */
@@ -87,6 +91,7 @@ export class Gantt {
       critical: this.showCritical() ? this.critical() : new Set<number>(),
       collapsed: this.collapsed(),
       broken: this.broken(),
+      holidays: this.holidays(),
       baseline: this.baseline(),
     }),
   );
@@ -113,7 +118,7 @@ export class Gantt {
     const mode = d.mode;
     const columns = this.dragColumns();
     return layout.bars.map((bar) => {
-      const dates = bar.task.id === d.taskId ? previewDates(bar.task, mode, columns) : null;
+      const dates = bar.task.id === d.taskId ? previewDates(bar.task, mode, columns, this.holidays()) : null;
       if (!dates) {
         return bar;
       }
@@ -153,7 +158,7 @@ export class Gantt {
         : `Drop on the task that waits for ${draft.from.title}`;
     }
     const task = this.layout().bars.find((b) => b.task.id === d.taskId)?.task;
-    return task ? dragHint(task, d.mode, this.dragColumns()) : null;
+    return task ? dragHint(task, d.mode, this.dragColumns(), this.holidays()) : null;
   });
 
   protected readonly selectedLink = computed(() => this.layout().links.find((l) => l.id === this.selectedLinkId()) ?? null);
@@ -207,7 +212,7 @@ export class Gantt {
 
   linkLabel(link: GanttLink): string {
     const title = (id: number) => this.titles().get(id) ?? `#${id}`;
-    return `${title(link.successorId)} waits for ${title(link.predecessorId)}`;
+    return `${title(link.successorId)} ${dependencyPhrase(link, title(link.predecessorId))}`;
   }
 
   /**
@@ -271,12 +276,12 @@ export class Gantt {
       }
     } else if (d.mode === 'move') {
       const from = barDates(bar.task)?.from;
-      const days = from ? moveWorkingDays(from, columns) : 0;
+      const days = from ? moveWorkingDays(from, columns, this.holidays()) : 0;
       if (days !== 0) {
         this.moved.emit({ taskId, days });
       }
     } else {
-      const dates = resizeDates(bar.task, d.mode, columns);
+      const dates = resizeDates(bar.task, d.mode, columns, this.holidays());
       if (dates) {
         this.resized.emit({ taskId, ...dates });
       }

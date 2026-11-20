@@ -40,16 +40,27 @@ the point is knowing whether a project will land on time and on budget.
   A project keeps up to ten, and one of them is the reference the timeline starts on.
   Everybody who can see the project sees the comparison, client viewers of its client
   included; only owners and managers save, rename, mark and delete baselines.
+- **Files on tasks**: attach the brief, the mock-up or the signed-off PDF to a task, by
+  button or by dropping files on the task panel. Images show a small preview. Whoever can
+  see the project can see and attach files, client viewers of its client included, and a
+  file is removed by whoever attached it or by an owner or a manager. Images (PNG, JPEG,
+  GIF, WebP), PDF, plain text and office documents are taken, up to 20 MB each and 2 GB
+  per organisation. Nothing a browser would run is taken: no SVG, no HTML.
 - **Rates**: hourly rates per member, defaults per role and an organisation default.
   The most specific one wins (project → member → role → organisation). Money is only
   shown to owners and managers.
 - **Phases, tasks, subtasks and milestones** with estimates, assignees, start and due
   dates, priority and status. Subtasks are one level deep; milestones are single-day
   markers.
-- **Dependencies** (finish-to-start, with an optional lag in working days). Links that
-  would create a loop are rejected with the chain that causes it. When a task moves,
-  every task downstream of it that would now start too early is pushed back,
-  keeping its length in working days.
+- **Dependencies** of four types: finish-to-start ("starts after Design ends"),
+  start-to-start ("starts with Design"), finish-to-finish ("ends with Design") and
+  start-to-finish ("ends before Design starts"), each with a lag in working days, or a lead when it is negative
+  ("QA starts two days before development ends"). Links that would create a loop are
+  rejected with the chain that causes it, whatever their types. When a task moves,
+  every task downstream of it that would now come too early is pushed back, keeping
+  its length in working days. The type and the lag are picked in the task panel and
+  can be changed there; the timeline draws each arrow from and to the bar ends its
+  type names, with the type and lag beside it.
 - **Schedule issues**: moving a task in front of a task it waits for is allowed,
   because planners overlap work on purpose, but the plan says so. Each project has a
   list of what does not fit: tasks that start too early for a dependency, links to
@@ -102,7 +113,16 @@ the point is knowing whether a project will land on time and on budget.
   about.
 - **Workload**: allocated hours per person per week against their capacity, with
   overallocated weeks flagged. Each open task's estimate is spread over its working
-  days.
+  days. A week's capacity is a fifth lower for each holiday and each day off, and the
+  cell says so.
+- **Holidays and time off**: managers keep the organisation's holidays in Settings.
+  A holiday is not a working day anywhere: moves and the dependency cascade skip it,
+  the critical path, the schedule check, progress, the copy of a plan and capacity
+  leave it out, and the timeline shades it like a weekend. Adding one moves no task, so
+  a task across it is a working day shorter. On the Team page people add their own time
+  off and managers anybody's. Time off only lowers capacity, in the workload and in
+  the utilisation report. Time can still be logged on a holiday, and the timesheet
+  marks it in its header.
 - **Project health**: progress by estimate, planned vs earned hours (schedule variance
   and SPI), forecast end against the planned end, hours and money burn, overdue tasks,
   and an on track / at risk / off track status.
@@ -166,8 +186,8 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 issue endpoints), `time`
 (entries, timers, timesheets, CSV export), `workload`, `report` (project health,
 time and utilisation reports),
-`baseline`, `comment`, `notification`, `mail` (settings, the mails and the thread that
-sends them), `activity`, `dashboard`, `search` and `seed`. Resources are thin;
+`attachment`, `baseline`, `comment`, `notification`, `mail` (settings, the mails and the
+thread that sends them), `activity`, `dashboard`, `search` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
 The scheduling and reporting rules are plain Java classes without any framework
@@ -175,8 +195,9 @@ dependencies, so they are tested in isolation:
 
 | Class                 | What it does                                                         |
 | --------------------- | -------------------------------------------------------------------- |
-| `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
+| `WorkCalendar`        | Working-day arithmetic (Mon–Fri without the organisation's holidays): durations, lags, week starts |
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
+| `LinkRule`            | The one rule for what a link of each type asks of its successor, in dates and in critical-path offsets |
 | `Rescheduler`         | Pushes dependants later when a task moves and shifts a task by working days, keeping durations |
 | `PlanShift`           | Moves a whole plan to a new start, every date at its distance in working days |
 | `BaselineComparison`  | Compares a plan with a baseline: slip of start and finish per task and phase, the ends, the estimates |
@@ -203,7 +224,7 @@ request rather than stored in the token.
 On the web side, `core/` holds the API clients, auth and the current-organisation
 context; `features/` has one folder per page; the timeline lives in
 `features/gantt` with its layout maths (`gantt-layout.ts`) and the arithmetic of a
-drag (`gantt-edit.ts`: pixels to days, weekend snapping, handles, drop targets)
+drag (`gantt-edit.ts`: pixels to days, snapping off weekends and holidays, handles, drop targets)
 separate from the component so they can be unit tested. The weekly grid is split the
 same way: `timesheet-grid.ts` says what a typed cell means, `save-queue.ts` runs one
 save per cell at a time so that typing again during a slow save never makes a second
@@ -228,7 +249,9 @@ planned), phases, milestones and about ninety tasks with dependencies, a year of
 time entries for five people, timesheets
 (older weeks approved, last week waiting for review, one sent back and one still a
 draft with a reminder), comments with mentions and some notifications, among them the
-budget alert of the Globex patient portal, which is over its hours budget. All dates are
+budget alert of the Globex patient portal, which is over its hours budget, and each
+person's two holidays of the year as time off (Tom is also away three days next week,
+which the workload shows). All dates are
 relative to the day it runs. Set `SEED_DEMO=false` for an empty database.
 
 Two of the demo projects have schedule issues to look at on their timeline: in the
@@ -251,8 +274,9 @@ e.g. `WEB_PORT=8081 docker compose up`). The API port is only published on 127.0
 for the checks below: the web container is the way in. Publishing it on other
 addresses lets clients reach the API without nginx, which is fine for the API itself
 (every request still needs its token), but such clients are counted by their own
-address for the reset limit, and the address is all the limit has to go on. Data lives in the `db-data` volume;
-`docker compose down -v` removes it. The dumps of the backup service are files in
+address for the reset limit, and the address is all the limit has to go on. Data lives
+in the `db-data` volume and the files attached to tasks in the `attachments` volume;
+`docker compose down -v` removes both. The dumps of the backup service are files in
 `./backups` and stay.
 
 Quick check from the command line:
@@ -348,8 +372,10 @@ is at DEBUG. The API tests send to a mock mailbox and never to a server.
 
 ## Backup and restore
 
-Everything is in the `db-data` volume, and the timesheet CSV is the only export. For a
-full copy there is a `backup` service that dumps the whole database with `pg_dump`. It
+Everything is in two volumes: `db-data` for the database and `attachments` for the files
+attached to tasks. The timesheet CSV is the only export. For a full copy there is a
+`backup` service that dumps the whole database with `pg_dump` and archives the files
+with it. It
 is behind a Compose profile, so it only runs when asked for:
 
 ```bash
@@ -360,7 +386,11 @@ To have it start with every `docker compose up`, put `COMPOSE_PROFILES=backup` i
 `.env` (`COMPOSE_PROFILES=mail,backup` to keep the mail catcher as well).
 
 Dumps land in `./backups` as `planner-<UTC date and time>.dump`, in `pg_dump`'s custom
-format. When the service starts it makes one, unless the newest dump is less than a day
+format, each with `planner-<the same time>.files.tar` next to it: the attachments as they
+were right after the dump. A dump only counts once its archive is written, and the two
+are pruned together. Files are only ever added or removed, so the minute between the two
+can at worst leave an extra file in the archive, which the API's sweep removes, or a file
+missing that was removed in that minute, which then answers 404. When the service starts it makes one, unless the newest dump is less than a day
 old, so restarting the stack does not add dumps. On a new stack it first waits for the
 API to create the tables. After that it makes one dump a day. It looks at the clock once
 a minute instead of sleeping for a whole day, so a machine that was suspended or
@@ -392,7 +422,13 @@ docker compose start api
 ```
 
 `restore` without a file name lists the dumps. The restore replaces the whole database,
-so everything written after the dump is gone. The dump is loaded into a new database
+and the attachments with what the archive next to the dump holds, so everything written
+after the dump is gone. The archive is unpacked first, next to the files in use, so one
+that cannot be read stops the restore before anything changed. The restored files are
+given to the API's user (`ATTACHMENTS_OWNER`, `1000:1000`). An archive that names a path
+outside the folder is refused, and anything in it that is not a plain file or folder (a
+link, a device, a file hard-linked to another) is left out and counted in the log. A dump without an archive,
+from before attachments, leaves the files as they are. The dump is loaded into a new database
 first, and that one takes the place of the old one only when the load worked: a damaged
 file, or an API that is still running, leaves the data as it was. The two swap names in
 one transaction and the old database is dropped after that, so a restore that is killed
@@ -435,7 +471,7 @@ Good to know:
   else. Copying them to another machine is up to you.
 - Nothing warns you when a dump fails. `docker compose logs backup` shows every dump and
   every failure, and a failed dump is tried again a minute later.
-- `docker compose down -v` removes the database volume, not the dumps.
+- `docker compose down -v` removes the database and attachments volumes, not the dumps.
 
 ## Running without Docker
 
@@ -489,9 +525,16 @@ npm start
 | `BEHIND_PROXY`         | `false` (`true` in compose)                   | api     |
 | `TRUSTED_PROXIES`      | `127.0.0.1` (`web` in compose)                | api     |
 | `MAIL_UI_PORT`         | `5192`                                        | compose |
+| `ATTACHMENTS_DIR`      | `data/attachments` (`/data/attachments` in compose) | api |
+| `ATTACHMENTS_MAX_FILE_BYTES` | `20971520` (20 MB)                      | api     |
+| `ATTACHMENTS_MAX_ORGANISATION_BYTES` | `2147483648` (2 GB)             | api     |
 | `BACKUP_DIR`           | `./backups`                                   | backup  |
 | `BACKUP_KEEP`          | `7`                                           | backup  |
 | `BACKUP_INTERVAL_SECONDS` | `86400` (one day)                          | backup  |
+
+`ATTACHMENTS_DIR` is where the API keeps the files attached to tasks; in compose it is
+the `attachments` volume. Requests can be up to 25 MB, in Quarkus and in nginx, so that a
+file somewhat over the limit gets the API's own answer.
 
 `BACKUP_DIR` is the folder on the host the dumps go to, `BACKUP_KEEP` how many of them
 are kept and `BACKUP_INTERVAL_SECONDS` the time from one dump to the next. See
@@ -510,6 +553,14 @@ workload and missing timesheet tests are plain JUnit tests and need no database.
 `@QuarkusTest` API tests start the application against H2 in PostgreSQL mode and run
 the same Flyway migrations as production.
 
+`QueryCountTest` counts the statements that the project list, the dashboard, the
+approval queue, the members, `/me` and a comment with a mention send, on an organisation
+of fifty projects with a thousand tasks and twenty thousand time entries on one of them
+(`support/LargeOrganisation`, built by the test, not by the demo seed). The counts come
+from Hibernate's statistics, which are on in the test profile, and each has a fixed
+bound. A change that queries per row fails there instead of getting slow later. The
+project list is nine statements.
+
 A restore that is never tested is not a backup, so CI also runs
 `scripts/check-restore.sh` once the images are built. It is the only check that starts
 the stack on PostgreSQL. On a Compose project of its own, with its own volume, it:
@@ -519,9 +570,11 @@ the stack on PostgreSQL. On a Compose project of its own, with its own volume, i
 2. runs `scripts/check-backup.sh` in the backup service: three dumps while keeping two,
    a restore of the newest into a scratch database, and the row count of every table
    compared between the two (`users`, `tasks`, `time_entries` and `timesheets` must not
-   be empty);
-3. takes one migration back by hand, dumps, removes the volume and restores the dump
-   with the commands from above. The row counts have to be back before the API has run.
+   be empty). Each dump has to have its archive of attachments, and the restore has to
+   put back exactly the archived files in a folder that held other ones;
+3. puts a file on the attachments volume, takes one migration back by hand, dumps,
+   removes the volumes and restores the dump with the commands from above. The row
+   counts and the file, owned by the API's user, have to be back before the API has run.
    Then the API is started without the demo seed and has to apply the missing migration;
 4. checks that the API refuses to start on a database from a newer version.
 
@@ -634,6 +687,28 @@ index helps a search for text in the middle, so every search reads all of the
 organisation's tasks and comments. That is fine for a few thousand tasks, and it is
 not a search engine. On PostgreSQL alone a trigram index would be the next step.
 
+`/orgs/{org}/holidays` lists the holidays (`?from=&to=` optional) for every member, client
+viewers included since they see the timeline, and takes `POST`, `PUT /{id}` and
+`DELETE /{id}` from owners and managers. A second holiday on a date is
+`409 holiday_taken`, also when two requests ask for the same date at once. A holiday that
+is added, moved or removed is in the organisation's activity log, since it changes every
+duration and capacity across it. `/orgs/{org}/time-off` lists the team's time off (`?userId=`,
+`?from=&to=`) for the team. People add, change and remove their own, owners and managers
+anybody's on the team (`unknown_member` for anybody else). Days that are already off are
+`409 time_off_overlaps`, checked with the person's membership locked so that two requests
+can not both get through. Every count of working days in a request uses one calendar of
+the organisation (`calendar/OrgCalendars`, request-scoped, one query for the holidays),
+and the web app counts drags on the timeline with the same holidays (`shared/dates.ts`).
+
+`GET /orgs/{org}/projects` answers with each project and a summary of its health, in a
+fixed number of statements however many projects, tasks and entries there are: the
+tasks of all listed projects come in one query, their time in one query grouped by
+project, person, billable flag and length, and the rates once. Money is still priced
+entry by entry and rounded to a cent each time, so the list, the overview, the CSV and
+the reports agree. A form that only needs a project select asks
+`GET /orgs/{org}/projects/options` instead: id, code, name, status and client of each
+project the caller can see, by name, with nothing worked out.
+
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
 
@@ -666,8 +741,9 @@ from, because a copy can be made for another client: `relatedProjectId` and
 
 Two things to know: tasks that were finished in the source are open again in the copy,
 so an overlap that the source no longer reports comes back. And a date on a weekend is
-taken as the working day it stands for, which changes nothing unless a task lies on a
-weekend entirely: that one becomes a one-day task and can be in the way of a neighbour.
+taken as the working day it stands for. A task that lies on a weekend entirely becomes
+a one-day task on the next working day, which is how the scheduling rules read it in the
+source too.
 
 `POST /projects/{id}/baselines` with `{ "name", "reference"? }` saves the dates of every
 task and phase and the project's own start and end as they are now (`201`). The rows
@@ -699,13 +775,64 @@ exists then and now is decided first, so a task created or deleted since is `ADD
 issues and the critical path look at the plan only, never at a baseline, and duplicating
 a project does not copy its baselines.
 
+`POST /tasks/{id}/dependencies` takes `{ "predecessorId", "lagDays"?, "type"? }`, and
+`PATCH /dependencies/{id}` changes `type` and `lagDays` of an existing link. `type` is
+`FS` (the default), `SS`, `FF` or `SF`, and `lagDays` runs from -365 to 365 working days.
+Every check of a link goes through `LinkRule`: FS lets the successor start the working
+day after the predecessor is due plus the lag, SS when the predecessor starts plus the
+lag, FF lets it be due when the predecessor is due plus the lag, and SF on the working
+day before the predecessor starts plus the lag, the mirror of FS (a lag of 1 lets the
+two share that first day). A task on days off only, a Saturday milestone for instance,
+counts as a one-day task on the next working day, in the rescheduler, the check and the
+critical path alike. A link on the finish moves the successor whole, so it
+keeps its length. A lead longer than the predecessor puts the successor before it,
+which is allowed. Changing a link pushes the successor later when it now comes too
+early, and never pulls anything earlier. Links that existed before were all
+finish-to-start, and are that still.
+
+Attachments: `GET` and `POST /tasks/{id}/attachments` list a task's files and take one
+as the multipart form field `file`; `DELETE /attachments/{id}` removes one. What a file
+is is worked out from its first bytes, which have to match its name, against a fixed
+list; the type the browser sends is ignored. A file that is not on the list, or is not
+what its name says, is `415 unsupported_file_type`. Above 20 MB it is
+`413 file_too_large`, and past the organisation's 2 GB `413 storage_full`. Files are
+stored under a random key, never under their name. A name loses any folder, control
+characters and invisible format characters (such as a right-to-left override).
+
+The bytes are not behind the bearer token, since a plain link or an `<img>` cannot send
+it. `POST /attachments/{id}/link` checks that the caller may see the project and answers
+with a path that works for two minutes without a token: it carries the attachment, the
+user, the expiry and whether to show the file in the page, with an HMAC over them (the
+key is derived from `JWT_SECRET`). `GET /attachments/{id}/content` checks that HMAC and
+the expiry, `403 link_invalid` otherwise. A link is checked once, when it is made: it
+keeps working for the rest of its two minutes after the user loses access, which is why
+it is short. Changing `JWT_SECRET` makes every link that is out there invalid, along
+with every login token. Only a plain file inside the attachments folder is served, never
+a link. Every answer has `Content-Disposition`
+(`attachment`, or `inline` for the four raster image types when a preview was asked
+for), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none';
+sandbox` and `Cache-Control: private, no-store`.
+
+Deleting an attachment, a task or a project deletes the files once the deletion is
+committed; a failed request keeps them. A file written for an upload that is not
+committed goes again. Every six hours a sweep removes files that no row knows and that
+are older than an hour. `POST /projects/{id}/duplicate` copies the files only with
+`copyAttachments: true`, each under a key of its own, and the answer then says how many
+were copied and how many were left out because their file was missing
+(`attachmentsCopied`, `attachmentsSkipped`). `GET` on the same path says how many there
+are (`attachments`, `attachmentBytes`).
+
+An upload or a copy of files locks the organisation's row while it checks the space and
+writes, so uploads that arrive together are counted one after the other and never pass
+the limit between them. That row is taken before any membership or project row.
+
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
-returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses? }`,
+returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses?, linkType? }`,
 ordered by the date of the task:
 
 | Type                    | Meaning                                                                  | `relatedTaskId` | `days` (working days)   |
 | ----------------------- | ------------------------------------------------------------------------ | --------------- | ----------------------- |
-| `STARTS_TOO_EARLY`      | The task starts before a task it waits for is due, plus the lag          | the predecessor | how many days too early |
+| `STARTS_TOO_EARLY`      | The task is earlier than a link allows (`linkType` says which end counts) | the predecessor | how many days too early |
 | `WAITS_FOR_UNSCHEDULED` | The task waits for a task without a due date, so the link is not enforced | the predecessor | -                       |
 | `AFTER_PROJECT_END`     | The task is due after the project's end date                             | -               | how many days late      |
 | `OUTSIDE_PARENT`        | The subtask has days before its parent starts or after it is due         | the parent      | how many days outside   |

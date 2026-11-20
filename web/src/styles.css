@@ -680,6 +680,11 @@ select.compact {
   background: color-mix(in srgb, var(--surface-2) 60%, transparent);
 }
 
+.holiday-name {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .person {
   display: flex;
   gap: 0.6rem;
@@ -797,7 +802,8 @@ select.compact {
 .comments,
 .deps,
 .checklist,
-.phase-list {
+.phase-list,
+.calendar-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -901,6 +907,15 @@ select.compact {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 0.4rem;
+}
+
+/* Holidays and time off: one line each, the button at the end. */
+.calendar-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .danger-zone {
@@ -1364,6 +1379,13 @@ select.compact {
   fill: color-mix(in srgb, var(--good) 55%, var(--surface));
 }
 
+/* The type and lag of a link that is not a plain finish-to-start one, next to the arrow's head. */
+.gantt-svg .link-tag {
+  fill: var(--muted);
+  font-size: 10px;
+  pointer-events: none;
+}
+
 /* Where the task was in the baseline being compared with: grey, thin, under the bar. */
 .gantt-svg .baseline-bar {
   fill: var(--muted);
@@ -1677,6 +1699,13 @@ select.compact {
   margin-left: 0.25rem;
 }
 
+/* A week with less capacity than the weekly hours: holidays or time off. */
+.less {
+  color: var(--muted);
+  font-weight: 700;
+  margin-left: 0.25rem;
+}
+
 .legend span {
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
@@ -1824,4 +1853,41 @@ kbd {
 
 tr.context-row > td {
   opacity: 0.55;
+}
+
+/* Files on a task. */
+.attachments {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.attachments li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.attachment-preview {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.drop-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.drop-target.over {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
 }

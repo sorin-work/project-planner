@@ -18,7 +18,7 @@ function task(id: number, title: string, startDate: string, dueDate: string, ext
 
 const design = task(1, 'Design', '2026-03-02', '2026-03-06');
 const build = task(2, 'Build', '2026-03-04', '2026-03-06', {
-  predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }],
+  predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0, type: 'FS' }],
 });
 const early: ScheduleIssue = {
   type: 'STARTS_TOO_EARLY', taskId: 2, relatedTaskId: 1, days: 3, suggestedStart: '2026-03-09', suggestedDue: '2026-03-11',
@@ -48,6 +48,7 @@ describe('TaskPanel schedule issues', () => {
     fixture.componentRef.setInput('taskId', 2);
     await fixture.whenStable();
     http.expectOne('/api/tasks/2/comments').flush([]);
+    http.expectOne('/api/tasks/2/attachments').flush([]);
     await fixture.whenStable();
     return { fixture, store, el: fixture.nativeElement as HTMLElement };
   }
@@ -117,6 +118,58 @@ describe('TaskPanel schedule issues', () => {
     });
     await fixture.whenStable();
     expect(el.querySelector('.baseline-note')?.textContent).toContain('Baseline Signed off: Finishes 2 working days earlier than in the baseline');
+  });
+
+  it('says how the task waits, and changes the type and the lag from the keyboard', async () => {
+    const { fixture, store, el } = await render(true);
+    expect(el.querySelector('.deps .dep-phrase')?.textContent).toContain('This starts after Design ends.');
+
+    const type = el.querySelector<HTMLSelectElement>('.deps .dep-edit select')!;
+    type.value = 'SS';
+    type.dispatchEvent(new Event('change'));
+    const patch = http.expectOne('/api/dependencies/50');
+    expect(patch.request.method).toBe('PATCH');
+    expect(patch.request.body).toEqual({ type: 'SS' });
+    patch.flush({ task: { ...build, predecessors: [{ ...build.predecessors[0], type: 'SS' }] }, rescheduled: [] });
+    http.expectOne('/api/projects/7/critical-path').flush({ durationDays: 0, criticalTaskIds: [], tasks: [] });
+    http.expectOne('/api/projects/7/schedule-issues').flush([]);
+    await fixture.whenStable();
+    expect(el.querySelector('.deps .dep-phrase')?.textContent).toContain('This starts with Design.');
+
+    // A lead is a negative lag. A box left empty sends nothing and shows the lag again.
+    const lag = el.querySelector<HTMLInputElement>('.deps .dep-edit input')!;
+    lag.value = '';
+    lag.dispatchEvent(new Event('change'));
+    expect(lag.value).toBe('0');
+    lag.value = '-2';
+    lag.dispatchEvent(new Event('change'));
+    const second = http.expectOne('/api/dependencies/50');
+    expect(second.request.body).toEqual({ lagDays: -2 });
+    second.flush({ code: 'validation_failed', message: 'lagDays must be at least -365' }, { status: 400, statusText: 'Bad Request' });
+    await fixture.whenStable();
+    // Refused: the box shows what the store holds, and the reason is on screen.
+    expect(lag.value).toBe('0');
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain('lagDays must be at least -365');
+    expect(store.byId().get(2)?.predecessors[0].type).toBe('SS');
+  });
+
+  it('adds a link with a type and a lead', async () => {
+    const { fixture, store, el } = await render(true);
+    store.tasks.update((all) => [...all, task(4, 'Copy', '2026-03-09', '2026-03-10')]);
+    await fixture.whenStable();
+    const form = el.querySelector<HTMLFormElement>('.dep-form')!;
+    const [predecessor, type] = [...form.querySelectorAll('select')];
+    predecessor.selectedIndex = [...predecessor.options].findIndex((o) => o.textContent?.includes('Copy'));
+    predecessor.dispatchEvent(new Event('change'));
+    type.selectedIndex = 2;
+    type.dispatchEvent(new Event('change'));
+    const lag = form.querySelector<HTMLInputElement>('input[name="lag"]')!;
+    lag.value = '-1';
+    lag.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    const post = http.expectOne('/api/tasks/2/dependencies');
+    expect(post.request.body).toEqual({ predecessorId: 4, lagDays: -1, type: 'FF' });
   });
 });
 

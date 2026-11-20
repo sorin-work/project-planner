@@ -8,11 +8,16 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Allocated hours per person per week. Each open task's estimate is spread
  * evenly over the working days between its start and due date; tasks without
  * dates are reported separately as unscheduled work.
+ *
+ * <p>Capacity is per week. Every working day is a fifth of the weekly hours, so a
+ * holiday takes a fifth off for everybody and a day off a fifth off for that person.
+ * A task is still spread over its own working days, not around its assignee's days off.
  */
 public final class WorkloadCalculator {
 
@@ -75,9 +80,12 @@ public final class WorkloadCalculator {
             List<WeekLoad> weekLoads = new ArrayList<>();
             for (int w = 0; w < weeks; w++) {
                 double allocated = round(perWeek[w]);
-                weekLoads.add(new WeekLoad(firstWeek.plusWeeks(w), allocated, person.capacityHours(),
-                        allocated > person.capacityHours(),
-                        tasksPerWeek.getOrDefault(key(person.userId(), w), List.of())));
+                LocalDate monday = firstWeek.plusWeeks(w);
+                LocalDate sunday = monday.plusDays(6);
+                double capacity = round(capacityMinutes(person, monday, sunday) / 60.0);
+                weekLoads.add(new WeekLoad(monday, allocated, capacity, allocated > capacity,
+                        tasksPerWeek.getOrDefault(key(person.userId(), w), List.of()),
+                        holidays(monday, sunday), daysOff(person, monday, sunday)));
             }
             result.add(new MemberLoad(person.userId(), person.capacityHours(), weekLoads,
                     round(unscheduled.get(person.userId()))));
@@ -87,13 +95,32 @@ public final class WorkloadCalculator {
 
     /**
      * What a person can work from {@code from} to {@code to}, both included, in minutes:
-     * their weekly hours spread evenly over the working days of a week. A whole week comes
-     * to exactly the weekly hours, which is the capacity the weeks of the grid show. Reports
-     * that need a capacity for other ranges ask here, so that there is one definition.
+     * their weekly hours spread evenly over the five weekdays, for the working days of the
+     * range that they are not away. A whole week without holidays or time off comes to
+     * exactly the weekly hours. The weeks of the grid and the reports ask here, so that
+     * there is one definition.
      */
     public long capacityMinutes(Person person, LocalDate from, LocalDate to) {
-        int days = calendar.workingDaysBetween(from, to);
+        int days = calendar.workingDaysBetween(from, to) - daysOff(person, from, to);
         return Math.round(person.capacityHours() * 60 * days / WorkCalendar.WORKING_DAYS_PER_WEEK);
+    }
+
+    /** Holidays on weekdays from {@code from} to {@code to}. */
+    private int holidays(LocalDate from, LocalDate to) {
+        int count = 0;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (calendar.isHoliday(d)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** The person's days off from {@code from} to {@code to} that would have been working days. */
+    private int daysOff(Person person, LocalDate from, LocalDate to) {
+        return (int) person.daysOff().stream()
+                .filter(d -> !d.isBefore(from) && !d.isAfter(to) && calendar.isWorkingDay(d))
+                .count();
     }
 
     private static long key(long userId, int week) {
@@ -104,14 +131,23 @@ public final class WorkloadCalculator {
         return Math.round(value * 10) / 10.0;
     }
 
-    public record Person(long userId, double capacityHours) {
+    /** {@code daysOff} may hold weekends and holidays too, they are not counted twice. */
+    public record Person(long userId, double capacityHours, Set<LocalDate> daysOff) {
+
+        public Person(long userId, double capacityHours) {
+            this(userId, capacityHours, Set.of());
+        }
     }
 
     public record Assignment(long taskId, long userId, double estimateHours, LocalDate start, LocalDate due, boolean done) {
     }
 
+    /**
+     * @param capacityHours the week's capacity, lower than the weekly hours by a fifth for
+     *                      each holiday and each day off
+     */
     public record WeekLoad(LocalDate weekStart, double allocatedHours, double capacityHours,
-                           boolean overallocated, List<Long> taskIds) {
+                           boolean overallocated, List<Long> taskIds, int holidays, int daysOff) {
     }
 
     public record MemberLoad(long userId, double capacityHours, List<WeekLoad> weeks, double unscheduledHours) {
