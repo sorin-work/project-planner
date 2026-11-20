@@ -6,6 +6,9 @@ import { ActiveMention, activeMention, insertMention } from '../../shared/mentio
 
 const MAX_SUGGESTIONS = 6;
 
+/** Numbers the comment boxes on a page, for the ids of their lists. */
+let boxes = 0;
+
 /** A textarea that suggests teammates after "@" and inserts their handle. */
 @Component({
   selector: 'app-comment-box',
@@ -13,11 +16,13 @@ const MAX_SUGGESTIONS = 6;
   template: `
     <div class="comment-box">
       <textarea #area rows="3" [(ngModel)]="text" name="comment" placeholder="Write a comment… use @ to mention someone"
-        aria-label="Comment" (input)="update()" (click)="update()" (keydown)="onKeydown($event)"></textarea>
+        aria-label="Comment" aria-autocomplete="list" [attr.aria-controls]="suggestions().length ? listId : null"
+        [attr.aria-activedescendant]="suggestions().length ? listId + '-' + highlighted() : null"
+        (input)="update()" (click)="update()" (keydown)="onKeydown($event)"></textarea>
       @if (suggestions().length) {
-        <ul class="suggestions" role="listbox" aria-label="People">
+        <ul class="suggestions" role="listbox" aria-label="People" [id]="listId">
           @for (m of suggestions(); track m.userId; let i = $index) {
-            <li role="option" [attr.aria-selected]="i === highlighted()" [class.active]="i === highlighted()"
+            <li role="option" [id]="listId + '-' + i" [attr.aria-selected]="i === highlighted()" [class.active]="i === highlighted()"
               (mousedown)="$event.preventDefault(); choose(m)">
               <strong>{{ m.name }}</strong> <span class="muted">&#64;{{ m.handle }}</span>
             </li>
@@ -32,6 +37,8 @@ const MAX_SUGGESTIONS = 6;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CommentBox {
+  /** The id of the list of suggestions, which the textarea points at, and its options' ids after it. */
+  protected readonly listId = `mention-list-${++boxes}`;
   readonly members = input<Member[]>([]);
   readonly busy = input(false);
   readonly submitted = output<string>();
