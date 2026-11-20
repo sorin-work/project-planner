@@ -36,8 +36,18 @@ the point is knowing whether a project will land on time and on budget.
 - **Time tracking**: start/stop timers from a task or the top bar, manual entries,
   billable and non-billable time. Timers stopped after midnight book the time on the
   day they started.
-- **Timesheets**: a weekly grid per person; submit a week, managers approve it or send
-  it back with a note. Submitted and approved weeks are locked.
+- **Timesheets**: a weekly grid per person, one row per project and task and one cell
+  per day. Time is typed into the cells as `1:30`, `1.5`, `1,5`, `90m` or `1h 30m` (a
+  number on its own is hours). Anything else is refused, not guessed. A cell saves when
+  you leave it or press Enter, the arrow keys move between cells, and rows can be added
+  before they have time or copied from last week.
+  - An empty cell creates an entry. A cell with one entry changes its time and keeps
+    its note and billable flag. A cleared cell deletes the entry.
+  - An entry with a note is never deleted from the grid, and a cell with several
+    entries or a running timer is not typed into at all. Those are changed in the list
+    of entries below the grid, where everything about them can be seen.
+  - Submit a week, managers approve it or send it back with a note. Submitted and
+    approved weeks are locked: the grid shows them as text and the API refuses changes.
 - **Missing timesheets**: for any week that is over, managers see who has not
   submitted it (drafts and weeks that were sent back) with the hours logged against
   capacity, and can remind one person or everybody who logged time. People without any
@@ -112,7 +122,10 @@ request rather than stored in the token.
 On the web side, `core/` holds the API clients, auth and the current-organisation
 context; `features/` has one folder per page; the timeline lives in
 `features/gantt` with its layout maths (`gantt-layout.ts`) separate from the
-component so it can be unit tested.
+component so it can be unit tested. The weekly grid is split the same way:
+`timesheet-grid.ts` says what a typed cell means, `save-queue.ts` runs one save per
+cell at a time so that typing again during a slow save never makes a second entry,
+and `timesheet-rows.ts` keeps the rows that have no time yet in `localStorage`.
 
 ## Running with Docker
 
@@ -240,6 +253,12 @@ token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
+
+`GET .../timesheets/week` takes `?date=` (any day of the week) and, for owners and
+managers, `?userId=`. Without a date it is the current week by the organisation's date.
+The weekly grid needs no endpoints of its own: a cell is a `POST`, `PUT` or `DELETE` on
+`/orgs/{org}/time-entries`. A `PUT` replaces the entry, so the note has to be sent back
+with it, and a week that is submitted or approved answers `409 timesheet_locked`.
 
 `GET .../timesheets/missing` and `POST .../timesheets/remind` are for owners and
 managers and only take weeks that are over by the organisation's date
