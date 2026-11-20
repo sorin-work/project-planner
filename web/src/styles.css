@@ -1039,6 +1039,28 @@ select.compact {
   color: var(--muted);
 }
 
+/* Schedule issues: a line under the link or the dates it is about. */
+.issue-note {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0.25rem 0 0;
+}
+
+.issues-card {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.issues-card .issue-note {
+  margin: 0;
+  font-size: inherit;
+}
+
+.plan-end-note {
+  margin: -0.4rem 0 0.75rem;
+  text-align: right;
+}
+
 .comments li {
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border);
