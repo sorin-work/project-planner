@@ -96,4 +96,18 @@ describe('SettingsTab baselines', () => {
     http.expectOne('/api/baselines/31/comparison').flush({ ...comparison, baseline: later });
     expect(store.comparedId()).toBe(31);
   });
+
+  it('asks for the comparison again after the project is saved, since its end date may have moved', async () => {
+    store.compareWith(30);
+    http.expectOne('/api/baselines/30/comparison').flush(comparison);
+    const form = el.querySelector('app-project-form form') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    http.expectOne((r) => r.method === 'PUT' && r.url === '/api/projects/7').flush({ id: 7, organisationId: 3, name: 'Site', code: 'SITE', status: 'ACTIVE', endDate: '2026-04-30' });
+    http.expectOne('/api/projects/7/critical-path').flush({ durationDays: 0, criticalTaskIds: [], tasks: [] });
+    http.expectOne('/api/projects/7/schedule-issues').flush([]);
+    http.expectOne('/api/baselines/30/comparison').flush({ ...comparison, projectEnd: { baseline: '2026-04-24', current: '2026-04-30', slipDays: 4, change: 'SLIPPED' } });
+    expect(store.comparison()?.projectEnd.slipDays).toBe(4);
+  });
 });
+
