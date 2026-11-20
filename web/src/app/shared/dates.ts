@@ -79,6 +79,12 @@ export function dayName(iso: string): string {
   return DAYS[weekday(iso)];
 }
 
+const LONG_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+export function dayNameLong(iso: string): string {
+  return LONG_DAYS[weekday(iso)];
+}
+
 export function monthName(iso: string): string {
   return MONTHS[toDate(iso).getUTCMonth()];
 }

@@ -39,7 +39,7 @@ export class TimesheetPage {
   private readonly weekParam = toSignal(this.route.queryParamMap.pipe(map((q) => q.get('week'))), {
     initialValue: this.route.snapshot.queryParamMap.get('week'),
   });
-  protected readonly weekOf = computed(() => weekOfParam(this.weekParam(), today()));
+  protected readonly weekOf = computed(() => weekOfParam(this.weekParam()) ?? weekStart(today()));
   protected readonly week = signal<Week | null>(null);
   protected readonly projects = signal<ProjectOption[]>([]);
   protected readonly tasks = signal<Task[]>([]);
