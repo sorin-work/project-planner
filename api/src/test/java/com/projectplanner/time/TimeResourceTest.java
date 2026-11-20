@@ -3,9 +3,11 @@ package com.projectplanner.time;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
+import com.projectplanner.support.TestClock;
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 
@@ -148,6 +150,22 @@ class TimeResourceTest {
 
         owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
                 .then().body("entries", hasSize(1)).body("totalMinutes", equalTo(30));
+    }
+
+    @Test
+    void thisWeekIsTheOrganisationsWeek() {
+        Account owner = Api.signup("Quy");
+        owner.as().body(Map.of("timezone", "Pacific/Kiritimati")).patch("/api/orgs/" + owner.orgId()).then().statusCode(200);
+        try {
+            // 2026-03-08 is a Sunday. At eight in the evening UTC it is already Monday on the island.
+            TestClock.fix(Instant.parse("2026-03-08T20:00:00Z"));
+            owner.as().get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                    .then().statusCode(200).body("weekStart", equalTo("2026-03-09")).body("days[0].date", equalTo("2026-03-09"));
+            owner.as().queryParam("date", "2026-03-08").get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                    .then().statusCode(200).body("weekStart", equalTo("2026-03-02"));
+        } finally {
+            TestClock.reset();
+        }
     }
 
     @Test
