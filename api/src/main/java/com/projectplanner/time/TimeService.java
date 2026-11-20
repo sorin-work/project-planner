@@ -99,7 +99,7 @@ public class TimeService {
         checkOwner(me, entry);
         checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
         long from = entry.projectId;
-        lockInOrder(from, request.projectId());
+        lockInOrder(entry.organisationId, from, request.projectId());
         Target target = target(entry.organisationId, request.projectId(), request.taskId());
         if (!entry.isRunning()) {
             // Both the week the entry leaves and the one it moves into have to be open.
@@ -134,7 +134,7 @@ public class TimeService {
     /** Starts a timer, stopping (and saving) any timer that was already running. */
     public TimeEntry start(Membership me, StartTimerRequest request) {
         Optional<TimeEntry> running = TimeEntry.runningFor(me.organisationId, me.userId);
-        running.ifPresent(timer -> lockInOrder(timer.projectId, request.projectId()));
+        running.ifPresent(timer -> lockInOrder(me.organisationId, timer.projectId, request.projectId()));
         Target target = target(me.organisationId, request.projectId(), request.taskId());
         running.ifPresent(this::finish);
         Instant now = Instant.now(clock);
@@ -235,10 +235,7 @@ public class TimeService {
      * afterwards sees every one of them.
      */
     private Target target(long organisationId, long projectId, Long taskId) {
-        Project project = Project.locked(projectId);
-        if (project == null || !Objects.equals(project.organisationId, organisationId)) {
-            throw ApiException.badRequest("unknown_project", "Project not found in this organisation");
-        }
+        Project project = Project.locked(projectIn(organisationId, projectId).id);
         if (project.status == ProjectStatus.DONE) {
             throw ApiException.badRequest("project_done", project.name + " is finished; reopen it to log more time");
         }
@@ -268,9 +265,23 @@ public class TimeService {
         }
     }
 
-    /** Locks two projects lowest id first, so that two changes that touch the same pair can't wait for each other. */
-    private static void lockInOrder(long projectId, long otherProjectId) {
+    /** A project of the organisation, read without a lock: nothing outside the organisation is locked by its members. */
+    private static Project projectIn(long organisationId, long projectId) {
+        Project project = Project.findById(projectId);
+        if (project == null || !Objects.equals(project.organisationId, organisationId)) {
+            throw ApiException.badRequest("unknown_project", "Project not found in this organisation");
+        }
+        return project;
+    }
+
+    /**
+     * Locks the project an entry is on and the one it is going to, lowest id first, so that two
+     * changes that touch the same pair can't wait for each other. The one it is going to is
+     * checked to be in the organisation before anything is locked.
+     */
+    private static void lockInOrder(long organisationId, long projectId, long otherProjectId) {
         if (projectId != otherProjectId) {
+            projectIn(organisationId, otherProjectId);
             Project.locked(Math.min(projectId, otherProjectId));
             Project.locked(Math.max(projectId, otherProjectId));
         }

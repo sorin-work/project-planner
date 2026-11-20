@@ -82,6 +82,12 @@ public class Project extends PanacheEntityBase {
      * and the alert that may already have gone out for it.
      */
     public static Project locked(long id) {
-        return findById(id, LockModeType.PESSIMISTIC_WRITE);
+        Project project = findById(id);
+        if (project != null) {
+            // Read again under the lock: a copy that was read before it may hold levels
+            // that another change has moved since.
+            getEntityManager().refresh(project, LockModeType.PESSIMISTIC_WRITE);
+        }
+        return project;
     }
 }
