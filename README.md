@@ -18,6 +18,14 @@ the point is knowing whether a project will land on time and on budget.
 - **Clients and projects**: projects have a client (or are internal), a code like
   `ACME-WEB`, status (planned, active, on hold, done), start and end dates, an hours
   budget, a money budget and an optional fixed hourly rate.
+- **Duplicate a project**: copy the plan of any project, a finished one included, into
+  a new one: phases, tasks with their subtasks, milestones, links with their lag,
+  estimates, priorities, descriptions, budgets, colour and rate. You pick the day the
+  copy begins on, and every date keeps its distance from the first day of the plan in
+  working days, so tasks are as long as they were and links hold as they did. Every
+  task starts again as to do. Logged time, comments, notifications and activity are
+  not copied, and neither are the client and the assignees unless you ask for them.
+  The new project gets a code of its own, proposed and yours to change.
 - **Rates**: hourly rates per member, defaults per role and an organisation default.
   The most specific one wins (project → member → role → organisation). Money is only
   shown to owners and managers.
@@ -116,6 +124,7 @@ dependencies, so they are tested in isolation:
 | `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
 | `Rescheduler`         | Pushes dependants later when a task moves and shifts a task by working days, keeping durations |
+| `PlanShift`           | Moves a whole plan to a new start, every date at its distance in working days |
 | `ScheduleCheck`       | Lists what does not fit in a plan, with the rescheduler's link rule  |
 | `CriticalPath`        | Early/late start and finish, float and the critical tasks            |
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
@@ -393,7 +402,7 @@ token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
 | Auth          | `POST /auth/signup`, `POST /auth/login`, `GET/PATCH /me`, `POST /me/password`                    |
 | Organisation  | `GET/PATCH /orgs/{org}`, `/orgs/{org}/members`, `/orgs/{org}/invitations`, `/orgs/{org}/role-rates` |
 | Clients       | `/orgs/{org}/clients`                                                                           |
-| Projects      | `GET/POST /orgs/{org}/projects`, `GET/PUT/DELETE /projects/{id}`, `/projects/{id}/phases`, `/phases/{id}` |
+| Projects      | `GET/POST /orgs/{org}/projects`, `GET/PUT/DELETE /projects/{id}`, `GET/POST /projects/{id}/duplicate`, `/projects/{id}/phases`, `/phases/{id}` |
 | Tasks         | `GET/POST /projects/{id}/tasks`, `GET/PATCH/DELETE /tasks/{id}`, `POST /tasks/{id}/shift`, `GET /tasks/{id}/subtasks` |
 | Dependencies  | `GET /projects/{id}/dependencies`, `POST /tasks/{id}/dependencies`, `DELETE /dependencies/{id}`   |
 | Planning      | `GET /projects/{id}/critical-path`, `GET /projects/{id}/schedule-issues`, `GET /projects/{id}/health`, `GET /orgs/{org}/workload` |
@@ -411,6 +420,25 @@ The start moves by that many working days and the due date keeps the task's leng
 working days, so a Thursday to Friday task shifted by 1 runs Friday to Monday. The
 result is not pulled onto a working day afterwards: a Monday start shifted by -1 is
 the Friday before.
+
+`POST /projects/{id}/duplicate` copies the plan of a project into a new one and answers
+with it (`201`, status `PLANNED`). It is for owners and managers who can see the source.
+The body is `{ "name", "code", "startDate", "clientId"?, "keepAssignees"? }`: without
+`clientId` the copy is internal, and without `keepAssignees` nobody is assigned. With it,
+people who have left the team are dropped instead of the copy failing. A code that is
+in use answers `409 code_taken`. `GET /projects/{id}/duplicate` proposes
+`{ name, code, startDate }` (the code is free at that moment) and says how many phases,
+tasks and links there are to copy.
+
+The copy is made in one transaction, so it is there as a whole or not at all, and in a
+fixed number of statements however many tasks the plan has. The first day of the plan
+(the earliest task date or the project's own start) lands on `startDate`, or on the next
+working day, and everything else keeps its distance from it in working days. So the
+schedule issues of the copy are those of the source's dates, no more and no fewer.
+Two things to know: tasks that were finished in the source are open again in the copy,
+so an overlap that the source no longer reports comes back. And a date on a weekend is
+taken as the working day it stands for, which changes nothing unless a task lies on a
+weekend entirely: that one becomes a one-day task and can be in the way of a neighbour.
 
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
 returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses? }`,

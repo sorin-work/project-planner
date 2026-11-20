@@ -33,7 +33,7 @@ couple of weekends, **L** several weeks of spare time.
 | 10  | Budget alerts                              | Later | both     | S    | -          |
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
-| 13  | Duplicate a project as a template          | Later | both     | M    | -          |
+| 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
 | 14  | Performance on large projects              | Later | both     | M    | -          |
 | 15  | Public holidays and time off               | Later | both     | L    | -          |
 | 16  | Baselines                                  | Maybe | both     | M    | -          |
@@ -500,52 +500,6 @@ timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
 - Undecided: separate preferences per organisation for people who are in
   several. I lean towards no.
 
-### 13. Duplicate a project as a template
-
-Every client project in the demo data has the same shape: discovery, design,
-build and launch, with the same kinds of tasks and links. A new project starts
-empty, and that shape is typed in by hand each time. People asked Asana for
-years for "copy a project and shift its dates". That is this feature.
-
-- API: `POST /api/projects/{projectId}/duplicate` for managers
-  (`access.manageProject` on the source) with a name, a code, an optional
-  client, a start date and a "keep assignees" flag. It answers with the new
-  project, which starts as `PLANNED`.
-- Copied: phases, tasks, subtasks, milestones, dependencies with their lag,
-  estimates, priorities, descriptions, the colour, the budgets and the fixed
-  rate. Not copied: time entries, comments, activity and notifications. Every
-  task starts again as `TODO` with `completedAt` empty.
-- The order matters because of ids: phases first, then top-level tasks, then
-  subtasks (`parentId`), then the `TaskDependency` rows from
-  `TaskDependency.forProject`, each through a map from old id to new id.
-- Dates: given a start date, every task keeps its distance from the source's
-  earliest task start, and its length, both counted in working days
-  (`WorkCalendar.workingDaysBetween`, `addWorkingDays`, `onOrAfter`). Nothing
-  lands on a weekend and every link still holds. Tasks without dates stay
-  without. The project's own start and end move the same way. Put the shift in
-  a plain class in `schedule/` with its own test.
-- Tricky: do not build the copy with `TaskService.create`. It writes an
-  activity entry per task and notifies every assignee (`notifyAssigned`),
-  which for a forty-task plan is forty notifications. Create the entities
-  directly and record one activity entry for the whole copy.
-- Tricky: positions. The board orders cards by `Task.position` within a
-  status. With everything back in `TODO`, the copied numbers collide.
-  Renumber in the order of the source's list. Phase positions can already
-  have gaps or repeats, because the settings tab reorders with two separate
-  `PUT /api/phases/{id}` calls. Copy the order, not the numbers.
-- Tricky: assignees who have left. `TaskService.assigneeIn` only accepts
-  current team members. With "keep assignees", drop the ones who are gone
-  instead of failing.
-- Web: in `ProjectsPage` the "New project" form (`ProjectForm`) gets a "Copy
-  the plan from" select, and the start date becomes required when it is set. A
-  "Duplicate" button on the project's Settings tab.
-- Undecided: real templates, meaning projects that are flagged as templates
-  and hidden everywhere else. The flag would have to be respected by the
-  project list, the dashboard, the workload (`WorkloadResource` counts every
-  planned and active project), time logging and search. Copying from any
-  project, a finished one included, gets most of the value without that. I
-  would stop there.
-
 ### 14. Performance on large projects
 
 The demo data is eight projects, about ninety tasks and a year of time for
@@ -915,3 +869,27 @@ scroll while something is dragged (two bars that are not on screen together
 are linked at week zoom or in the task panel), a parent's subtasks do not
 follow when it is resized, and drawing a bar for a task without dates is the
 follow-up it was.
+
+### 13. Duplicate a project as a template
+
+`POST /api/projects/{projectId}/duplicate` copies phases, tasks, subtasks,
+milestones and links into a new planned project, in one transaction, and
+`GET` on the same path proposes a name, a free code (`ProjectCodes.next`) and
+a start date. `PlanShift` in `schedule/` moves the dates: the first day of the
+plan lands on the chosen day and everything keeps its distance from it in
+working days. The "New project" form has a "Copy the plan from" select, and
+the Settings tab a "Duplicate" card, both with the same small form. Different
+from the design: the client is not copied unless it is picked, like the
+assignees; the first day of the plan is the earliest of the task dates and
+the project's own start, not only the earliest task start, so a project that
+begins a week before its first task still does; and the rows are not made one
+entity at a time but by one `insert ... select` per table
+(`ProjectDuplicator`), because the ids are identity columns and Hibernate
+cannot batch those. A plan of 3,000 tasks takes the same twenty statements as
+one of twenty. The copy has the schedule issues of the source's dates and no
+others, with two things to know: tasks finished in the source are open again,
+so an overlap the source had stopped reporting is reported, and a task that
+lies on a weekend entirely becomes a one-day task on the next working day and
+can then be in the way of a neighbour. Still open: real templates (projects
+flagged as such and hidden elsewhere), a choice of which phases to copy, and
+the organisation's calendar in `ProjectDuplicator` once item 15 has one.
