@@ -86,6 +86,13 @@ the point is knowing whether a project will land on time and on budget.
   and an on track / at risk / off track status.
 - **Comments with @mentions** (handles are the part of the email before the @, with
   autocomplete), in-app notifications, an activity log per project and organisation.
+- **Reports**: logged time per project, client, person or task for this or last week
+  or month, or any range up to two years, with the billable time and, for owners and
+  managers, the billable amount. A click on a project shows its tasks. Utilisation
+  compares each person's billable time with their capacity. Members see their own
+  time, without amounts. Time is counted in whole minutes and money to the cent, so
+  every column adds up to its total, and both reports download as CSV with the rows
+  on screen.
 - **CSV export** of timesheets (rate and amount columns for managers), safe to open in
   a spreadsheet.
 - **Backups**: with Docker, an optional service dumps the whole database once a day
@@ -119,7 +126,8 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 `auth`, `org` (organisations, members, invitations, rates), `client`, `project`
 (projects and phases), `task` (tasks, dependencies, critical path and schedule
 issue endpoints), `time`
-(entries, timers, timesheets, CSV export), `workload`, `report` (project health),
+(entries, timers, timesheets, CSV export), `workload`, `report` (project health,
+time and utilisation reports),
 `comment`, `notification`, `activity`, `dashboard` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
@@ -136,7 +144,10 @@ dependencies, so they are tested in isolation:
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
 | `BudgetCalculator`    | Hours and money burn against the budgets                             |
 | `HealthStatus`        | Turns progress and burn into on track / at risk / off track          |
-| `WorkloadCalculator`  | Allocated hours per person per week vs capacity                      |
+| `WorkloadCalculator`  | Allocated hours per person per week vs capacity, and capacity for a range |
+| `TimeReport`          | Time per project, client, person or task, priced entry by entry in cents |
+| `Utilisation`         | Billable time as a share of capacity, per person and in total        |
+| `ReportRange`         | This and last week or month from the organisation's date, or two dates |
 | `MissingTimesheets`   | Who has not submitted a finished week, and the limits on reminders   |
 | `RateResolver`        | Picks the hourly rate for a piece of time                            |
 | `MentionParser`       | Finds @handles in comments (and ignores email addresses)             |
@@ -421,6 +432,7 @@ token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
 | Time          | `/orgs/{org}/time-entries`, `GET /orgs/{org}/timer`, `POST /orgs/{org}/timer/start\|stop`         |
 | Timesheets    | `GET /orgs/{org}/timesheets/week`, `POST .../submit\|withdraw`, `GET /orgs/{org}/timesheets`, `POST .../{id}/approve\|reject`, `GET .../missing?weekStart`, `POST .../remind` |
 | Export        | `GET /orgs/{org}/exports/timesheets.csv?from&to&userId&projectId&billable`                        |
+| Reports       | `GET /orgs/{org}/reports/time`, `GET /orgs/{org}/reports/utilisation`, and both with `.csv`       |
 | Collaboration | `/tasks/{id}/comments`, `/comments/{id}`, `/notifications`, `/orgs/{org}/activity`, `/projects/{id}/activity` |
 | Dashboard     | `GET /orgs/{org}/dashboard`                                                                     |
 
@@ -482,6 +494,44 @@ managers and only take weeks that are over by the organisation's date
 `{ "weekStart", "userIds": [...] }`, and the answer says who was reminded and who was
 left out and why: `{ "reminded": [...], "skipped": [{ "userId", "reason" }] }` with the
 reasons `NOT_MISSING`, `YOURSELF`, `ALREADY_REMINDED` and `DAILY_LIMIT`.
+
+### Reports
+
+`GET .../reports/time` and `GET .../reports/utilisation` take a range: either
+`preset=this_week|last_week|this_month|last_month`, which the API works out from the
+organisation's date, or `from` and `to`. Both days are included, a week is Monday to
+Sunday, a month runs from its first to its last day, and a range covers at most two
+years. The answer says which dates it used.
+
+The time report also takes `groupBy=project|client|member|task` and the filters
+`projectId`, `clientId`, `userId` and `billable`. Each row has a `key`, a `label`,
+`minutes`, `billableMinutes` and, for owners and managers, `billableAmount`, and
+`total` is the sum of the rows. Running timers are left out.
+
+- Rounding: time is whole minutes. Money is priced one entry at a time, minutes at the
+  hourly rate rounded half up to a cent, exactly as the budget and the entry export do
+  it. Three entries of twenty minutes at 100 an hour are 99.99, not 100.00. Nothing is
+  rounded after adding up, so a total is the sum of its rows to the cent.
+- The database does the adding up. Entries are grouped by project, person, billable
+  flag and length (and task, when rows are per task) and counted, and one entry of
+  each group is priced. A year of the demo team is a few hundred groups.
+- Access: the team only, client viewers get `403`. A member gets their own time and
+  no amounts, and `403` when asking for somebody else. A project, client or person
+  that is not in the organisation is a `404`, never an empty report.
+- Utilisation is for owners and managers. A row has `minutes`, `billableMinutes`,
+  `capacityMinutes` and `utilisationPct`, which is billable time as a share of
+  capacity with one decimal. Capacity is the one the workload page uses: a person's
+  weekly hours spread over Monday to Friday, for the working days of the range up to
+  today (`capacityTo`, `workingDays`). It uses the weekly hours as they are now, also
+  for somebody who joined or changed them inside the range, and it does not know
+  about holidays or time off.
+- The `.csv` forms have the same rows and the same access rules. Columns:
+  `from,to,group_by,key,label,minutes,billable_minutes,billable_amount` (the last one
+  only for owners and managers) and
+  `from,to,member,minutes,billable_minutes,capacity_minutes,utilisation_pct`. Dates
+  are ISO dates, time is whole minutes so that a column can be summed, amounts are
+  plain decimals, and a text cell that starts with `=`, `+`, `-` or `@` gets an
+  apostrophe in front so that a spreadsheet does not run it.
 
 ## License
 
