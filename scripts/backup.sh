@@ -267,9 +267,23 @@ restore() {
       mkdir "$staged"
       # Until the swap starts, a restore that stops leaves no unpacked copy behind.
       trap '[ -z "$staged" ] || rm -rf "$staged"' EXIT
+      # Nothing in the archive may point outside the folder it is unpacked in.
+      if ! names=$(tar -tf "$archive"); then
+        fail "could not read $(basename "$archive"), nothing was restored"
+      fi
+      if echo "$names" | grep -q -E '^/|(^|/)\.\.(/|$)'; then
+        fail "$(basename "$archive") names a path outside the attachments folder, nothing was restored"
+      fi
       if ! tar -C "$staged" -xf "$archive"; then
-        rm -rf "$staged"
         fail "could not unpack $(basename "$archive"), nothing was restored"
+      fi
+      # The api only ever writes plain files in plain folders. Anything else that an archive holds,
+      # a link, a device, a pipe, or a file hard-linked to another, could make it serve a file
+      # from elsewhere, so it is removed and counted.
+      odd=$(find "$staged" -mindepth 1 \( ! -type f ! -type d \) -o \( -type f -links +1 \) | wc -l)
+      if [ "$odd" -gt 0 ]; then
+        find "$staged" -mindepth 1 \( \( ! -type f ! -type d \) -o \( -type f -links +1 \) \) -exec rm -f {} \;
+        log "left out $odd entries of $(basename "$archive") that are not plain files or folders"
       fi
     else
       log "there is no archive of the attachments next to $(basename "$file"), the attachments are left as they are"

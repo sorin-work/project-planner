@@ -148,7 +148,16 @@ public final class FileTypes {
         } catch (CharacterCodingException e) {
             return false;
         }
-        String start = text.startsWith("﻿") ? text.substring(1) : text;
-        return !start.stripLeading().startsWith("<");
+        // Whatever a browser would skip before markup: byte order marks (more than one), white space,
+        // no-break spaces and zero-width spaces.
+        int i = 0;
+        while (i < text.length()) {
+            char c = text.charAt(i);
+            if (c != '\uFEFF' && c != '\u00A0' && c != '\u200B' && !Character.isWhitespace(c)) {
+                break;
+            }
+            i++;
+        }
+        return !text.startsWith("<", i);
     }
 }

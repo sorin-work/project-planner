@@ -41,7 +41,15 @@ public final class ProjectDtos {
                                   LocalDate endDate, BigDecimal budgetHours,
                                   @Schema(description = ApiDocs.MANAGERS_ONLY) BigDecimal budgetAmount,
                                   @Schema(description = "A fixed rate for all time on this project. " + ApiDocs.MANAGERS_ONLY) BigDecimal hourlyRate,
-                                  String color, Instant createdAt, Instant updatedAt) {
+                                  String color, Instant createdAt, Instant updatedAt,
+                                  @Schema(description = "Only in the answer to a copy with copyAttachments: the files that were copied.") Integer attachmentsCopied,
+                                  @Schema(description = "Only in the answer to a copy with copyAttachments: the files that were left out because "
+                                          + "their file was missing on the server.") Integer attachmentsSkipped) {
+
+        public ProjectResponse withCopiedFiles(int copied, int skipped) {
+            return new ProjectResponse(id, organisationId, clientId, clientName, name, code, description, status, startDate, endDate,
+                    budgetHours, budgetAmount, hourlyRate, color, createdAt, updatedAt, copied, skipped);
+        }
     }
 
     /**

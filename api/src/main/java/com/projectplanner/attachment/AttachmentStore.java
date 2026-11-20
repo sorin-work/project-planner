@@ -6,7 +6,12 @@ import org.jboss.logging.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.io.InputStream;
+import java.nio.channels.Channels;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -71,8 +76,28 @@ public class AttachmentStore {
         return root.resolve(key.substring(0, 2)).resolve(key);
     }
 
+    /**
+     * Whether the file of {@code key} is there as a plain file inside the store: not a link,
+     * not something a link in a folder above it points at.
+     */
     public boolean exists(String key) {
-        return Files.isRegularFile(path(key));
+        Path file = path(key);
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            return false;
+        }
+        try {
+            return file.toRealPath().startsWith(root.toRealPath());
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** The bytes of the file of {@code key}. A link is never followed. */
+    public InputStream open(String key) throws IOException {
+        if (!exists(key)) {
+            throw new NoSuchFileException(key);
+        }
+        return Channels.newInputStream(Files.newByteChannel(path(key), Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)));
     }
 
     /** Removes the files. One that cannot be removed is left to the sweep. */

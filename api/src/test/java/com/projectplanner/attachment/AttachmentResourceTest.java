@@ -2,6 +2,7 @@ package com.projectplanner.attachment;
 
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
+import com.projectplanner.support.LockLog;
 import com.projectplanner.support.TestClock;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
@@ -19,6 +20,13 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -284,4 +292,81 @@ class AttachmentResourceTest {
         assertThat(store.exists(copyKey)).isFalse();
         assertThat(store.exists(original)).isTrue();
     }
+
+    @Test
+    void uploadsThatArriveTogetherNeverPassTheOrganisationsLimitTogether() throws Exception {
+        // 3 MB in the tests: room for exactly two files of 1 MB after the first one.
+        Setup s = setup("Ola", "RACEF");
+        Account viewer = Api.signup("Pip");
+        Api.addMember(s.owner(), viewer, "CLIENT", s.clientId());
+        uploaded(s.owner(), s.taskId(), "first.png", png(1048576));
+
+        ExecutorService pool = Executors.newFixedThreadPool(5);
+        try {
+            CountDownLatch go = new CountDownLatch(1);
+            List<Future<Integer>> answers = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                Account who = i % 2 == 0 ? s.owner() : viewer;
+                String name = "file" + i + ".png";
+                Callable<Integer> upload = () -> {
+                    go.await();
+                    return upload(who, s.taskId(), name, png(1048576)).statusCode();
+                };
+                answers.add(pool.submit(upload));
+            }
+            go.countDown();
+            List<Integer> codes = new ArrayList<>();
+            for (Future<Integer> answer : answers) {
+                codes.add(answer.get(30, TimeUnit.SECONDS));
+            }
+            assertThat(codes).containsExactlyInAnyOrder(201, 201, 413, 413, 413);
+        } finally {
+            pool.shutdownNow();
+        }
+        s.owner().as().get("/api/tasks/" + s.taskId() + "/attachments").then().body("$", hasSize(3));
+    }
+
+    @Test
+    void anUploadLocksTheOrganisationAndNoProjectOrMembership() {
+        Setup s = setup("Quin", "LOCKF");
+        LockLog.start();
+        uploaded(s.owner(), s.taskId(), "a.png", PNG);
+        assertThat(LockLog.stop()).isEmpty();
+    }
+
+    @Test
+    void aCopyLeavesOutFilesThatAreMissingAndSaysHowMany() throws IOException {
+        Setup s = setup("Rae", "MISSF");
+        uploaded(s.owner(), s.taskId(), "kept.pdf", PDF);
+        String gone = keyOf(uploaded(s.owner(), s.taskId(), "gone.pdf", PDF));
+        Files.delete(store.path(gone));
+
+        Number copy = s.owner().as().body(Map.of("name", "Copy", "code", "MISSF-2", "startDate", "2026-06-01", "copyAttachments", true))
+                .post("/api/projects/" + s.projectId() + "/duplicate").then().statusCode(201)
+                .body("attachmentsCopied", equalTo(1)).body("attachmentsSkipped", equalTo(1)).extract().path("id");
+        Number task = s.owner().as().get("/api/projects/" + copy + "/tasks").then().extract().path("[0].id");
+        s.owner().as().get("/api/tasks/" + task + "/attachments").then().body("fileName", equalTo(List.of("kept.pdf")));
+        // Without the files the answer says nothing about them.
+        s.owner().as().body(Map.of("name", "Plain", "code", "MISSF-3", "startDate", "2026-06-01"))
+                .post("/api/projects/" + s.projectId() + "/duplicate").then().statusCode(201)
+                .body("containsKey('attachmentsCopied')", equalTo(false));
+    }
+
+    @Test
+    void aFileThatIsALinkIsNeverServed() throws IOException {
+        Setup s = setup("Sid", "LINKF");
+        long id = uploaded(s.owner(), s.taskId(), "a.png", PNG);
+        Path file = store.path(keyOf(id));
+        Path elsewhere = Files.createTempFile("not-an-attachment", ".txt");
+        Files.writeString(elsewhere, "secret");
+        Files.delete(file);
+        Files.createSymbolicLink(file, elsewhere);
+        try {
+            given().get(link(s.owner(), id, false)).then().statusCode(404);
+        } finally {
+            Files.deleteIfExists(file);
+            Files.deleteIfExists(elsewhere);
+        }
+    }
 }
+

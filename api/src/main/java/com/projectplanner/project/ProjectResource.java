@@ -197,7 +197,9 @@ public class ProjectResource {
     public ProjectResponse duplicate(@PathParam("projectId") long projectId, @Valid @NotNull DuplicateRequest request) {
         Project source = access.project(projectId);
         Membership me = access.manageProject(source);
-        return ProjectService.toResponse(duplicator.duplicate(me, source, request), true);
+        ProjectDuplicator.Duplicate copy = duplicator.duplicate(me, source, request);
+        ProjectResponse response = ProjectService.toResponse(copy.project(), true);
+        return copy.files() == null ? response : response.withCopiedFiles(copy.files().copied(), copy.files().skipped());
     }
 
     public record ProjectListItem(ProjectResponse project, HealthSummary health) {

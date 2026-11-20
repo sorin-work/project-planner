@@ -11,6 +11,9 @@ class AttachmentNamesTest {
         assertThat(AttachmentService.cleanName("../../etc/passwd.txt")).isEqualTo("passwd.txt");
         assertThat(AttachmentService.cleanName("C:\\Users\\ann\\Brief.pdf")).isEqualTo("Brief.pdf");
         assertThat(AttachmentService.cleanName("Brief \"final\"\r\n.pdf")).isEqualTo("Brief final.pdf");
+        // A right-to-left override would show "invoice-fdp.exe" as "invoice-exe.pdf".
+        assertThat(AttachmentService.cleanName("invoice-\u202Efdp.exe")).isEqualTo("invoice-fdp.exe");
+        assertThat(AttachmentService.cleanName("a\u200Db\u2066c.pdf")).isEqualTo("abc.pdf");
         assertThat(AttachmentService.cleanName("  ")).isEqualTo("file");
         assertThat(AttachmentService.cleanName(null)).isEqualTo("file");
         assertThat(AttachmentService.cleanName("..")).isEqualTo("file");

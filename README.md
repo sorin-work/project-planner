@@ -343,7 +343,9 @@ docker compose start api
 and the attachments with what the archive next to the dump holds, so everything written
 after the dump is gone. The archive is unpacked first, next to the files in use, so one
 that cannot be read stops the restore before anything changed. The restored files are
-given to the API's user (`ATTACHMENTS_OWNER`, `1000:1000`). A dump without an archive,
+given to the API's user (`ATTACHMENTS_OWNER`, `1000:1000`). An archive that names a path
+outside the folder is refused, and anything in it that is not a plain file or folder (a
+link, a device, a file hard-linked to another) is left out and counted in the log. A dump without an archive,
 from before attachments, leaves the files as they are. The dump is loaded into a new database
 first, and that one takes the place of the old one only when the load worked: a damaged
 file, or an API that is still running, leaves the data as it was. The two swap names in
@@ -699,14 +701,19 @@ is is worked out from its first bytes, which have to match its name, against a f
 list; the type the browser sends is ignored. A file that is not on the list, or is not
 what its name says, is `415 unsupported_file_type`. Above 20 MB it is
 `413 file_too_large`, and past the organisation's 2 GB `413 storage_full`. Files are
-stored under a random key, never under their name.
+stored under a random key, never under their name. A name loses any folder, control
+characters and invisible format characters (such as a right-to-left override).
 
 The bytes are not behind the bearer token, since a plain link or an `<img>` cannot send
 it. `POST /attachments/{id}/link` checks that the caller may see the project and answers
 with a path that works for two minutes without a token: it carries the attachment, the
 user, the expiry and whether to show the file in the page, with an HMAC over them (the
 key is derived from `JWT_SECRET`). `GET /attachments/{id}/content` checks that HMAC and
-the expiry, `403 link_invalid` otherwise. Every answer has `Content-Disposition`
+the expiry, `403 link_invalid` otherwise. A link is checked once, when it is made: it
+keeps working for the rest of its two minutes after the user loses access, which is why
+it is short. Changing `JWT_SECRET` makes every link that is out there invalid, along
+with every login token. Only a plain file inside the attachments folder is served, never
+a link. Every answer has `Content-Disposition`
 (`attachment`, or `inline` for the four raster image types when a preview was asked
 for), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none';
 sandbox` and `Cache-Control: private, no-store`.
@@ -715,8 +722,14 @@ Deleting an attachment, a task or a project deletes the files once the deletion 
 committed; a failed request keeps them. A file written for an upload that is not
 committed goes again. Every six hours a sweep removes files that no row knows and that
 are older than an hour. `POST /projects/{id}/duplicate` copies the files only with
-`copyAttachments: true`, each under a key of its own; `GET` on the same path says how
-many there are (`attachments`, `attachmentBytes`).
+`copyAttachments: true`, each under a key of its own, and the answer then says how many
+were copied and how many were left out because their file was missing
+(`attachmentsCopied`, `attachmentsSkipped`). `GET` on the same path says how many there
+are (`attachments`, `attachmentBytes`).
+
+An upload or a copy of files locks the organisation's row while it checks the space and
+writes, so uploads that arrive together are counted one after the other and never pass
+the limit between them. That row is taken before any membership or project row.
 
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
 returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses?, linkType? }`,

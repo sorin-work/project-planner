@@ -96,7 +96,16 @@ public class ProjectDuplicator {
                 count("select coalesce(sum(a.sizeBytes), 0) from Attachment a, Task t where t.id = a.taskId and t.projectId = ?1", source.id));
     }
 
-    public Project duplicate(Membership me, Project source, DuplicateRequest request) {
+    /** The new project, and what became of the files when they were asked for. */
+    public record Duplicate(Project project, AttachmentService.CopiedFiles files) {
+    }
+
+    public Duplicate duplicate(Membership me, Project source, DuplicateRequest request) {
+        if (request.copyAttachments()) {
+            // The files count against the organisation's space, which is checked under its row's lock. That row
+            // comes before any project row, the copy's own included, so it is taken first.
+            AttachmentService.lockOrganisation(source.organisationId);
+        }
         List<Phase> phases = Phase.forProject(source.id);
         List<SourceTask> tasks = sourceTasks(source.id);
         List<TaskDependency> dependencies = TaskDependency.forProject(source.id);
@@ -118,7 +127,7 @@ public class ProjectDuplicator {
         Map<Long, Long> newTask = copyTasks(tasks, copy.id, newPhase, shift, team, now);
         int links = copyDependencies(dependencies, newTask, now);
         // Files only when asked for: they take room, and a template rarely wants the old project's papers.
-        int files = request.copyAttachments() ? attachments.copy(copy.organisationId, newTask) : 0;
+        AttachmentService.CopiedFiles files = request.copyAttachments() ? attachments.copy(copy.organisationId, newTask) : null;
 
         // The entry is read by everybody who sees the copy, and not all of them may see the source:
         // a copy can be made for another client. So the text does not name it. Its id is kept next
@@ -126,8 +135,8 @@ public class ProjectDuplicator {
         activity.record(copy.organisationId, copy.id, null, me.userId, "project.duplicated",
                 "Copied the plan from another project: " + count(phases.size(), "phase") + ", "
                         + count(tasks.size(), "task") + " and " + count(links, "link")
-                        + (files > 0 ? ", with " + count(files, "file") : ""), source.id);
-        return copy;
+                        + (files != null && files.copied() > 0 ? ", with " + count(files.copied(), "file") : ""), source.id);
+        return new Duplicate(copy, files);
     }
 
     /** The project's own start moves with the plan. A project where nothing has a date starts on the day that was asked for. */

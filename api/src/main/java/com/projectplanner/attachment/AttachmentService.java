@@ -3,10 +3,12 @@ package com.projectplanner.attachment;
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
+import com.projectplanner.org.Organisation;
 import com.projectplanner.project.Project;
 import com.projectplanner.task.Task;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
@@ -78,7 +80,10 @@ public class AttachmentService {
             throw new ApiException(415, "unsupported_file_type",
                     "This kind of file cannot be attached, or it is not what its name says. These can: " + FileTypes.allowed() + ".");
         }
-        // Several uploads at once in different projects can each pass this; the limit can be passed by those files.
+        // The organisation's row is locked from here to the commit, so uploads to the same organisation are
+        // checked and written one after the other and together never pass the limit. It is the first row
+        // this request locks, ahead of memberships and projects, as everywhere else.
+        lockOrganisation(project.organisationId);
         long used = Attachment.bytesOf(project.organisationId);
         if (used + size > maxOrganisationBytes) {
             throw new ApiException(413, "storage_full", "The organisation's attachments take " + megabytes(used) + " of "
@@ -107,11 +112,14 @@ public class AttachmentService {
      * the copies, each file under a key of its own. The copies are written now and go
      * again if the copy of the project is not committed. Gives how many there were.
      */
-    public int copy(long organisationId, Map<Long, Long> newTask) {
+    public CopiedFiles copy(long organisationId, Map<Long, Long> newTask) {
         if (newTask.isEmpty()) {
-            return 0;
+            return new CopiedFiles(0, 0);
         }
-        List<Attachment> sources = Attachment.list("taskId in ?1 order by id", newTask.keySet());
+        lockOrganisation(organisationId);
+        List<Attachment> all = Attachment.list("taskId in ?1 order by id", newTask.keySet());
+        // A row whose file is gone (lost with a disk, or not in a restored backup) is left behind and counted.
+        List<Attachment> sources = all.stream().filter(a -> store.exists(a.storageKey)).toList();
         long bytes = sources.stream().mapToLong(a -> a.sizeBytes).sum();
         long used = Attachment.bytesOf(organisationId);
         if (bytes > 0 && used + bytes > maxOrganisationBytes) {
@@ -138,7 +146,16 @@ public class AttachmentService {
         } finally {
             files.deleteUnlessCommitted(written);
         }
-        return sources.size();
+        return new CopiedFiles(sources.size(), all.size() - sources.size());
+    }
+
+    /** What a copy of a project's files did: how many were copied, and how many were left out because their file was missing. */
+    public record CopiedFiles(int copied, int skipped) {
+    }
+
+    /** Locks the organisation's row until the transaction ends. Take it before any membership or project row. */
+    public static void lockOrganisation(long organisationId) {
+        Organisation.findById(organisationId, LockModeType.PESSIMISTIC_WRITE);
     }
 
     public void delete(Membership me, Project project, Task task, Attachment attachment) {
@@ -169,7 +186,8 @@ public class AttachmentService {
     static String cleanName(String uploaded) {
         String name = uploaded == null ? "" : uploaded;
         name = name.substring(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1);
-        name = name.replaceAll("[\\p{Cntrl}\"]", "").strip();
+        // Control characters, and format characters such as the bidi overrides that make "exe.pdf" read as "fdp.exe".
+        name = name.replaceAll("[\\p{Cntrl}\\p{Cf}\"]", "").strip();
         if (name.isEmpty() || name.equals(".") || name.equals("..")) {
             name = "file";
         }

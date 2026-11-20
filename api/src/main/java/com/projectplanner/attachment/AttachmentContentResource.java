@@ -15,6 +15,8 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
@@ -59,7 +61,14 @@ public class AttachmentContentResource {
             throw ApiException.notFound("Attachment");
         }
         boolean showInPage = inline && AttachmentService.previewable(attachment);
-        return Response.ok(store.path(attachment.storageKey).toFile())
+        InputStream bytes;
+        try {
+            bytes = store.open(attachment.storageKey);
+        } catch (IOException e) {
+            throw ApiException.notFound("Attachment");
+        }
+        return Response.ok(bytes)
+                .header("Content-Length", attachment.sizeBytes)
                 .type(attachment.contentType)
                 .header("Content-Disposition", disposition(showInPage ? "inline" : "attachment", attachment.fileName))
                 .header("X-Content-Type-Options", "nosniff")
