@@ -162,11 +162,11 @@ class ReschedulerTest {
 
     @Test
     void startToFinishHoldsTheFinishAgainstTheStart() {
-        // A starts on Thursday; B may not end before then, so the two-day B runs Wednesday to Thursday.
+        // A starts on Thursday; B ends on the working day before at the earliest, so the two-day B runs Tuesday to Wednesday.
         var a = new ScheduledTask(1, day(3), day(9));
         var b = new ScheduledTask(2, day(0), day(1));
         Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b), List.of(new Link(1, 2, 0, DependencyType.SF)), Set.of(1L));
-        assertThat(moved.get(2L)).isEqualTo(new ScheduledTask(2, day(2), day(3)));
+        assertThat(moved.get(2L)).isEqualTo(new ScheduledTask(2, day(1), day(2)));
     }
 
     @Test

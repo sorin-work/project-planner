@@ -747,8 +747,8 @@ one of twenty, and a table only needs a second statement above 5,000 rows.
 The copy has the schedule issues of the source's dates and no
 others, with two things to know: tasks finished in the source are open again,
 so an overlap the source had stopped reporting is reported, and a task that
-lies on a weekend entirely becomes a one-day task on the next working day and
-can then be in the way of a neighbour. The copy's one activity entry does not
+lies on a weekend entirely becomes a one-day task on the next working day (since
+item 17 the scheduling rules read it that way in the source as well). The copy's one activity entry does not
 name the source, because a copy can be made for another client: the source's
 id is kept next to the entry (`related_project_id`, `V26`) and its name is
 added for readers who may see it. A code that two requests take at the same
@@ -795,7 +795,12 @@ successor's length, and the same rule in working-day offsets for both passes of
 it, and a property test holds the dates and the offsets to each other. A lead
 across a weekend works because every count starts from a working day:
 `addWorkingDays` keeps any date for zero, so the anchor is moved onto one first.
-`DependencyGraph` did not change. `PATCH /dependencies/{id}` changes the type or
+Start-to-finish without a lag ends the successor on the working day before the
+predecessor starts, the mirror of finish-to-start. A task on days off only counts
+as a one-day task on the next working day everywhere (`LinkRule.normalise`), so
+the critical path and the rescheduler agree on a Saturday milestone. A change to a
+link moves only what that link reaches, not other tasks that wait for the same
+predecessor. `DependencyGraph` did not change. `PATCH /dependencies/{id}` changes the type or
 the lag and pushes the successor later when needed, never earlier. A schedule
 issue about a link names its type, so the web can say "ends too early" for the
 finish types. The timeline draws each arrow between the ends its type names, with

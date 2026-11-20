@@ -43,7 +43,7 @@ the point is knowing whether a project will land on time and on budget.
   markers.
 - **Dependencies** of four types: finish-to-start ("starts after Design ends"),
   start-to-start ("starts with Design"), finish-to-finish ("ends with Design") and
-  start-to-finish, each with a lag in working days, or a lead when it is negative
+  start-to-finish ("ends before Design starts"), each with a lag in working days, or a lead when it is negative
   ("QA starts two days before development ends"). Links that would create a loop are
   rejected with the chain that causes it, whatever their types. When a task moves,
   every task downstream of it that would now come too early is pushed back, keeping
@@ -577,8 +577,9 @@ from, because a copy can be made for another client: `relatedProjectId` and
 
 Two things to know: tasks that were finished in the source are open again in the copy,
 so an overlap that the source no longer reports comes back. And a date on a weekend is
-taken as the working day it stands for, which changes nothing unless a task lies on a
-weekend entirely: that one becomes a one-day task and can be in the way of a neighbour.
+taken as the working day it stands for. A task that lies on a weekend entirely becomes
+a one-day task on the next working day, which is how the scheduling rules read it in the
+source too.
 
 `POST /projects/{id}/baselines` with `{ "name", "reference"? }` saves the dates of every
 task and phase and the project's own start and end as they are now (`201`). The rows
@@ -615,8 +616,11 @@ a project does not copy its baselines.
 `FS` (the default), `SS`, `FF` or `SF`, and `lagDays` runs from -365 to 365 working days.
 Every check of a link goes through `LinkRule`: FS lets the successor start the working
 day after the predecessor is due plus the lag, SS when the predecessor starts plus the
-lag, FF lets it be due when the predecessor is due plus the lag, and SF when the
-predecessor starts plus the lag. A link on the finish moves the successor whole, so it
+lag, FF lets it be due when the predecessor is due plus the lag, and SF on the working
+day before the predecessor starts plus the lag, the mirror of FS (a lag of 1 lets the
+two share that first day). A task on days off only, a Saturday milestone for instance,
+counts as a one-day task on the next working day, in the rescheduler, the check and the
+critical path alike. A link on the finish moves the successor whole, so it
 keeps its length. A lead longer than the predecessor puts the successor before it,
 which is allowed. Changing a link pushes the successor later when it now comes too
 early, and never pulls anything earlier. Links that existed before were all

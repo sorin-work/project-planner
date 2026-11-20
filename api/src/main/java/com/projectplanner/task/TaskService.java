@@ -175,10 +175,25 @@ public class TaskService {
      * the new dates. Returns the tasks that moved.
      */
     public List<Task> reschedule(Membership me, Project project, Set<Long> changed) {
+        return reschedule(me, project, changed, false);
+    }
+
+    /**
+     * After a link into {@code successor} was added or changed: the successor itself and
+     * what is downstream of it, and nothing else. Other tasks that wait for the same
+     * predecessor were not touched by the change, and stay where they are.
+     */
+    public List<Task> rescheduleFrom(Membership me, Project project, long successor) {
+        return reschedule(me, project, Set.of(successor), true);
+    }
+
+    private List<Task> reschedule(Membership me, Project project, Set<Long> changed, boolean includeChanged) {
         List<Task> tasks = Task.forProject(project.id);
         List<ScheduledTask> scheduled = tasks.stream().map(Task::toScheduled).toList();
         var links = TaskDependency.forProject(project.id).stream().map(TaskDependency::toLink).toList();
-        Map<Long, ScheduledTask> shifted = rescheduler.propagate(scheduled, links, changed);
+        Map<Long, ScheduledTask> shifted = includeChanged
+                ? rescheduler.propagateFrom(scheduled, links, changed)
+                : rescheduler.propagate(scheduled, links, changed);
         if (shifted.isEmpty()) {
             return List.of();
         }

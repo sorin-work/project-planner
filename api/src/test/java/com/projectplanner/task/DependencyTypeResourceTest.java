@@ -117,4 +117,47 @@ class DependencyTypeResourceTest {
         owner.as().body(Map.of("type", "SS")).patch("/api/dependencies/999999999").then().statusCode(404);
         owner.as().get("/api/projects/" + projectId + "/dependencies").then().body("[0].type", equalTo("FS"));
     }
+
+    @Test
+    void aChangeToOneLinkMovesOnlyWhatThatLinkReaches() {
+        Account owner = Api.signup("Hal");
+        long projectId = Api.createProject(owner, "REACH");
+        long design = task(owner, projectId, "Design", "2026-03-02", "2026-03-06");
+        long build = task(owner, projectId, "Build", "2026-03-04", "2026-03-05");
+        long copy = task(owner, projectId, "Copy", "2026-03-03", "2026-03-04");
+        // Both wait for Design with a lead that lets them overlap it, on purpose.
+        owner.as().body(Map.of("predecessorId", design, "lagDays", -3)).post("/api/tasks/" + build + "/dependencies").then().statusCode(201)
+                .body("rescheduled", hasSize(0));
+        owner.as().body(Map.of("predecessorId", design, "lagDays", -4)).post("/api/tasks/" + copy + "/dependencies").then().statusCode(201)
+                .body("rescheduled", hasSize(0));
+
+        // Build's lead is taken away: Build moves to after Design, Copy, which waits for Design too, stays.
+        Number buildLink = owner.as().get("/api/projects/" + projectId + "/dependencies").then().extract()
+                .path("find { it.successorId == " + build + " }.id");
+        owner.as().body(Map.of("lagDays", 0)).patch("/api/dependencies/" + buildLink).then().statusCode(200)
+                .body("rescheduled.title", equalTo(java.util.List.of("Build")));
+        owner.as().get("/api/tasks/" + copy).then().body("startDate", equalTo("2026-03-03"));
+
+        // A new link into Build does not move Copy either, although Copy now starts too early for its own lead.
+        owner.as().body(Map.of("startDate", "2026-03-02", "dueDate", "2026-03-03")).patch("/api/tasks/" + copy).then().statusCode(200);
+        long review = task(owner, projectId, "Review", "2026-03-20", "2026-03-20");
+        owner.as().body(Map.of("predecessorId", review)).post("/api/tasks/" + build + "/dependencies").then().statusCode(201);
+        owner.as().get("/api/tasks/" + copy).then().body("startDate", equalTo("2026-03-02"));
+    }
+
+    @Test
+    void aChangeThatChangesNothingIsNotRecorded() {
+        Account owner = Api.signup("Ivy");
+        long projectId = Api.createProject(owner, "SAME");
+        long a = task(owner, projectId, "A", "2026-03-02", "2026-03-03");
+        long b = task(owner, projectId, "B", "2026-03-09", "2026-03-10");
+        owner.as().body(Map.of("predecessorId", a, "lagDays", 0, "type", "FS")).post("/api/tasks/" + b + "/dependencies").then().statusCode(201);
+        Number linkId = owner.as().get("/api/projects/" + projectId + "/dependencies").then().extract().path("[0].id");
+        int before = owner.as().get("/api/projects/" + projectId + "/activity").then().extract().path("size()");
+        owner.as().body(Map.of("type", "FS", "lagDays", 0)).patch("/api/dependencies/" + linkId).then().statusCode(200).body("rescheduled", hasSize(0));
+        owner.as().body(Map.of()).patch("/api/dependencies/" + linkId).then().statusCode(200);
+        owner.as().get("/api/projects/" + projectId + "/activity").then().body("$", hasSize(before));
+        owner.as().body(Map.of("lagDays", 1)).patch("/api/dependencies/" + linkId).then().statusCode(200);
+        owner.as().get("/api/projects/" + projectId + "/activity").then().body("$", hasSize(before + 1));
+    }
 }

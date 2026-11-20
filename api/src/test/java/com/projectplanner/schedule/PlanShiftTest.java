@@ -152,18 +152,19 @@ class PlanShiftTest {
     }
 
     @Test
-    void aTaskWithoutAWorkingDayIsTheOneThingThatCannotBeKept() {
+    void aTaskWithoutAWorkingDayIsAOneDayTaskOnTheNextWorkingDayBeforeTheMoveAndAfterIt() {
         // Design ends on Friday, the stand-in "task" lies on the weekend, Build starts on Monday.
-        // Nothing is wrong: the weekend task has no working day and is in nobody's way.
+        // The weekend task has no working day, so the rules take it as a one-day task on Monday,
+        // and Build starts a day too early for it.
         var design = new ScheduledTask(1, day(0), day(4));
         var weekend = new ScheduledTask(2, day(5), day(6));
         var build = new ScheduledTask(3, day(7), day(8));
         List<ScheduledTask> tasks = List.of(design, weekend, build);
         List<Link> links = List.of(new Link(1, 2), new Link(2, 3));
-        assertThat(check.check(tasks, links, Map.of(), Set.of(), null)).isEmpty();
+        assertThat(summary(check.check(tasks, links, Map.of(), Set.of(), null))).containsExactly("STARTS_TOO_EARLY 3 2 1");
 
-        // Moved by two days there is no weekend to put it on. It becomes a one-day task on the day
-        // Build starts, and Build now starts a day too early for it.
+        // Moved by two days there is no weekend to put it on. It becomes the same one-day task on the
+        // day Build starts, and the issue is the same.
         var shift = new PlanShift(CAL, day(0), day(2));
         List<ScheduledTask> moved = tasks.stream().map(shift::task).toList();
         assertThat(moved.get(1)).isEqualTo(new ScheduledTask(2, day(9), day(9)));

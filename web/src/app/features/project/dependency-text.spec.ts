@@ -5,7 +5,7 @@ describe('dependency text', () => {
     expect(dependencyPhrase({ type: 'FS', lagDays: 0 }, 'Design')).toBe('starts after Design ends');
     expect(dependencyPhrase({ type: 'SS', lagDays: 0 }, 'Design')).toBe('starts with Design');
     expect(dependencyPhrase({ type: 'FF', lagDays: 0 }, 'Design')).toBe('ends with Design');
-    expect(dependencyPhrase({ type: 'SF', lagDays: 0 }, 'Design')).toBe('ends when Design starts');
+    expect(dependencyPhrase({ type: 'SF', lagDays: 0 }, 'Design')).toBe('ends before Design starts');
   });
 
   it('says a lag as after and a lead as before, in working days', () => {

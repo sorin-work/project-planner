@@ -16,7 +16,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @ApplicationScoped
@@ -63,7 +62,7 @@ public class DependencyService {
         activity.record(project.organisationId, project.id, successor.id, me.userId, "dependency.added",
                 successor.title + " now waits for " + predecessor.title);
 
-        List<Task> moved = tasks.reschedule(me, project, Set.of(predecessor.id));
+        List<Task> moved = tasks.rescheduleFrom(me, project, successor.id);
         return new TaskChange(mapper.toResponse(successor), mapper.toResponses(moved));
     }
 
@@ -75,15 +74,21 @@ public class DependencyService {
     public TaskChange update(Membership me, Project project, TaskDependency dependency, UpdateDependencyRequest request) {
         Task predecessor = Task.findById(dependency.predecessorId);
         Task successor = Task.findById(dependency.successorId);
-        if (request.type() != null) {
+        boolean typeChanges = request.type() != null && request.type() != dependency.type;
+        boolean lagChanges = request.lagDays() != null && request.lagDays() != dependency.lagDays;
+        if (!typeChanges && !lagChanges) {
+            // Nothing to record and nothing to move.
+            return new TaskChange(mapper.toResponse(successor), List.of());
+        }
+        if (typeChanges) {
             dependency.type = request.type();
         }
-        if (request.lagDays() != null) {
+        if (lagChanges) {
             dependency.lagDays = request.lagDays();
         }
         activity.record(project.organisationId, project.id, successor.id, me.userId, "dependency.changed",
                 successor.title + " now waits for " + predecessor.title + " " + describe(dependency));
-        List<Task> moved = tasks.reschedule(me, project, Set.of(predecessor.id));
+        List<Task> moved = tasks.rescheduleFrom(me, project, successor.id);
         return new TaskChange(mapper.toResponse(successor), mapper.toResponses(moved));
     }
 

@@ -30,6 +30,20 @@ public final class Rescheduler {
      * @return the tasks that had to move, with their new dates, in the order they were moved
      */
     public Map<Long, ScheduledTask> propagate(Collection<ScheduledTask> tasks, Collection<Link> links, Set<Long> changed) {
+        return propagate(tasks, links, changed, false);
+    }
+
+    /**
+     * Like {@link #propagate}, for a change to the links of {@code tasks} rather than to
+     * their dates: the tasks themselves are checked and moved if they now come too
+     * early, and then what is downstream of them. Tasks that only share a predecessor
+     * with them are left alone.
+     */
+    public Map<Long, ScheduledTask> propagateFrom(Collection<ScheduledTask> tasks, Collection<Link> links, Set<Long> tasksToCheck) {
+        return propagate(tasks, links, tasksToCheck, true);
+    }
+
+    private Map<Long, ScheduledTask> propagate(Collection<ScheduledTask> tasks, Collection<Link> links, Set<Long> changed, boolean includeChanged) {
         Map<Long, ScheduledTask> current = new HashMap<>();
         for (ScheduledTask task : tasks) {
             current.put(task.id(), task);
@@ -39,6 +53,9 @@ public final class Rescheduler {
         Set<Long> affected = new HashSet<>();
         for (long id : changed) {
             affected.addAll(graph.reachable(id));
+            if (includeChanged) {
+                affected.add(id);
+            }
         }
 
         Map<Long, ScheduledTask> moved = new LinkedHashMap<>();
