@@ -1593,6 +1593,36 @@ select.compact {
   margin-top: 0.5rem;
 }
 
+/* Reports */
+
+.report-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.report-tools label {
+  margin: 0;
+}
+
+.report-tools input,
+.report-tools select {
+  width: auto;
+}
+
+.report-drill {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.report .bar-cell {
+  width: 30%;
+  min-width: 6rem;
+}
+
 /* Workload */
 
 .workload .load-cell {
