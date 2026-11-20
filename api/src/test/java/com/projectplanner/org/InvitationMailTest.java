@@ -23,7 +23,9 @@ import java.util.Map;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 
 @QuarkusTest
@@ -155,23 +157,35 @@ class InvitationMailTest {
     }
 
     @Test
-    void signingUpFirstWithTheInvitedAddressDoesNotTakeTheInvitation() {
+    void signingUpWithTheInvitedAddressAloneMakesAnAccountAndLeavesTheInvitationWaiting() {
         Api.Account olga = Api.signup("Olga");
         String email = Api.uniqueEmail("victim");
         invite(olga, email, "MANAGER").statusCode(201);
         String token = mailbox.lastToken(email);
 
-        // Somebody who only knows the address tries to get in before the invitee.
-        given().contentType(ContentType.JSON)
-                .body(Map.of("name", "Mallory", "email", email, "password", "correct-horse"))
-                .post("/api/auth/signup").then().statusCode(409).body("code", equalTo("invitation_link_required"));
-        given().contentType(ContentType.JSON)
-                .body(Map.of("name", "Mallory", "email", email, "password", "correct-horse", "organisationName", "Mine"))
-                .post("/api/auth/signup").then().statusCode(409).body("code", equalTo("invitation_link_required"));
+        // Somebody who only knows the address gets an account, but not the invitation.
+        Api.Account mallory = Api.signup("Mallory", email, null);
+        mallory.as().get("/api/me").then().body("organisations", hasSize(1))
+                .body("organisations[0].role", equalTo("OWNER"))
+                .body("organisations[0].organisationId", not(equalTo((int) olga.orgId())));
+        olga.as().get("/api/orgs/" + olga.orgId() + "/invitations").then().body("email", hasItem(email));
 
-        // The invitee, with the link from the mail, still can.
-        readLink(token).statusCode(200).body("hasAccount", equalTo(false));
-        signup(email, token).statusCode(201);
+        // Whoever reads the mail at that address joins with the link, after signing in.
+        readLink(token).statusCode(200).body("hasAccount", equalTo(true));
+        mallory.as().body(Map.of("token", token)).post("/api/invitations/accept").then().statusCode(200)
+                .body("organisationId", equalTo((int) olga.orgId())).body("role", equalTo("MANAGER"));
+    }
+
+    @Test
+    void anInvitationCannotLockAnAddressOutOfSigningUp() {
+        // Somebody invites an address they do not own, before its owner turns up.
+        Api.Account stranger = Api.signup("Stranger");
+        String email = Api.uniqueEmail("owner.of.the.address");
+        invite(stranger, email, "MEMBER").statusCode(201);
+
+        Api.Account owner = Api.signup("Real Owner", email, "Own Studio");
+        owner.as().get("/api/me").then().body("organisations", hasSize(1))
+                .body("organisations[0].organisationName", equalTo("Own Studio"));
     }
 
     @Test

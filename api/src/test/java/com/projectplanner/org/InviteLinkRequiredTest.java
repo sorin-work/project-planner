@@ -51,7 +51,7 @@ class InviteLinkRequiredTest {
         given().contentType(ContentType.JSON)
                 .body(Map.of("name", "Stranger", "email", Api.uniqueEmail("stranger"), "password", "correct-horse",
                         "organisationName", "Somewhere"))
-                .post("/api/auth/signup").then().statusCode(409).body("code", equalTo("invitation_link_required"));
+                .post("/api/auth/signup").then().statusCode(409).body("code", equalTo("invitation_required"));
     }
 
     @Test
