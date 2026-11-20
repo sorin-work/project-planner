@@ -86,16 +86,30 @@ A few things hold for every item:
   and an error at 1 MB for the initial bundle), which is a reason to think
   twice before adding a library.
 - An endpoint is in the API reference from the moment it exists, and
-  `ApiReferenceTest` holds the two together. A resource method needs
-  `@Operation(summary = ...)` and a `@Tag` (on the class or on the method),
-  and a `@Fails` line for every error code it can answer with for a reason of
-  its own. The status of a successful call is read from `@ResponseStatus`, so
-  that needs nothing. When a path, a parameter, a status or a field of a
-  record changes, the pinned shape of the document changes with it: refresh
-  `api/src/test/resources/api-shape.txt` with
-  `./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update` and commit it
-  with the change. After a merge that conflicts in that file, run the command
-  again.
+  `ApiReferenceTest` holds the two together. It asks three things of a change
+  to an endpoint, and says which one is missing, with the file and the line:
+  - a resource method has `@Operation(summary = ...)` and a `@Tag`, on the
+    class or on the method. The status of a successful call is read from
+    `@ResponseStatus` and needs nothing;
+  - a resource method names every error code it can answer with for a reason
+    of its own, and no other: one
+    `@Fails(status = 409, code = "code_taken", when = "...")` line per code.
+    The test finds the codes in the sources (`ApiException.badRequest`,
+    `ApiException.conflict`, `new ApiException`) and wants each one named, with
+    the status it is thrown with, on a method of a resource that reaches the
+    class it is thrown in. Write the code as a string literal or a string
+    constant: one that is put together at run time cannot be read and fails
+    the test;
+  - when a path, a parameter, a response status, a field of a record or an
+    enum value changes, the pinned shape of the document changes with it.
+    Refresh `api/src/test/resources/api-shape.txt` with
+    `./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update` (in `api/`) and
+    commit it with the change. After a merge that conflicts in that file, take
+    either side and run the command again.
+
+  Two records with the same class name cannot both be in the API: the build
+  stops and names them. Give one a name of its own in `SCHEMA_NAMES` in
+  `ApiReferenceFilter`.
 - On the web side `core/models.ts` mirrors the API's JSON by hand, the HTTP
   clients are the `core/*.api.ts` files, and everything inside a project page
   shares one `ProjectStore`.
@@ -840,8 +854,8 @@ needs another migration to undo if a later one builds on that column.
 
 `quarkus-smallrye-openapi` builds an OpenAPI document from the resources and
 their records when the API is built. It is served at `/api/openapi`, and as a
-Swagger UI page at `/api/docs` when `API_DOCS=true`, which Compose sets and
-the API alone does not. Every operation has a summary, a tag and the bearer
+Swagger UI page at `/api/docs` when `API_DOCS=true`, which is off unless
+asked for, in Compose too. Every operation has a summary, a tag and the bearer
 requirement, and every error is an `ApiError`: one shared response, plus the
 codes of the operation, written as `@Fails` on the method. Different from the
 design: not all of it came free. The scanner does not read `@ResponseStatus`,
@@ -851,9 +865,9 @@ that sets the real status, and adds the errors. The document is not
 committed, but, against the design, a copy of its shape is: paths,
 parameters, statuses and schemas, one fact per line, without the prose
 (`api-shape.txt`). A test compares the two, and a second one compares the
-error codes in the reference with the ones in the code. That is the conflict
-the design warned about, kept small: an item that changes an endpoint
-refreshes the file with one command. The README table shrank to the rules
+error codes in the reference with the ones in the sources, per resource. That
+is the conflict the design warned about, kept small: an item that changes an
+endpoint refreshes the file with one command. The README table shrank to the rules
 that hold everywhere. Still open: generating `models.ts` from the document,
 descriptions for the plain fields and most query parameters, and which
 response fields can be missing. Who may call an operation is prose in its

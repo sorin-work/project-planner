@@ -187,7 +187,7 @@ the client's deadline.
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
-| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; API reference at http://localhost:5191/api/docs |
+| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
@@ -344,7 +344,7 @@ npm start
 | `JWT_SECRET`           | a development value (min. 32 bytes)           | api     |
 | `JWT_TTL`              | `P7D` (ISO-8601 duration)                     | api     |
 | `SEED_DEMO`            | `false` (`true` in compose)                   | api     |
-| `API_DOCS`             | `false` (`true` in compose)                   | api     |
+| `API_DOCS`             | `false` (`true` in `.env.example`)            | api     |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
@@ -409,21 +409,39 @@ fewer dumps behind than it should.
 
 The [API reference](#api-reference) is held to the code by `ApiReferenceTest`. Every
 resource method has to be in the document with a summary, a tag, the status it really
-answers with and the error body. Everything but sign-up and login has to ask for the
-token. Every error code that the code can answer with has to be named: with `@Fails` on
-the resource method, or for the ones any endpoint can answer with in the introduction
-(`api/src/main/resources/META-INF/openapi.yaml`).
+answers with and the error body, and everything but sign-up and login has to ask for
+the token. Two of its rules reach into every change to an endpoint:
 
-The shape of the document is pinned in `api/src/test/resources/api-shape.txt`: paths,
-parameters, statuses and schemas, one fact per line, without the prose. The test fails
-when the shape changes, so that no field or status changes by accident. When the change
-is meant, refresh the file and commit the difference with it:
+**Error codes.** A resource method names every error code it can answer with for a
+reason of its own, with a line like
+`@Fails(status = 409, code = "code_taken", when = "another project already uses the code")`.
+The test reads the codes from the sources (`ApiException.badRequest`,
+`ApiException.conflict` and `new ApiException`, as a string literal or a string
+constant) and compares per resource: a code has to be named, with the status it is
+thrown with, on a method of a resource that reaches the class where it is thrown, and a
+resource cannot name a code that nothing it reaches throws. A resource reaches the
+classes its source mentions and the ones those mention. A code the test cannot read,
+for example one that is put together at run time, fails it too. The message lists only
+what is wrong, each with its file and line and with what to do about it. The codes any
+endpoint can answer with (`validation_failed`, `not_found` and so on) are not named per
+method: they are in the introduction, `api/src/main/resources/META-INF/openapi.yaml`.
+
+**The shape.** `api/src/test/resources/api-shape.txt` pins the shape of the document:
+every path, parameter, response status and schema, one fact per line (a line per enum
+value and per required field), without the prose. The test fails when the shape
+changes, so that no field or status changes by accident, and prints the lines that are
+gone and the ones that are new. When the change is meant, refresh the file and commit
+the difference with the change:
 
 ```bash
 cd api && ./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update
 ```
 
 After a merge that conflicts in that file, take either side and run the same command.
+
+Schemas are named after their class. Two records with the same class name that both
+end up in the API stop the build, with a message that names them: give one of them a
+name of its own in `SCHEMA_NAMES` in `ApiReferenceFilter`.
 
 ## API reference
 
@@ -438,11 +456,14 @@ API is built, so it cannot fall behind the code:
   `POST /api/auth/login`, and then requests can be tried from the page. It is served
   when `API_DOCS=true`.
 
-With Docker both go through the web container: http://localhost:5191/api/docs. Compose
-sets `API_DOCS=true`. The API by itself leaves the page off, because it is third-party
-script on the address where the web app keeps the login token. On a host that is open
-to the internet, set `API_DOCS=false` in `.env`. The document stays either way: it says
-nothing that the source does not, and it only describes `/api`.
+With Docker both go through the web container: http://localhost:5191/api/docs. The
+page is off unless `API_DOCS=true`, with Compose as well, because Compose is also how the
+app runs for real and the page is third-party script on the address where the web app
+keeps the login token. For development, turn it on: `.env.example` has the line, or pass
+it inline (`API_DOCS=true docker compose up`, or `API_DOCS=true ./mvnw quarkus:dev`
+without Docker). The page loads nothing from other sites and does not ask the Swagger
+validator about the document. The document itself stays either way: it says nothing
+that the source does not, and it only describes `/api`.
 
 The rules that hold for every endpoint:
 
