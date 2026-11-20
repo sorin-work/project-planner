@@ -1,6 +1,8 @@
 package com.projectplanner.seed;
 
 import com.projectplanner.auth.User;
+import com.projectplanner.notification.Notification;
+import com.projectplanner.notification.NotificationType;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Role;
 import com.projectplanner.project.Project;
@@ -13,6 +15,7 @@ import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 import static io.restassured.RestAssured.given;
@@ -41,6 +44,12 @@ class DemoSeederTest {
             LocalDate yearAgo = LocalDate.now().minusDays(340);
             assertThat(TimeEntry.count("organisationId = ?1 and entryDate < ?2", membership.organisationId, yearAgo)).isPositive();
             assertThat(TimeEntry.count("organisationId", membership.organisationId)).isGreaterThan(1000);
+            // Timesheet notifications say which week they are about, the reminder included.
+            assertThat(Notification.count("organisationId = ?1 and type = ?2 and weekStart is not null",
+                    membership.organisationId, NotificationType.TIMESHEET_REMINDER)).isEqualTo(1);
+            assertThat(Notification.count("organisationId = ?1 and type in ?2 and weekStart is null",
+                    membership.organisationId, List.of(NotificationType.TIMESHEET_SUBMITTED, NotificationType.TIMESHEET_APPROVED,
+                            NotificationType.TIMESHEET_REJECTED, NotificationType.TIMESHEET_REMINDER))).isZero();
         });
 
         String token = given().contentType(ContentType.JSON)
