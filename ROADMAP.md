@@ -877,11 +877,13 @@ by `preset()` in the browser. There is a `clientId` filter as well, and a
 project, client or person that is not in the organisation is a `404`.
 Capacity is not a second definition: it is
 `WorkloadCalculator.capacityMinutes`, the weekly hours over the working days,
-counted only up to today, which is where item 15 has to change it. Both
+which is where item 15 has to change it. Time and capacity are both counted
+only up to today, since time can be logged a week ahead. Both
 reports also come as CSV with the rows on screen, in whole minutes and plain
 decimals. Amounts are shown to the cent so that a column adds up to its
 total. Still open: the filter for approved time only, which needs the week's
 status next to each entry in the grouped query. Somebody who has left the
-organisation still has their time in the summary but is not in utilisation.
+organisation still has their time in the summary, and can be filtered by, but
+is not in utilisation, which the page says.
 The summary has no filters of its own on the page beyond the grouping and
 the project click, although the API takes them.

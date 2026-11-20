@@ -571,15 +571,20 @@ The time report also takes `groupBy=project|client|member|task` and the filters
   flag and length (and task, when rows are per task) and counted, and one entry of
   each group is priced. A year of the demo team is a few hundred groups.
 - Access: the team only, client viewers get `403`. A member gets their own time and
-  no amounts, and `403` when asking for somebody else. A project, client or person
-  that is not in the organisation is a `404`, never an empty report.
+  no amounts (the field is left out), and `403` when asking for somebody else. A
+  project, client or person that is not in the organisation is a `404`, never an
+  empty report. Somebody who has left the organisation but has time in it can still
+  be asked for with `userId`, as they still have a row when the report is per person.
 - Utilisation is for owners and managers. A row has `minutes`, `billableMinutes`,
   `capacityMinutes` and `utilisationPct`, which is billable time as a share of
   capacity with one decimal. Capacity is the one the workload page uses: a person's
-  weekly hours spread over Monday to Friday, for the working days of the range up to
-  today (`capacityTo`, `workingDays`). It uses the weekly hours as they are now, also
-  for somebody who joined or changed them inside the range, and it does not know
-  about holidays or time off.
+  weekly hours spread over Monday to Friday. Time and capacity are both counted from
+  the start of the range up to its end or today, whichever comes first (`countedTo`,
+  `workingDays`), so time that is logged ahead does not count against days that have
+  no capacity yet. It uses the weekly hours as they are now, also for somebody who
+  joined or changed them inside the range, and it does not know about holidays or
+  time off. Only the current team is listed: the time of somebody who has left is in
+  the time report and not here, so the two totals can differ.
 - The `.csv` forms have the same rows and the same access rules. Columns:
   `from,to,group_by,key,label,minutes,billable_minutes,billable_amount` (the last one
   only for owners and managers) and
