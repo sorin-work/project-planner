@@ -272,12 +272,31 @@ public class TimesheetService {
     }
 
     public List<TimesheetSummary> summaries(long organisationId, List<Timesheet> sheets) {
-        RateBook rates = RateBook.load(organisationId);
-        Map<Long, Project> projects = new HashMap<>();
         List<TimesheetSummary> result = new ArrayList<>();
+        if (sheets.isEmpty()) {
+            return result;
+        }
+        // Everything at once: the entries of all the weeks in one query, then the projects they
+        // are on and the people, so that a long queue costs what a short one does.
+        Set<Long> userIds = sheets.stream().map(sheet -> sheet.userId).collect(Collectors.toSet());
+        LocalDate from = sheets.stream().map(sheet -> sheet.weekStart).min(LocalDate::compareTo).orElseThrow();
+        LocalDate to = sheets.stream().map(sheet -> sheet.weekStart).max(LocalDate::compareTo).orElseThrow().plusDays(6);
+        Map<Long, Map<LocalDate, List<TimeEntry>>> byWeek = new HashMap<>();
+        TimeEntry.<TimeEntry>list("organisationId = ?1 and userId in ?2 and entryDate between ?3 and ?4",
+                        organisationId, userIds, from, to)
+                .forEach(e -> byWeek.computeIfAbsent(e.userId, id -> new HashMap<>())
+                        .computeIfAbsent(WorkCalendar.weekStart(e.entryDate), week -> new ArrayList<>()).add(e));
+        Set<Long> projectIds = byWeek.values().stream().flatMap(weeks -> weeks.values().stream()).flatMap(List::stream)
+                .filter(e -> e.billable).map(e -> e.projectId).collect(Collectors.toSet());
+        Map<Long, Project> projects = new HashMap<>();
+        if (!projectIds.isEmpty()) {
+            Project.<Project>list("id in ?1", projectIds).forEach(p -> projects.put(p.id, p));
+        }
+        Map<Long, String> names = new HashMap<>();
+        User.<User>list("id in ?1", userIds).forEach(u -> names.put(u.id, u.name));
+        RateBook rates = RateBook.load(organisationId);
         for (Timesheet sheet : sheets) {
-            List<TimeEntry> entries = TimeEntry.list("organisationId = ?1 and userId = ?2 and entryDate between ?3 and ?4",
-                    organisationId, sheet.userId, sheet.weekStart, sheet.weekStart.plusDays(6));
+            List<TimeEntry> entries = byWeek.getOrDefault(sheet.userId, Map.of()).getOrDefault(sheet.weekStart, List.of());
             int total = 0;
             int billable = 0;
             BigDecimal amount = BigDecimal.ZERO;
@@ -285,12 +304,11 @@ public class TimesheetService {
                 total += e.minutes;
                 if (e.billable) {
                     billable += e.minutes;
-                    Project p = projects.computeIfAbsent(e.projectId, id -> Project.findById(id));
-                    amount = amount.add(Money.cost(e.minutes, rates.rate(p.hourlyRate, e.userId)));
+                    // Priced and rounded entry by entry, as everywhere else.
+                    amount = amount.add(Money.cost(e.minutes, rates.rate(projects.get(e.projectId).hourlyRate, e.userId)));
                 }
             }
-            User user = User.findById(sheet.userId);
-            result.add(new TimesheetSummary(sheet.id, sheet.userId, user.name, sheet.weekStart, sheet.status,
+            result.add(new TimesheetSummary(sheet.id, sheet.userId, names.get(sheet.userId), sheet.weekStart, sheet.status,
                     sheet.submittedAt, total, billable, Money.round(amount)));
         }
         return result;

@@ -137,8 +137,12 @@ public class CommentResource {
         if (handles.isEmpty()) {
             return ids;
         }
-        for (Membership m : Membership.forOrganisation(organisationId)) {
-            User user = User.findById(m.userId);
+        List<Long> members = Membership.forOrganisation(organisationId).stream().map(m -> m.userId).toList();
+        if (members.isEmpty()) {
+            return ids;
+        }
+        // The people in one query. A handle is the part of the email before the @, so it can not be asked for in SQL.
+        for (User user : User.<User>list("id in ?1", members)) {
             if (handles.contains(user.handle())) {
                 ids.add(user.id);
             }
