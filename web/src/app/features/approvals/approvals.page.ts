@@ -173,6 +173,8 @@ export class ApprovalsPage {
   protected readonly grid = signal<ReturnType<typeof buildGrid> | null>(null);
   protected readonly error = signal<string | null>(null);
   protected note = '';
+  /** Goes up whenever the list changes or another week is opened, so that an answer that comes late is dropped. */
+  private opened = 0;
 
   protected readonly myId = computed(() => this.auth.user()?.id ?? null);
   protected readonly remindAll = computed(() => remindAllIds(this.missing()?.people ?? [], this.myId()));
@@ -207,6 +209,7 @@ export class ApprovalsPage {
       const orgId = this.org.orgId();
       const tab = this.tab();
       const week = this.missingWeek();
+      this.opened++;
       this.selected.set(null);
       this.notice.set(null);
       if (orgId === null) {
@@ -240,8 +243,9 @@ export class ApprovalsPage {
 
   open(sheet: TimesheetSummary): void {
     this.note = '';
+    const opened = ++this.opened;
     this.api.timesheet(this.org.id(), sheet.id).subscribe({
-      next: (w) => this.show(w),
+      next: (w) => this.show(w, opened),
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
   }
@@ -252,8 +256,9 @@ export class ApprovalsPage {
     if (!shown) {
       return;
     }
+    const opened = ++this.opened;
     this.api.week(this.org.id(), shown.weekStart, person.userId).subscribe({
-      next: (w) => this.show(w),
+      next: (w) => this.show(w, opened),
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
   }
@@ -294,9 +299,10 @@ export class ApprovalsPage {
     }
     const orgId = this.org.id();
     const request = reject ? this.api.reject(orgId, w.timesheetId, this.note) : this.api.approve(orgId, w.timesheetId);
+    const opened = this.opened;
     request.subscribe({
       next: (week) => {
-        this.show(week);
+        this.show(week, opened);
         this.sheets.update((all) => all.filter((s) => s.id !== w.timesheetId));
       },
       error: (err: unknown) => this.error.set(messageOf(err)),
@@ -315,7 +321,11 @@ export class ApprovalsPage {
     });
   }
 
-  private show(week: Week): void {
+  /** Shows a week on the right, unless the tab, the week or the choice has changed since it was asked for. */
+  private show(week: Week, opened: number): void {
+    if (opened !== this.opened) {
+      return;
+    }
     this.selected.set(week);
     this.grid.set(buildGrid(week.weekStart, week.entries));
   }

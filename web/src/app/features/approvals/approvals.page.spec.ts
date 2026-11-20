@@ -83,6 +83,35 @@ describe('ApprovalsPage', () => {
     ]);
   });
 
+  it('drops the week of a person when it arrives after the list has moved on', async () => {
+    const { harness, el } = await openNotSubmitted([person(1, 'Tom Becker', 2250), person(2, 'Samir Haddad', 1800)]);
+    const rows = el.querySelectorAll<HTMLButtonElement>('.missing-row .row-button');
+    const answer = (userId: number, userName: string) => ({
+      userId, userName, weekStart: '2026-03-02', status: 'DRAFT', entries: [], days: [], totalMinutes: 0, billableMinutes: 0,
+    });
+
+    // Tom is asked for first, but Samir is the one chosen last.
+    rows[0].click();
+    rows[1].click();
+    const [tom, samir] = http.match((r) => r.url === '/api/orgs/7/timesheets/week');
+    samir.flush(answer(2, 'Samir Haddad'));
+    tom.flush(answer(1, 'Tom Becker'));
+    await harness.fixture.whenStable();
+    expect(el.querySelector('.grid-2 > section:last-child h2')?.textContent).toContain('Samir Haddad');
+
+    // The same when the week changes before the answer is there.
+    rows[0].click();
+    const late = http.expectOne((r) => r.url === '/api/orgs/7/timesheets/week');
+    el.querySelector<HTMLButtonElement>('[aria-label="Previous week"]')!.click();
+    await harness.fixture.whenStable();
+    http.expectOne((r) => r.url === MISSING_URL).flush(missing('2026-02-23', [person(2, 'Samir Haddad', 600)]));
+    late.flush(answer(1, 'Tom Becker'));
+    await harness.fixture.whenStable();
+
+    expect(el.textContent).toContain('Choose a person to see their week.');
+    expect(el.textContent).not.toContain('Tom Becker');
+  });
+
   it('goes back through earlier weeks but not past the last one that is over', async () => {
     const { harness, el } = await openNotSubmitted([person(1, 'Tom Becker', 2250)]);
     const next = el.querySelector<HTMLButtonElement>('[aria-label="Next week"]')!;
