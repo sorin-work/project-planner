@@ -99,6 +99,8 @@ the point is knowing whether a project will land on time and on budget.
 - **Backups**: with Docker, an optional service dumps the whole database once a day
   and keeps the last seven dumps, and the same script puts one back. See
   [Backup and restore](#backup-and-restore).
+- **API reference**: an OpenAPI document that is built from the code, and an interactive
+  page to try requests on. See [API reference](#api-reference).
 
 Ideas for what could come next are in [ROADMAP.md](ROADMAP.md).
 
@@ -106,7 +108,7 @@ Ideas for what could come next are in [ROADMAP.md](ROADMAP.md).
 
 | Part     | Tech                                                                                    |
 | -------- | --------------------------------------------------------------------------------------- |
-| API      | Java 21, Quarkus 3 (REST + Jackson, Hibernate ORM with Panache, Hibernate Validator, SmallRye JWT, SmallRye Health) |
+| API      | Java 21, Quarkus 3 (REST + Jackson, Hibernate ORM with Panache, Hibernate Validator, SmallRye JWT, SmallRye Health, SmallRye OpenAPI) |
 | Database | PostgreSQL 17, Flyway migrations                                                        |
 | Web      | Angular 22 (standalone components, signals, router), TypeScript, plain CSS              |
 | Tests    | JUnit 5, AssertJ, `@QuarkusTest` + REST Assured on H2; Vitest (Angular unit-test builder, jsdom) |
@@ -194,7 +196,7 @@ the client's deadline.
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
-| api     | 4411      | http://localhost:4411/q/health                      | Quarkus                           |
+| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
@@ -351,6 +353,7 @@ npm start
 | `JWT_SECRET`           | a development value (min. 32 bytes)           | api     |
 | `JWT_TTL`              | `P7D` (ISO-8601 duration)                     | api     |
 | `SEED_DEMO`            | `false` (`true` in compose)                   | api     |
+| `API_DOCS`             | `false` (`true` in `.env.example`)            | api     |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
@@ -413,25 +416,78 @@ with dump files dated in the past and in the future, and fails if the loop makes
 than one dump, makes two without a pause, keeps a dump that was cut short, or leaves
 fewer dumps behind than it should.
 
-## API overview
+The [API reference](#api-reference) is held to the code by `ApiReferenceTest`. Every
+resource method has to be in the document with a summary, a tag, the status it really
+answers with and the error body, and everything but sign-up and login has to ask for
+the token. Two of its rules reach into every change to an endpoint:
 
-All endpoints are under `/api` and, apart from sign-up and login, need a bearer
-token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
+**Error codes.** A resource method names every error code it can answer with for a
+reason of its own, with a line like
+`@Fails(status = 409, code = "code_taken", when = "another project already uses the code")`.
+The test reads the codes from the sources (`ApiException.badRequest`,
+`ApiException.conflict` and `new ApiException`, as a string literal or a string
+constant) and compares per resource: a code has to be named, with the status it is
+thrown with, on a method of a resource that reaches the class where it is thrown, and a
+resource cannot name a code that nothing it reaches throws. A resource reaches the
+classes its source mentions and the ones those mention. A code the test cannot read,
+for example one that is put together at run time, fails it too. The message lists only
+what is wrong, each with its file and line and with what to do about it. The codes any
+endpoint can answer with (`validation_failed`, `not_found` and so on) are not named per
+method: they are in the introduction, `api/src/main/resources/META-INF/openapi.yaml`.
 
-| Area          | Endpoints                                                                                       |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| Auth          | `POST /auth/signup`, `POST /auth/login`, `GET/PATCH /me`, `POST /me/password`                    |
-| Organisation  | `GET/PATCH /orgs/{org}`, `/orgs/{org}/members`, `/orgs/{org}/invitations`, `/orgs/{org}/role-rates` |
-| Clients       | `/orgs/{org}/clients`                                                                           |
-| Projects      | `GET/POST /orgs/{org}/projects`, `GET/PUT/DELETE /projects/{id}`, `GET/POST /projects/{id}/duplicate`, `/projects/{id}/phases`, `/phases/{id}` |
-| Tasks         | `GET/POST /projects/{id}/tasks`, `GET/PATCH/DELETE /tasks/{id}`, `POST /tasks/{id}/shift`, `GET /tasks/{id}/subtasks` |
-| Dependencies  | `GET /projects/{id}/dependencies`, `POST /tasks/{id}/dependencies`, `DELETE /dependencies/{id}`   |
-| Planning      | `GET /projects/{id}/critical-path`, `GET /projects/{id}/schedule-issues`, `GET /projects/{id}/health`, `GET /orgs/{org}/workload` |
-| Time          | `/orgs/{org}/time-entries`, `GET /orgs/{org}/timer`, `POST /orgs/{org}/timer/start\|stop`         |
-| Timesheets    | `GET /orgs/{org}/timesheets/week`, `POST .../submit\|withdraw`, `GET /orgs/{org}/timesheets`, `POST .../{id}/approve\|reject`, `GET .../missing?weekStart`, `POST .../remind` |
-| Export        | `GET /orgs/{org}/exports/timesheets.csv?from&to&userId&projectId&billable`                        |
-| Collaboration | `/tasks/{id}/comments`, `/comments/{id}`, `/notifications`, `/orgs/{org}/activity`, `/projects/{id}/activity` |
-| Dashboard     | `GET /orgs/{org}/dashboard`                                                                     |
+**The shape.** `api/src/test/resources/api-shape.txt` pins the shape of the document:
+every path, parameter, response status and schema, one fact per line (a line per enum
+value and per required field), without the prose. The test fails when the shape
+changes, so that no field or status changes by accident, and prints the lines that are
+gone and the ones that are new. When the change is meant, refresh the file and commit
+the difference with the change:
+
+```bash
+cd api && ./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update
+```
+
+After a merge that conflicts in that file, take either side and run the same command.
+
+Schemas are named after their class. Two records with the same class name that both
+end up in the API stop the build, with a message that names them: give one of them a
+name of its own in `SCHEMA_NAMES` in `ApiReferenceFilter`.
+
+## API reference
+
+All endpoints are under `/api`. What they take and what they answer is written down in
+an OpenAPI document. It is built from the resource classes and their records when the
+API is built, so it cannot fall behind the code:
+
+- `/api/openapi` is the document, in YAML. `/api/openapi.json` is the same in JSON. It
+  is always served and needs no token.
+- `/api/docs` is the same as a page (Swagger UI): every endpoint by area, with its
+  fields, its errors and who may call it. "Authorize" takes the token from
+  `POST /api/auth/login`, and then requests can be tried from the page. It is served
+  when `API_DOCS=true`.
+
+With Docker both go through the web container: http://localhost:5191/api/docs. The
+page is off unless `API_DOCS=true`, with Compose as well, because Compose is also how the
+app runs for real and the page is third-party script on the address where the web app
+keeps the login token. For development, turn it on: `.env.example` has the line, or pass
+it inline (`API_DOCS=true docker compose up`, or `API_DOCS=true ./mvnw quarkus:dev`
+without Docker). The page loads nothing from other sites and does not ask the Swagger
+validator about the document. The document itself stays either way: it says nothing
+that the source does not, and it only describes `/api`.
+
+The rules that hold for every endpoint:
+
+- Apart from sign-up and login, a request needs a token: `Authorization: Bearer <token>`.
+- Errors are JSON: `{ "status", "code", "message", "errors"? }`. The `code` is stable.
+  The reference lists the codes of each endpoint and the ones that any endpoint can
+  answer with.
+- An organisation you are not in answers 404. So does a project of another client for
+  a client viewer.
+- `PATCH` changes only the fields that are sent. Taking a value away has a flag of its
+  own (`clearDates`, `clearAssignee`, `clearPhase`, `clearHourlyRate`).
+- Rates, amounts and money budgets are left out of the answers for members and client
+  viewers.
+
+The rest of this section is what the reference only mentions in passing.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
@@ -447,7 +503,9 @@ with it (`201`, status `PLANNED`). It is for owners and managers who can see the
 The body is `{ "name", "code", "startDate", "clientId"?, "keepAssignees"? }`: without
 `clientId` the copy is internal, and without `keepAssignees` nobody is assigned. With it,
 people who have left the team are dropped instead of the copy failing. A code that is
-in use answers `409 code_taken`. `GET /projects/{id}/duplicate` proposes
+in use answers `409 code_taken`, also when another request took it a moment earlier.
+A task or phase deleted from the source while it is being copied answers
+`409 source_changed`, and nothing is copied. `GET /projects/{id}/duplicate` proposes
 `{ name, code, startDate }` (the code is free at that moment) and says how many phases,
 tasks and links there are to copy.
 
@@ -457,6 +515,10 @@ filled by one statement, and by one more for every further 5,000 rows). The firs
 (the earliest task date or the project's own start) lands on `startDate`, or on the next
 working day, and everything else keeps its distance from it in working days. So the
 schedule issues of the copy are those of the source's dates, no more and no fewer.
+The copy has one activity entry. Its text does not say which project the plan came
+from, because a copy can be made for another client: `relatedProjectId` and
+`relatedProjectName` are only in the entry for a reader who may see the source.
+
 Two things to know: tasks that were finished in the source are open again in the copy,
 so an overlap that the source no longer reports comes back. And a date on a weekend is
 taken as the working day it stands for, which changes nothing unless a task lies on a

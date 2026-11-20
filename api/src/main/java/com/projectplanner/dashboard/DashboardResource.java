@@ -23,6 +23,8 @@ import io.quarkus.security.Authenticated;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -31,6 +33,7 @@ import java.util.Objects;
 
 @Path("/api/orgs/{orgId}/dashboard")
 @Authenticated
+@Tag(name = "Dashboard")
 public class DashboardResource {
 
     private static final int DUE_SOON_DAYS = 7;
@@ -51,6 +54,7 @@ public class DashboardResource {
     }
 
     @GET
+    @Operation(summary = "The start page: your tasks, the active projects and this week's time")
     public Dashboard get(@PathParam("orgId") long orgId) {
         Membership me = access.member(orgId);
         LocalDate today = Organisation.<Organisation>findById(orgId).today(clock);

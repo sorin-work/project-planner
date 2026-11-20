@@ -1,0 +1,87 @@
+# The hand-written part of the API reference: the introduction, the tags and
+# the one error response that every operation shares. Paths and schemas are
+# not written here. They are built from the resource classes and their
+# records when the API is built and merged with this file, and
+# ApiReferenceFilter adds the statuses and the errors of each operation.
+openapi: 3.1.0
+info:
+  title: project-planner API
+  description: |
+    Everything the web app does goes through this API, so a script can do the
+    same. The paths and the shapes below are built from the code.
+
+    **Signing in.** `POST /api/auth/signup` and `POST /api/auth/login` answer
+    with a `token`. Send it with every other request as
+    `Authorization: Bearer <token>`. It is good for seven days unless the
+    server is set up differently, and there is no refresh: log in again.
+
+    **Who may do what.** Roles are per organisation: owner, manager, member
+    and client viewer. An organisation you are not in answers 404, not 403. A
+    client viewer reaches only the projects of their own client (any other
+    answers 404), read-only apart from comments. Where an operation asks for
+    more than being a member, its description says so.
+
+    **Errors.** Every error has the same body, an `ApiError`, with a `code`
+    that is stable and safe to branch on. An operation lists the codes that
+    are its own. Any operation can also answer with these:
+
+    | Status | `code`                   | When                                                        |
+    | ------ | ------------------------ | ----------------------------------------------------------- |
+    | 400    | `validation_failed`      | a field is missing or out of range, `errors` names each one |
+    | 400    | `malformed_json`         | the body is not JSON                                        |
+    | 401    | `unauthorized`           | no token, or one that has expired or is not valid           |
+    | 403    | `forbidden`              | your role does not allow it                                 |
+    | 404    | `not_found`              | there is no such thing, or none that you can see            |
+    | 405    | `method_not_allowed`     | the path exists, but not with this method                   |
+    | 415    | `unsupported_media_type` | the body was not sent as `application/json`                 |
+    | 500    | `internal_error`         | a bug on the server                                         |
+
+    **Changing things.** `PATCH` changes only the fields that are sent: a
+    field that is left out, or sent as `null`, stays as it is. Taking a value
+    away therefore has a flag of its own (`clearDates`, `clearAssignee`,
+    `clearPhase`, `clearHourlyRate`). `PUT` replaces what is there, so send
+    all of it.
+
+    **Money.** Rates, amounts and money budgets are for owners and managers.
+    For everyone else those fields are left out of the answer. The fields
+    this applies to say so.
+
+    **Dates.** A date is `YYYY-MM-DD` and a point in time is in UTC. What
+    counts as today, and where a week ends, follows the time zone of the
+    organisation. Weeks start on Monday.
+tags:
+  - name: Auth
+    description: Signing up, logging in and your own account.
+  - name: Organisation
+    description: Settings, members, invitations and the default rates per role.
+  - name: Clients
+    description: The clients that projects are done for.
+  - name: Projects
+    description: Projects and their phases.
+  - name: Tasks
+    description: Tasks, subtasks and milestones.
+  - name: Dependencies
+    description: Which task waits for which.
+  - name: Planning
+    description: What follows from the plan. Critical path, schedule issues, project health and workload.
+  - name: Time
+    description: Time entries and the timer.
+  - name: Timesheets
+    description: Weeks of time, submitted and reviewed.
+  - name: Export
+    description: Time as CSV.
+  - name: Collaboration
+    description: Comments, notifications and the activity log.
+  - name: Dashboard
+    description: The start page.
+components:
+  responses:
+    Error:
+      description: >-
+        Any other error. The body is the same as for the errors listed above,
+        and `code` says which one it is. The codes every operation can answer
+        with are in the introduction.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'

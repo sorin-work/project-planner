@@ -70,15 +70,16 @@ class DemoSeederTest {
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/dashboard").then().statusCode(200)
                 .body("activeProjects", hasSize(4)).body("pendingApprovals", notNullValue());
 
+        // Other tests may use the same codes in organisations of their own, so the lookups stay in the demo one.
         // The demo plan has something to warn about: one task that was pulled in front of the task it
         // waits for, and the tail of the project that runs past the client's deadline.
-        Long booking = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("code", "ACME-APP").firstResult().id);
+        Long booking = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("organisationId = ?1 and code = ?2", orgId.longValue(), "ACME-APP").firstResult().id);
         given().auth().oauth2(token).get("/api/projects/" + booking + "/schedule-issues").then().statusCode(200)
                 .body("$", hasSize(1))
                 .body("[0].type", equalTo("STARTS_TOO_EARLY"))
                 .body("[0].days", equalTo(3))
                 .body("[0].suggestedStart", notNullValue());
-        Long portal = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("code", "GLX-PORTAL").firstResult().id);
+        Long portal = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("organisationId = ?1 and code = ?2", orgId.longValue(), "GLX-PORTAL").firstResult().id);
         given().auth().oauth2(token).get("/api/projects/" + portal + "/schedule-issues").then().statusCode(200)
                 .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
                 .body("$", hasSize(2));

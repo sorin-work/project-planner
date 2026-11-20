@@ -2,6 +2,7 @@ package com.projectplanner.workload;
 
 import com.projectplanner.auth.User;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Organisation;
@@ -19,6 +20,9 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -29,6 +33,7 @@ import java.util.Set;
 
 @Path("/api/orgs/{orgId}/workload")
 @Authenticated
+@Tag(name = "Planning")
 public class WorkloadResource {
 
     static final int MAX_WEEKS = 26;
@@ -47,9 +52,12 @@ public class WorkloadResource {
      * planned and active projects count; on-hold work isn't booked.
      */
     @GET
+    @Operation(summary = "Allocated hours per person and week against their capacity",
+            description = "For the team: owners, managers and members, not client viewers. Only open tasks in planned and active projects count.")
+    @Fails(status = 400, code = "invalid_weeks", when = "weeks is not between 1 and 26")
     public WorkloadResponse get(@PathParam("orgId") long orgId,
-                                @QueryParam("from") LocalDate from,
-                                @QueryParam("weeks") @DefaultValue("8") int weeks,
+                                @Parameter(description = "Any day of the first week. This week when left out.") @QueryParam("from") LocalDate from,
+                                @Parameter(description = "1 to 26.") @QueryParam("weeks") @DefaultValue("8") int weeks,
                                 @QueryParam("projectId") Long projectId) {
         access.team(orgId);
         if (weeks < 1 || weeks > MAX_WEEKS) {

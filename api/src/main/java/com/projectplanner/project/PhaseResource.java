@@ -1,6 +1,7 @@
 package com.projectplanner.project;
 
 import com.projectplanner.common.ApiException;
+import com.projectplanner.common.Fails;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.project.ProjectDtos.PhaseRequest;
 import com.projectplanner.project.ProjectDtos.PhaseResponse;
@@ -14,12 +15,15 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.util.List;
 
 @Path("/api")
 @Authenticated
+@Tag(name = "Projects")
 public class PhaseResource {
 
     private final OrgAccess access;
@@ -30,6 +34,7 @@ public class PhaseResource {
 
     @GET
     @Path("/projects/{projectId}/phases")
+    @Operation(summary = "List the phases of a project")
     public List<PhaseResponse> list(@PathParam("projectId") long projectId) {
         access.project(projectId);
         return Phase.forProject(projectId).stream().map(PhaseResponse::of).toList();
@@ -39,6 +44,9 @@ public class PhaseResource {
     @Path("/projects/{projectId}/phases")
     @Transactional
     @ResponseStatus(201)
+    @Operation(summary = "Add a phase",
+            description = "For owners and managers.")
+    @Fails(status = 400, code = "invalid_dates", when = "endDate is before startDate")
     public PhaseResponse create(@PathParam("projectId") long projectId, @Valid @NotNull PhaseRequest request) {
         Project project = access.project(projectId);
         access.manageProject(project);
@@ -53,6 +61,9 @@ public class PhaseResource {
     @PUT
     @Path("/phases/{phaseId}")
     @Transactional
+    @Operation(summary = "Change a phase",
+            description = "For owners and managers.")
+    @Fails(status = 400, code = "invalid_dates", when = "endDate is before startDate")
     public PhaseResponse update(@PathParam("phaseId") long phaseId, @Valid @NotNull PhaseRequest request) {
         Phase phase = find(phaseId);
         if (request.position() != null) {
@@ -67,6 +78,8 @@ public class PhaseResource {
     @Path("/phases/{phaseId}")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Delete a phase",
+            description = "For owners and managers. Its tasks stay in the project, without a phase.")
     public void delete(@PathParam("phaseId") long phaseId) {
         find(phaseId).delete();
     }

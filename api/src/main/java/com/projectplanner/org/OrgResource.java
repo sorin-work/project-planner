@@ -4,6 +4,7 @@ import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.User;
 import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.common.Fails;
 import com.projectplanner.org.OrgDtos.InvitationResponse;
 import com.projectplanner.org.OrgDtos.InviteRequest;
 import com.projectplanner.org.OrgDtos.InviteResult;
@@ -24,6 +25,8 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.math.BigDecimal;
@@ -38,6 +41,7 @@ import java.util.Objects;
 
 @Path("/api")
 @Authenticated
+@Tag(name = "Organisation")
 public class OrgResource {
 
     private final OrgAccess access;
@@ -52,6 +56,7 @@ public class OrgResource {
 
     @GET
     @Path("/orgs/{orgId}")
+    @Operation(summary = "Get an organisation")
     public OrganisationResponse get(@PathParam("orgId") long orgId) {
         Membership membership = access.member(orgId);
         return OrganisationResponse.of(Organisation.findById(orgId), membership);
@@ -60,6 +65,9 @@ public class OrgResource {
     @PATCH
     @Path("/orgs/{orgId}")
     @Transactional
+    @Operation(summary = "Change the settings of an organisation",
+            description = "For owners. Fields that are left out stay as they are.")
+    @Fails(status = 400, code = "invalid_timezone", when = "timezone is not a known time zone")
     public OrganisationResponse update(@PathParam("orgId") long orgId, @Valid @NotNull UpdateOrganisationRequest request) {
         Membership membership = access.require(orgId, Role.OWNER);
         Organisation org = Organisation.findById(orgId);
@@ -84,6 +92,8 @@ public class OrgResource {
 
     @GET
     @Path("/orgs/{orgId}/members")
+    @Operation(summary = "List the members",
+            description = "Client viewers only get the team and themselves.")
     public List<MemberResponse> members(@PathParam("orgId") long orgId) {
         Membership me = access.member(orgId);
         List<Membership> memberships = Membership.forOrganisation(orgId);
@@ -100,6 +110,10 @@ public class OrgResource {
     @PATCH
     @Path("/orgs/{orgId}/members/{memberId}")
     @Transactional
+    @Operation(summary = "Change the role, rate or capacity of a member",
+            description = "For owners and managers. Only owners can grant or take away the owner role.")
+    @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
+    @Fails(status = 409, code = "last_owner", when = "the member is the only owner and would stop being one")
     public MemberResponse updateMember(@PathParam("orgId") long orgId, @PathParam("memberId") long memberId,
                                        @Valid @NotNull UpdateMemberRequest request) {
         Membership me = access.manager(orgId);
@@ -135,6 +149,9 @@ public class OrgResource {
     @Path("/orgs/{orgId}/members/{memberId}")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Remove a member",
+            description = "For owners and managers. Only owners can remove an owner.")
+    @Fails(status = 409, code = "last_owner", when = "the member is the only owner")
     public void removeMember(@PathParam("orgId") long orgId, @PathParam("memberId") long memberId) {
         Membership me = access.manager(orgId);
         Membership member = memberIn(orgId, memberId);
@@ -151,6 +168,8 @@ public class OrgResource {
 
     @GET
     @Path("/orgs/{orgId}/invitations")
+    @Operation(summary = "List the invitations nobody has accepted yet",
+            description = "For owners and managers.")
     public List<InvitationResponse> invitations(@PathParam("orgId") long orgId) {
         access.manager(orgId);
         return Invitation.pendingIn(orgId).stream().map(InvitationResponse::of).toList();
@@ -160,6 +179,13 @@ public class OrgResource {
     @Path("/orgs/{orgId}/invitations")
     @Transactional
     @ResponseStatus(201)
+    @Operation(summary = "Invite someone by email",
+            description = "For owners and managers. Someone who already has an account is added straight away and comes back as member. Anyone else gets an invitation and joins when they sign up with that email.")
+    @Fails(status = 400, code = "invalid_role", when = "the role is OWNER")
+    @Fails(status = 400, code = "client_required", when = "the role is CLIENT and clientId is missing")
+    @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
+    @Fails(status = 409, code = "already_member", when = "the person is already in the organisation")
+    @Fails(status = 409, code = "already_invited", when = "the email already has an invitation")
     public InviteResult invite(@PathParam("orgId") long orgId, @Valid @NotNull InviteRequest request) {
         Membership me = access.manager(orgId);
         if (request.role() == Role.OWNER) {
@@ -205,6 +231,8 @@ public class OrgResource {
     @Path("/orgs/{orgId}/invitations/{invitationId}")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Cancel an invitation",
+            description = "For owners and managers.")
     public void cancelInvitation(@PathParam("orgId") long orgId, @PathParam("invitationId") long invitationId) {
         access.manager(orgId);
         Invitation invitation = Invitation.findById(invitationId);
@@ -216,6 +244,8 @@ public class OrgResource {
 
     @GET
     @Path("/orgs/{orgId}/role-rates")
+    @Operation(summary = "List the default hourly rate per role",
+            description = "For owners and managers.")
     public List<RoleRateEntry> roleRates(@PathParam("orgId") long orgId) {
         access.manager(orgId);
         Map<Role, BigDecimal> rates = RoleRate.forOrganisation(orgId);
@@ -225,6 +255,8 @@ public class OrgResource {
     @PUT
     @Path("/orgs/{orgId}/role-rates")
     @Transactional
+    @Operation(summary = "Replace the default hourly rates per role",
+            description = "For owners. Roles that are left out lose their rate.")
     public List<RoleRateEntry> setRoleRates(@PathParam("orgId") long orgId, @Valid @NotNull RoleRatesRequest request) {
         access.require(orgId, Role.OWNER);
         RoleRate.delete("organisationId", orgId);

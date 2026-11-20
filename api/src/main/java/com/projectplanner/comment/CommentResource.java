@@ -21,6 +21,8 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.time.Clock;
@@ -34,6 +36,7 @@ import java.util.Set;
 
 @Path("/api")
 @Authenticated
+@Tag(name = "Collaboration")
 public class CommentResource {
 
     private final OrgAccess access;
@@ -50,6 +53,7 @@ public class CommentResource {
 
     @GET
     @Path("/tasks/{taskId}/comments")
+    @Operation(summary = "List the comments on a task")
     public List<CommentResponse> list(@PathParam("taskId") long taskId) {
         Task task = task(taskId);
         access.project(task.projectId);
@@ -63,6 +67,8 @@ public class CommentResource {
     @Path("/tasks/{taskId}/comments")
     @Transactional
     @ResponseStatus(201)
+    @Operation(summary = "Comment on a task",
+            description = "Client viewers can comment too. An @handle in the text notifies that person.")
     public CommentResponse create(@PathParam("taskId") long taskId, @Valid @NotNull CommentRequest request) {
         Task task = task(taskId);
         Project project = access.project(task.projectId);
@@ -95,6 +101,8 @@ public class CommentResource {
     @PUT
     @Path("/comments/{commentId}")
     @Transactional
+    @Operation(summary = "Edit a comment",
+            description = "Your own comments only.")
     public CommentResponse update(@PathParam("commentId") long commentId, @Valid @NotNull CommentRequest request) {
         Comment comment = comment(commentId);
         access.project(task(comment.taskId).projectId);
@@ -110,6 +118,8 @@ public class CommentResource {
     @Path("/comments/{commentId}")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Delete a comment",
+            description = "Your own comments, or anyone's for owners and managers.")
     public void delete(@PathParam("commentId") long commentId) {
         Comment comment = comment(commentId);
         Project project = access.project(task(comment.taskId).projectId);

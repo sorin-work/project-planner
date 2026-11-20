@@ -274,6 +274,12 @@ export interface ActivityEntry {
   action: string;
   summary: string;
   createdAt: string;
+  /**
+   * Another project the entry is about, such as the one a plan was copied from. The
+   * API only sends it to a reader who may see that project.
+   */
+  relatedProjectId?: number;
+  relatedProjectName?: string;
 }
 
 export interface Notification {

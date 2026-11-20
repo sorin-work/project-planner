@@ -1,6 +1,7 @@
 package com.projectplanner.task;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.common.ApiDocs;
 import com.projectplanner.schedule.ScheduleCheck;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -9,6 +10,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -38,21 +40,22 @@ public final class TaskDtos {
      * Partial update: only non-null fields change. Use the {@code clear*} flags to
      * remove an assignee, phase or dates.
      */
+    @Schema(description = "Only the fields that are sent change. A value cannot be removed by sending null, which is what the clear flags are for.")
     public record UpdateTaskRequest(
             @Size(min = 1, max = 200) String title,
             @Size(max = 10000) String description,
             Long phaseId,
-            boolean clearPhase,
+            @Schema(description = ApiDocs.CLEARS) boolean clearPhase,
             TaskStatus status,
             Priority priority,
             @DecimalMin("0") @DecimalMax("10000") BigDecimal estimateHours,
             LocalDate startDate,
             LocalDate dueDate,
-            boolean clearDates,
+            @Schema(description = "Send true to remove both dates. " + "Leaving a field out, or sending null, keeps it.") boolean clearDates,
             Long assigneeId,
-            boolean clearAssignee,
+            @Schema(description = ApiDocs.CLEARS) boolean clearAssignee,
             Boolean milestone,
-            @Min(0) Integer position) {
+            @Schema(description = "The place in its board column, counted from 0.") @Min(0) Integer position) {
     }
 
     /** Moves a task by working days (negative is earlier), keeping its length in working days. Used by timeline drags. */
@@ -63,6 +66,7 @@ public final class TaskDtos {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Schema(description = "A field without a value is left out.")
     public record TaskResponse(long id, long projectId, Long phaseId, Long parentId, String title, String description,
                                TaskStatus status, Priority priority, BigDecimal estimateHours, LocalDate startDate,
                                LocalDate dueDate, Long assigneeId, String assigneeName, boolean milestone, int position,
@@ -77,7 +81,8 @@ public final class TaskDtos {
     }
 
     /** A change to one task plus every dependant that had to move because of it. */
-    public record TaskChange(TaskResponse task, List<TaskResponse> rescheduled) {
+    public record TaskChange(TaskResponse task,
+                             @Schema(description = "The tasks that were pushed back because they depend on this one. Empty when nothing had to move.") List<TaskResponse> rescheduled) {
     }
 
     /**

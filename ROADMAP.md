@@ -27,7 +27,7 @@ couple of weekends, **L** several weeks of spare time.
 | 4   | Search and quick switcher                  | Next  | both     | M    | -          |
 | 5   | Accessibility pass                         | Next  | frontend | M    | -          |
 | 6   | Scheduled backups and a tested restore     | Shipped | infra    | S    | -          |
-| 7   | API reference built from the code          | Next  | backend  | S    | -          |
+| 7   | API reference built from the code          | Shipped | backend  | S    | -          |
 | 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
 | 9   | Time and utilisation reports               | Later | both     | M    | -          |
 | 10  | Budget alerts                              | Later | both     | S    | -          |
@@ -60,8 +60,9 @@ A few things hold for every item:
   partial indexes or Postgres-only functions. Where an item needs a migration
   I have written down a version number for it, so that two items in progress
   at the same time do not both take `V16`. Gaps are fine. The numbers run up
-  to `V24`. Item 2 had none and took `V25` for the key on time entries, so the
-  next free one is `V26`.
+  to `V24`. Item 2 had none and took `V25` for the key on time entries, and
+  item 13 took `V26` for the second project of an activity entry, so the next
+  free one is `V27`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -85,6 +86,31 @@ A few things hold for every item:
   production build has bundle budgets in `angular.json` (a warning at 700 kB
   and an error at 1 MB for the initial bundle), which is a reason to think
   twice before adding a library.
+- An endpoint is in the API reference from the moment it exists, and
+  `ApiReferenceTest` holds the two together. It asks three things of a change
+  to an endpoint, and says which one is missing, with the file and the line:
+  - a resource method has `@Operation(summary = ...)` and a `@Tag`, on the
+    class or on the method. The status of a successful call is read from
+    `@ResponseStatus` and needs nothing;
+  - a resource method names every error code it can answer with for a reason
+    of its own, and no other: one
+    `@Fails(status = 409, code = "code_taken", when = "...")` line per code.
+    The test finds the codes in the sources (`ApiException.badRequest`,
+    `ApiException.conflict`, `new ApiException`) and wants each one named, with
+    the status it is thrown with, on a method of a resource that reaches the
+    class it is thrown in. Write the code as a string literal or a string
+    constant: one that is put together at run time cannot be read and fails
+    the test;
+  - when a path, a parameter, a response status, a field of a record or an
+    enum value changes, the pinned shape of the document changes with it.
+    Refresh `api/src/test/resources/api-shape.txt` with
+    `./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update` (in `api/`) and
+    commit it with the change. After a merge that conflicts in that file, take
+    either side and run the command again.
+
+  Two records with the same class name cannot both be in the API: the build
+  stops and names them. Give one a name of its own in `SCHEMA_NAMES` in
+  `ApiReferenceFilter`.
 - On the web side `core/models.ts` mirrors the API's JSON by hand, the HTTP
   clients are the `core/*.api.ts` files, and everything inside a project page
   shares one `ProjectStore`.
@@ -189,49 +215,6 @@ only a keyboard or with a screen reader. Gaps I already know about:
 - Undecided: `@angular/cdk` has a live announcer, a focus trap and a drag and
   drop that works from the keyboard, at the price of a dependency. I lean
   towards a small live-region service of my own and plain key handlers.
-
-### 7. API reference built from the code
-
-The README has a table of endpoints and nothing more: no request or response
-shapes, no error codes. Anyone scripting against the API reads the Java.
-Quarkus can build an OpenAPI document from the resources.
-
-- Add `quarkus-smallrye-openapi`. By default the document is served at
-  `/q/openapi` and Swagger UI only exists in dev mode. nginx forwards only
-  `/api/` to the API (`web/nginx.conf`), so set
-  `quarkus.smallrye-openapi.path=/api/openapi`,
-  `quarkus.swagger-ui.path=/api/docs` and
-  `quarkus.swagger-ui.always-include=true` to reach both through the web port.
-  Both must answer without a token.
-- Most of it comes free. The request and response types are records with Bean
-  Validation annotations (`TaskDtos`, `ProjectDtos`, `TimeDtos`, `OrgDtos`,
-  `AuthDtos`), so types, required fields and limits are picked up.
-- What the generator cannot see and needs writing down:
-  - the bearer token (`quarkus.smallrye-openapi.security-scheme=jwt`), and
-    that `AuthResource` is the one public resource;
-  - errors: every error body is an `ApiError` built in `ErrorMappers`. One
-    shared response definition, plus the `code` values worth knowing
-    (`dependency_cycle`, `timesheet_locked`, `code_taken` and so on);
-  - methods that return a raw `Response`: `ExportResource.timesheets` (CSV)
-    and `TimeEntryResource.timer` (200 with an entry, or 204);
-  - the partial update rule of `UpdateTaskRequest` and `UpdateMemberRequest`:
-    null means "leave as it is", which is why `clearDates`, `clearAssignee`,
-    `clearPhase` and `clearHourlyRate` exist;
-  - fields that are left out for some roles (`@JsonInclude(NON_NULL)` on
-    `ProjectResponse`, `BudgetView` and `MemberResponse`).
-- A tag per feature package, so the UI groups endpoints the way the README
-  table does, and a one-line summary on every operation.
-- Test: a `@QuarkusTest` that fetches the document and checks that every
-  operation has a summary and a tag, that operation ids are unique, and that
-  everything except sign-up and login asks for the bearer scheme.
-- The "API overview" table in the README shrinks to a pointer and the few
-  rules that are not per endpoint.
-- Tricky: do not commit the document itself. A checked-in copy with an "is it
-  up to date" test would make every other item that touches an endpoint
-  conflict with all the others.
-- Undecided: generating `web/src/app/core/models.ts` from the document instead
-  of keeping it by hand. Tempting, since it is 350 lines that can drift, but
-  it adds a build step and a dependency. Not in this item.
 
 ## Later
 
@@ -822,6 +805,29 @@ when a dump fails apart from the service log, and the files of item 18 would
 not be in them. The check undoes `V14` by dropping `tasks.position`, so it
 needs another migration to undo if a later one builds on that column.
 
+### 7. API reference built from the code
+
+`quarkus-smallrye-openapi` builds an OpenAPI document from the resources and
+their records when the API is built. It is served at `/api/openapi`, and as a
+Swagger UI page at `/api/docs` when `API_DOCS=true`, which is off unless
+asked for, in Compose too. Every operation has a summary, a tag and the bearer
+requirement, and every error is an `ApiError`: one shared response, plus the
+codes of the operation, written as `@Fails` on the method. Different from the
+design: not all of it came free. The scanner does not read `@ResponseStatus`,
+so it documented a created resource as 200 and a POST without an answer as
+201. `ApiReferenceFilter` puts that right at build time, from the annotation
+that sets the real status, and adds the errors. The document is not
+committed, but, against the design, a copy of its shape is: paths,
+parameters, statuses and schemas, one fact per line, without the prose
+(`api-shape.txt`). A test compares the two, and a second one compares the
+error codes in the reference with the ones in the sources, per resource. That
+is the conflict the design warned about, kept small: an item that changes an
+endpoint refreshes the file with one command. The README table shrank to the rules
+that hold everywhere. Still open: generating `models.ts` from the document,
+descriptions for the plain fields and most query parameters, and which
+response fields can be missing. Who may call an operation is prose in its
+description, and nothing checks it.
+
 ### 8. Resize bars and draw links on the timeline
 
 At day and week zoom a bar has a grab strip at each end and a dot after it.
@@ -869,6 +875,12 @@ The copy has the schedule issues of the source's dates and no
 others, with two things to know: tasks finished in the source are open again,
 so an overlap the source had stopped reporting is reported, and a task that
 lies on a weekend entirely becomes a one-day task on the next working day and
-can then be in the way of a neighbour. Still open: real templates (projects
+can then be in the way of a neighbour. The copy's one activity entry does not
+name the source, because a copy can be made for another client: the source's
+id is kept next to the entry (`related_project_id`, `V26`) and its name is
+added for readers who may see it. A code that two requests take at the same
+moment is `409 code_taken` for the second, from the unique constraint, for a
+plain create as well, and a source that is changed while it is copied is
+`409 source_changed`. Still open: real templates (projects
 flagged as such and hidden elsewhere), a choice of which phases to copy, and
 the organisation's calendar in `ProjectDuplicator` once item 15 has one.

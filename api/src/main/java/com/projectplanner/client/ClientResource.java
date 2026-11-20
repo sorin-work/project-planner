@@ -20,6 +20,8 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.time.Clock;
@@ -31,6 +33,7 @@ import static com.projectplanner.common.Text.blankToNull;
 
 @Path("/api/orgs/{orgId}/clients")
 @Authenticated
+@Tag(name = "Clients")
 public class ClientResource {
 
     private final OrgAccess access;
@@ -42,6 +45,8 @@ public class ClientResource {
     }
 
     @GET
+    @Operation(summary = "List the clients",
+            description = "A client viewer only gets their own client.")
     public List<ClientResponse> list(@PathParam("orgId") long orgId,
                                      @QueryParam("archived") @DefaultValue("false") boolean includeArchived) {
         Membership me = access.member(orgId);
@@ -55,6 +60,7 @@ public class ClientResource {
 
     @GET
     @Path("/{clientId}")
+    @Operation(summary = "Get a client")
     public ClientResponse get(@PathParam("orgId") long orgId, @PathParam("clientId") long clientId) {
         Membership me = access.member(orgId);
         if (me.role == Role.CLIENT && !Objects.equals(me.clientId, clientId)) {
@@ -66,6 +72,8 @@ public class ClientResource {
     @POST
     @Transactional
     @ResponseStatus(201)
+    @Operation(summary = "Add a client",
+            description = "For owners and managers.")
     public ClientResponse create(@PathParam("orgId") long orgId, @Valid @NotNull ClientRequest request) {
         access.manager(orgId);
         Client client = new Client();
@@ -79,6 +87,8 @@ public class ClientResource {
     @PUT
     @Path("/{clientId}")
     @Transactional
+    @Operation(summary = "Change a client",
+            description = "For owners and managers.")
     public ClientResponse update(@PathParam("orgId") long orgId, @PathParam("clientId") long clientId,
                                  @Valid @NotNull ClientRequest request) {
         access.manager(orgId);
@@ -92,6 +102,8 @@ public class ClientResource {
     @Path("/{clientId}")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Delete a client",
+            description = "For owners and managers. A client that has projects is archived instead, so that the history stays intact.")
     public void delete(@PathParam("orgId") long orgId, @PathParam("clientId") long clientId) {
         access.manager(orgId);
         Client client = find(orgId, clientId);

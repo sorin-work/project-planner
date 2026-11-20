@@ -50,9 +50,10 @@ public class ProjectDuplicator {
 
     /**
      * Rows that go into one statement. Above it the rows are spread over more than
-     * one, to keep a single statement to a few hundred kilobytes.
+     * one, to keep a single statement to a few hundred kilobytes. Not final, so that
+     * a test can lower it and reach the second statement without thousands of rows.
      */
-    static final int ROWS_PER_STATEMENT = 5000;
+    static int rowsPerStatement = 5000;
 
     private static final String COPY_SUFFIX = " (copy)";
     private static final int MAX_NAME = 120;
@@ -106,9 +107,12 @@ public class ProjectDuplicator {
         Map<Long, Long> newTask = copyTasks(tasks, copy.id, newPhase, shift, team, now);
         int links = copyDependencies(dependencies, newTask, now);
 
+        // The entry is read by everybody who sees the copy, and not all of them may see the source:
+        // a copy can be made for another client. So the text does not name it. Its id is kept next
+        // to the entry, and the name is added for the readers who may know it.
         activity.record(copy.organisationId, copy.id, null, me.userId, "project.duplicated",
-                "Copied the plan of " + source.name + " into " + copy.name + ": " + count(phases.size(), "phase") + ", "
-                        + count(tasks.size(), "task") + " and " + count(links, "link"));
+                "Copied the plan from another project: " + count(phases.size(), "phase") + ", "
+                        + count(tasks.size(), "task") + " and " + count(links, "link"), source.id);
         return copy;
     }
 
@@ -279,8 +283,9 @@ public class ProjectDuplicator {
     }
 
     private void insert(String sql, List<String> rows, Object... parameters) {
-        for (int from = 0; from < rows.size(); from += ROWS_PER_STATEMENT) {
-            String values = String.join(", ", rows.subList(from, Math.min(rows.size(), from + ROWS_PER_STATEMENT)));
+        int step = rowsPerStatement;
+        for (int from = 0; from < rows.size(); from += step) {
+            String values = String.join(", ", rows.subList(from, Math.min(rows.size(), from + step)));
             em.unwrap(Session.class).doWork(connection -> {
                 try (PreparedStatement statement = connection.prepareStatement(sql.formatted(values))) {
                     for (int i = 0; i < parameters.length; i++) {
@@ -309,7 +314,10 @@ public class ProjectDuplicator {
             }
         });
         if (ids.size() != expected) {
-            throw new IllegalStateException("Copied " + expected + " rows but found " + ids.size());
+            // The texts are copied from the source rows by a join. A row that somebody deleted
+            // between reading the plan and copying it is missing here. Nothing is kept of the copy.
+            throw ApiException.conflict("source_changed",
+                    "The project was changed while it was being copied. Nothing was copied, so try again.");
         }
         return ids;
     }

@@ -37,6 +37,13 @@ public class ActivityEntry extends PanacheEntityBase {
     @Column(nullable = false)
     public String summary;
 
+    /**
+     * Another project the entry is about, for example the one a plan was copied from.
+     * The summary does not name it: not everybody who reads the entry may see it.
+     */
+    @Column(name = "related_project_id")
+    public Long relatedProjectId;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 }
