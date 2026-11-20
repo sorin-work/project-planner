@@ -745,9 +745,15 @@ size.
   already does.
 - Tricky: rounding again. `BudgetCalculator` adds up `Money.cost` per entry,
   rounded to cents each time. Feeding it one `TimeFacts` per person with
-  summed minutes moves `spentAmount` by a few cents, and
-  `BudgetCalculatorTest` pins the current behaviour. Either accept the change
-  and say so, or keep pricing per entry and only fix the number of queries.
+  summed minutes moves `spentAmount` by a few cents, and no test would
+  notice: `roundsPartialHoursToCents` in `BudgetCalculatorTest` has a single
+  entry. Before touching the query, add a case that pins rounding per entry:
+  three one-minute entries at 100 an hour cost 1.67 each and 5.01 together,
+  where three minutes in one entry cost 5.00.
+- Keep rounding per entry, so that the budget, the CSV and item 9's report
+  stay in step. A grouped query can still be exact: group by the minutes
+  value as well (project, user, billable, minutes, and a count), price one
+  entry and multiply by the count.
 - Lists with nothing but a limit: `ActivityResource` (at most 200) and
   `NotificationResource` cannot be asked for older entries. Add a "before this
   id" parameter and "Load more" in `ActivityTab` and `NotificationsPage`.
