@@ -287,16 +287,16 @@ public class TimesheetService {
         // they are on and the people, so that a long queue costs what a short one does, and a week
         // between two queued ones is not read.
         Set<Long> userIds = sheets.stream().map(sheet -> sheet.userId).collect(Collectors.toSet());
-        StringBuilder weeks = new StringBuilder();
+        StringBuilder queued = new StringBuilder();
         Parameters params = Parameters.with("org", organisationId);
         for (int i = 0; i < sheets.size(); i++) {
             Timesheet sheet = sheets.get(i);
-            weeks.append(i == 0 ? "" : " or ").append("(userId = :u").append(i).append(" and entryDate between :f").append(i)
+            queued.append(i == 0 ? "" : " or ").append("(userId = :u").append(i).append(" and entryDate between :f").append(i)
                     .append(" and :t").append(i).append(')');
             params.and("u" + i, sheet.userId).and("f" + i, sheet.weekStart).and("t" + i, sheet.weekStart.plusDays(6));
         }
         Map<Long, Map<LocalDate, List<TimeEntry>>> byWeek = new HashMap<>();
-        TimeEntry.<TimeEntry>list("organisationId = :org and (" + weeks + ")", params)
+        TimeEntry.<TimeEntry>list("organisationId = :org and (" + queued + ")", params)
                 .forEach(e -> byWeek.computeIfAbsent(e.userId, id -> new HashMap<>())
                         .computeIfAbsent(WorkCalendar.weekStart(e.entryDate), week -> new ArrayList<>()).add(e));
         Set<Long> projectIds = byWeek.values().stream().flatMap(weeks -> weeks.values().stream()).flatMap(List::stream)
