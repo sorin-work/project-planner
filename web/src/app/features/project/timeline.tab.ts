@@ -4,8 +4,10 @@ import { Observable } from 'rxjs';
 import { messageOf } from '../../core/errors';
 import { TaskChange } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
+import { TaskPatch } from '../../core/task.api';
 import { formatDate } from '../../shared/dates';
 import { Gantt } from '../gantt/gantt';
+import { resizeDates } from '../gantt/gantt-edit';
 import { Zoom } from '../gantt/gantt-layout';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
@@ -63,10 +65,10 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
     }
     @if (org.isTeam()) {
       <p class="muted small">
-        Drag a bar to move it and tasks that depend on it move too. At day and week zoom, drag an end to change the start or
+        At day and week zoom: drag a bar to move it, and tasks that depend on it move too. Drag an end to change the start or
         due date, and drag the dot after a bar onto the task that should wait for it. Click an arrow to remove it. With the
-        keyboard: the arrow keys move the focused bar by a working day, Shift with the arrow keys moves its due date, and
-        Delete removes the focused arrow.
+        keyboard: the arrow keys move the focused bar by a working day, Shift with the arrow keys moves its due date, Delete
+        removes the focused arrow and Escape gives up a drag.
       </p>
     }
     @if (message()) {
@@ -78,8 +80,8 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
     <div class="card gantt-card">
       <app-gantt [tasks]="store.tasks()" [phases]="store.phases()" [critical]="store.criticalIds()"
         [broken]="store.brokenLinks()" [showCritical]="showCritical" [zoom]="zoom()" [editable]="org.isTeam()"
-        (moved)="move($event.taskId, $event.days)" (resized)="resize($event)" (linked)="link($event)"
-        (unlinked)="unlink($event)" (opened)="openTask($event)" />
+        (moved)="move($event.taskId, $event.days)" (resized)="resize($event)" (extended)="extend($event.taskId, $event.days)"
+        (linked)="link($event)" (unlinked)="unlink($event)" (opened)="openTask($event)" />
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -102,15 +104,67 @@ export class TimelineTab {
   protected readonly formatDate = formatDate;
   protected readonly moveCost = moveCost;
 
+  /** Resizes on their way, by task: what to send next, and the due date the keys last asked for. */
+  private readonly resizes = new Map<number, { next: TaskPatch | null; dueDate?: string }>();
+
   /** A bar was dragged or moved with the arrow keys, by working days. */
   move(taskId: number, days: number): void {
     this.apply(this.store.shiftTask(taskId, days), (change) => pushedBack(change, `${change.task.title} moved`));
   }
 
-  /** One end of a bar was dragged: only that date is sent. */
+  /**
+   * One end of a bar was dragged: only that date is sent. One request per task at a
+   * time. What is asked for while it is on its way is kept, and the latest of it goes
+   * out when the answer is in, so two answers cannot arrive in the wrong order.
+   */
   resize(change: { taskId: number; startDate?: string; dueDate?: string }): void {
     const { taskId, ...dates } = change;
-    this.apply(this.store.updateTask(taskId, dates), (done) => pushedBack(done, `${done.task.title} changed`));
+    const waiting = this.resizes.get(taskId);
+    if (waiting) {
+      waiting.next = { ...waiting.next, ...dates };
+    } else {
+      this.sendResize(taskId, dates);
+    }
+  }
+
+  /**
+   * Shift with an arrow key: the due date goes one working day on or back per press.
+   * A press counts from the date the last press asked for, not from the stored one,
+   * which only changes when the API has answered. Otherwise three quick presses
+   * would ask for the same day three times.
+   */
+  extend(taskId: number, days: number): void {
+    const task = this.store.byId().get(taskId);
+    if (!task) {
+      return;
+    }
+    const asked = this.resizes.get(taskId)?.dueDate;
+    const dates = resizeDates({ startDate: task.startDate, dueDate: asked ?? task.dueDate }, 'end', days);
+    if (dates && 'dueDate' in dates) {
+      this.resize({ taskId, ...dates });
+      const waiting = this.resizes.get(taskId);
+      if (waiting) {
+        waiting.dueDate = dates.dueDate;
+      }
+    }
+  }
+
+  private sendResize(taskId: number, dates: TaskPatch): void {
+    const waiting = this.resizes.get(taskId) ?? { next: null };
+    waiting.next = null;
+    this.resizes.set(taskId, waiting);
+    this.apply(
+      this.store.updateTask(taskId, dates),
+      (done) => pushedBack(done, `${done.task.title} changed`),
+      () => {
+        // Answered or refused: send what was asked for in the meantime, or forget the task.
+        if (waiting.next) {
+          this.sendResize(taskId, waiting.next);
+        } else {
+          this.resizes.delete(taskId);
+        }
+      },
+    );
   }
 
   /** A link was drawn on the timeline. It goes the way of the form in the task panel, loop check included. */
@@ -139,12 +193,18 @@ export class TimelineTab {
    * Sends one edit. The timeline draws what the store holds and the store only takes
    * what the API answered, so a refused edit leaves the bar where it was.
    */
-  private apply<T>(request: Observable<T>, describe: (result: T) => string | null): void {
+  private apply<T>(request: Observable<T>, describe: (result: T) => string | null, after?: () => void): void {
     this.error.set(null);
     this.message.set(null);
     request.subscribe({
-      next: (result) => this.message.set(describe(result)),
-      error: (err: unknown) => this.error.set(messageOf(err)),
+      next: (result) => {
+        this.message.set(describe(result));
+        after?.();
+      },
+      error: (err: unknown) => {
+        this.error.set(messageOf(err));
+        after?.();
+      },
     });
   }
 

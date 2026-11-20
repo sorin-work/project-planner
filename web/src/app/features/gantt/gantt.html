@@ -55,15 +55,13 @@
         <line class="today" [attr.x1]="layout().todayX" [attr.x2]="layout().todayX" y1="44" [attr.y2]="layout().height" />
       }
 
+      <!-- The arrows are drawn under the bars. Their keyboard stand-ins follow each bar further down. -->
       @for (link of layout().links; track link.id) {
-        <g class="link-group" [class.selected]="link.id === selectedLinkId()" [attr.tabindex]="editable() ? 0 : null"
-          [attr.role]="editable() ? 'button' : null"
-          [attr.aria-label]="editable() ? linkLabel(link) + '. Press Delete to remove this link.' : null"
-          (click)="selectLink(link)" (focus)="selectLink(link)" (keydown)="onLinkKey($event, link)">
+        <g class="link-group" [class.selected]="link.id === selectedLinkId()" (pointerup)="pickLink(link)">
           <title>{{ linkLabel(link) }}</title>
           <path [attr.d]="link.path" class="link" [class.critical]="link.critical && !link.broken" [class.broken]="link.broken"
             [attr.marker-end]="link.broken ? 'url(#arrow-broken)' : link.critical ? 'url(#arrow-critical)' : 'url(#arrow)'" />
-          @if (editable()) {
+          @if (canEdit()) {
             <!-- The arrow is too thin to click: a wide invisible copy of it takes the pointer. -->
             <path [attr.d]="link.path" class="link-hit" />
           }
@@ -71,11 +69,12 @@
       }
 
       @for (bar of bars(); track bar.task.id) {
-        <g class="bar" [class.critical]="bar.critical" [class.done]="bar.done" [class.editable]="editable()"
-          [class.dragging]="drag()?.taskId === bar.task.id" [class.link-target]="linkDraft()?.target?.id === bar.task.id"
+        <g class="bar" [class.critical]="bar.critical" [class.done]="bar.done" [class.editable]="canEdit()"
+          [class.dragging]="drag()?.active && drag()?.taskId === bar.task.id"
+          [class.link-target]="linkDraft()?.target?.id === bar.task.id" [attr.data-task]="bar.task.id"
           tabindex="0" role="button" [attr.aria-label]="bar.task.title + ', ' + formatRange(bar.task.startDate, bar.task.dueDate)"
           (pointerdown)="onPointerDown($event, bar)" (pointermove)="onPointerMove($event)" (pointerup)="onPointerUp($event)"
-          (pointercancel)="drag.set(null)" (keydown)="onKey($event, bar)">
+          (pointercancel)="cancelDrag()" (focus)="selectedLinkId.set(null)" (keydown)="onKey($event, bar)">
           <title>{{ bar.task.title }} ({{ formatRange(bar.task.startDate, bar.task.dueDate) }})</title>
           @if (bar.milestone) {
             <polygon [attr.points]="diamond(bar)" class="milestone" />
@@ -89,7 +88,7 @@
               <text [attr.x]="bar.x + 6" [attr.y]="bar.y + 13" class="bar-label">{{ bar.task.assigneeName ?? '' }}</text>
             }
           }
-          @if (handles()) {
+          @if (canEdit()) {
             @let grab = grabAreas(bar);
             @if (!bar.milestone) {
               <rect class="handle" [attr.x]="grab.start.x" [attr.y]="grab.start.y" [attr.width]="grab.start.width"
@@ -101,6 +100,14 @@
               (pointerdown)="onPointerDown($event, bar, 'link')" />
           }
         </g>
+        @if (canEdit()) {
+          <!-- A bar is followed by the arrows that leave it, so Tab goes from a task to what waits for it. -->
+          @for (link of outgoing().get(bar.task.id) ?? []; track link.id) {
+            <path class="link-focus" [class.selected]="link.id === selectedLinkId()" [attr.d]="link.path" [attr.data-link]="link.id"
+              tabindex="0" role="button" [attr.aria-label]="linkLabel(link) + '. Press Delete to remove this link.'"
+              (focus)="selectLink(link)" (keydown)="onLinkKey($event, link)" />
+          }
+        }
       }
 
       @if (linkDraft(); as draft) {
@@ -115,6 +122,6 @@
   <p class="gantt-hint gantt-selection" role="status">
     {{ linkLabel(link) }}
     <button type="button" class="small" (click)="removeLink(link)">Remove link</button>
-    <button type="button" class="small" (click)="selectedLinkId.set(null)">Keep</button>
+    <button type="button" class="small" (click)="keepLink(link)">Keep</button>
   </p>
 }

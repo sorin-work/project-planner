@@ -1412,14 +1412,22 @@ select.compact {
   cursor: pointer;
 }
 
-/* A selected or focused arrow gets a band along it. A thicker line would also blow up its arrowhead. */
-.gantt-svg .link-group.selected .link-hit,
-.gantt-svg .link-group:focus-visible .link-hit {
-  stroke: color-mix(in srgb, var(--primary) 30%, transparent);
+/*
+ * The keyboard stand-in of an arrow: it sits after its bar in the tab order and is
+ * only drawn, as a band along the arrow, while that arrow is selected or focused.
+ * A thicker line would also blow up the arrowhead.
+ */
+.gantt-svg .link-focus {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: none;
+  outline: none;
 }
 
-.gantt-svg .link-group:focus {
-  outline: none;
+.gantt-svg .link-focus.selected,
+.gantt-svg .link-focus:focus-visible {
+  stroke: color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
 .gantt-hint {

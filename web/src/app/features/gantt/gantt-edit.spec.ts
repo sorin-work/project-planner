@@ -1,6 +1,8 @@
 import { Task } from '../../core/models';
 import { addDays, formatDate, isWeekend } from '../../shared/dates';
-import { barAt, barDates, barHandles, dragHint, dropDate, moveWorkingDays, previewDates, resizeDates, snapToWorkingDay } from './gantt-edit';
+import {
+  barAt, barDates, barHandles, dragHint, dropDate, moveWorkingDays, previewDates, resizeDates, shiftedDates, snapToWorkingDay,
+} from './gantt-edit';
 import { HEADER_HEIGHT, ROW_HEIGHT, layoutGantt } from './gantt-layout';
 
 // 2026-03-02 is a Monday.
@@ -18,7 +20,7 @@ function task(id: number, startDate?: string, dueDate?: string, extra: Partial<T
   };
 }
 
-/** What the API does with a shift: WorkCalendar.addWorkingDays. */
+/** What the API does with a shift, written out again here: WorkCalendar.addWorkingDays. */
 function addWorkingDays(date: string, days: number): string {
   let d = date;
   for (let left = Math.abs(days); left > 0; ) {
@@ -28,6 +30,16 @@ function addWorkingDays(date: string, days: number): string {
     }
   }
   return d;
+}
+
+/** Rescheduler.shift for a task with both dates: the start moves, the due date keeps the working days. */
+function apiShift(start: string, due: string, days: number): { from: string; to: string } {
+  let length = 0;
+  for (let d = start; d <= due; d = addDays(d, 1)) {
+    length += isWeekend(d) ? 0 : 1;
+  }
+  const from = addWorkingDays(start, days);
+  return { from, to: addWorkingDays(from, Math.max(1, length) - 1) };
 }
 
 describe('dragging on the timeline', () => {
@@ -103,24 +115,75 @@ describe('dragging on the timeline', () => {
     expect(resizeDates(task(1), 'end', 2)).toBeNull();
   });
 
-  it('gives a task with one date the other one, without inventing it by accident', () => {
+  it('moves the one date a task has freely, in both directions', () => {
     const dueOnly = task(1, undefined, THU);
     expect(barDates(dueOnly)).toEqual({ from: THU, to: THU });
-    expect(resizeDates(dueOnly, 'start', -2)).toEqual({ startDate: '2026-03-03' });
-    expect(resizeDates(dueOnly, 'start', 1)).toBeNull();
+    // There is no start to run into: the due date can come forward as well.
     expect(resizeDates(dueOnly, 'end', 1)).toEqual({ dueDate: FRI });
-    expect(resizeDates(task(1, THU), 'end', 2)).toEqual({ dueDate: NEXT_MON });
-    expect(resizeDates(task(1, THU), 'end', -1)).toBeNull();
+    expect(resizeDates(dueOnly, 'end', -1)).toEqual({ dueDate: '2026-03-04' });
+    expect(resizeDates(dueOnly, 'end', -4)).toEqual({ dueDate: '2026-02-27' }); // Sunday, dragging left: Friday
+    const startOnly = task(1, THU);
+    expect(resizeDates(startOnly, 'start', -1)).toEqual({ startDate: '2026-03-04' });
+    expect(resizeDates(startOnly, 'start', 1)).toEqual({ startDate: FRI });
+    expect(resizeDates(startOnly, 'start', 2)).toEqual({ startDate: NEXT_MON });
   });
 
-  it('previews the bar where it would land', () => {
+  it('gives a task with one date the other one, but only away from the one it has', () => {
+    const dueOnly = task(1, undefined, THU);
+    expect(resizeDates(dueOnly, 'start', -2)).toEqual({ startDate: '2026-03-03' });
+    expect(resizeDates(dueOnly, 'start', 1)).toBeNull();
+    const startOnly = task(1, THU);
+    expect(resizeDates(startOnly, 'end', 2)).toEqual({ dueDate: NEXT_MON });
+    expect(resizeDates(startOnly, 'end', -1)).toBeNull();
+  });
+
+  it('shifts a task the way the API will: the start moves and the working days stay', () => {
+    expect(shiftedDates(task(1, MON, FRI), 1)).toEqual({ startDate: '2026-03-03', dueDate: NEXT_MON });
+    expect(shiftedDates(task(1, MON, FRI), -1)).toEqual({ startDate: '2026-02-27', dueDate: THU });
+    expect(shiftedDates(task(1, THU, FRI), 0)).toEqual({ startDate: THU, dueDate: FRI });
+    expect(shiftedDates(task(1, THU), 2)).toEqual({ startDate: NEXT_MON, dueDate: undefined });
+    expect(shiftedDates(task(1, undefined, NEXT_MON), -1)).toEqual({ startDate: undefined, dueDate: FRI });
+    // Thursday to Saturday is two working days and stays two.
+    expect(shiftedDates(task(1, THU, SAT), 1)).toEqual({ startDate: FRI, dueDate: NEXT_MON });
+  });
+
+  it('previews a moved bar with the length it will have, not the one it had on screen', () => {
+    // Monday to Friday, one column to the right: Tuesday to Monday. Seven columns wide instead of five.
+    expect(previewDates(task(1, MON, FRI), 'move', 1)).toEqual({ from: '2026-03-03', to: NEXT_MON });
+    // The other way: dropped on Sunday it goes to the Friday before and ends on Thursday.
+    expect(previewDates(task(1, MON, FRI), 'move', -1)).toEqual({ from: '2026-02-27', to: THU });
+    // A bar that spans a weekend closes up when it moves clear of it, and opens again a week on.
+    expect(previewDates(task(1, FRI, NEXT_MON), 'move', 3)).toEqual({ from: NEXT_MON, to: '2026-03-10' });
+    expect(previewDates(task(1, FRI, NEXT_MON), 'move', 7)).toEqual({ from: '2026-03-13', to: '2026-03-16' });
+    expect(previewDates(task(1, FRI, NEXT_MON), 'move', -1)).toEqual({ from: THU, to: FRI });
+    expect(previewDates(task(1, THU, FRI), 'move', 0)).toEqual({ from: THU, to: FRI });
+    expect(previewDates(task(1, undefined, FRI), 'move', 1)).toEqual({ from: NEXT_MON, to: NEXT_MON });
+    expect(previewDates(task(1), 'move', 2)).toBeNull();
+  });
+
+  it('previews every move exactly where the API puts the bar', () => {
+    for (let offset = 0; offset < 14; offset++) {
+      const start = addDays(MON, offset);
+      for (let span = 0; span < 12; span++) {
+        const due = addDays(start, span);
+        for (let columns = -9; columns <= 9; columns++) {
+          const days = moveWorkingDays(start, columns);
+          const expected = days === 0 ? { from: start, to: due } : apiShift(start, due, days);
+          expect(previewDates(task(1, start, due), 'move', columns), `${start} to ${due} by ${columns}`).toEqual(expected);
+        }
+      }
+    }
+  });
+
+  it('previews a resized bar with the date that would be saved', () => {
     const t = task(1, THU, FRI);
-    expect(previewDates(t, 'move', 2)).toEqual({ from: NEXT_MON, to: '2026-03-10' });
-    expect(previewDates(t, 'move', 0)).toEqual({ from: THU, to: FRI });
     expect(previewDates(t, 'end', 1)).toEqual({ from: THU, to: NEXT_MON });
     expect(previewDates(t, 'start', -1)).toEqual({ from: '2026-03-04', to: FRI });
     expect(previewDates(t, 'start', 4)).toEqual({ from: FRI, to: FRI });
-    expect(previewDates(task(1), 'move', 2)).toBeNull();
+    expect(previewDates(t, 'end', -9)).toEqual({ from: THU, to: THU });
+    // A due date on its own moves as a one-day bar, a new start stretches it.
+    expect(previewDates(task(1, undefined, THU), 'end', -1)).toEqual({ from: '2026-03-04', to: '2026-03-04' });
+    expect(previewDates(task(1, undefined, THU), 'start', -2)).toEqual({ from: '2026-03-03', to: THU });
   });
 
   it('says what a drop would do', () => {
