@@ -963,16 +963,25 @@ whether file storage is worth it for a planner.
 task it waits for allows, a link to a task without a due date, a task due
 after the project's end date and a subtask outside its parent's dates. The
 timeline draws the reported links red and dashed, counts the issues in the
-toolbar, lists them, and says why "Plan ends" is later than the latest due
-date. The task panel shows each issue on the link or the dates it is about,
-with a "Move to" button that sends back the two dates the API suggested.
+toolbar, lists them, and has a line under the toolbar whenever "Plan ends" is
+not the latest due date, naming the cause it can see. The task panel shows
+each issue on the link or the dates it is about, with a "Move to" button that
+sends back the two dates the API suggested.
 Different from the design: finished tasks are not reported, everything is
 counted in working days (a start on the Saturday before the allowed Monday is
 fine, as it is on the critical path, although the `Rescheduler` would still
 snap such a task to Monday when its predecessor moves), and only the
-too-early issue carries suggested dates. The check shares the link rule
-(`Rescheduler.earliestStart` for one link) and the move
-(`Rescheduler.startingOn`), which is where item 17 has to change them. A move
-is still never rejected, and the phase dates were left alone. Still open: the
-list is only on the timeline tab, so the overview and the project list do not
-show that a plan has issues.
+too-early issue carries suggested dates. Those dates only look at the
+dependencies, so the issue also says what the move would cause
+(`suggestionCauses`: after the project's end, outside the parent) and the
+button shows it. The check shares the link rule (`Rescheduler.earliestStart`
+for one link) and the move (`Rescheduler.startingOn`), which is where item 17
+has to change them. A move is still never rejected, and the phase dates were
+left alone. Still open: the critical path still moves finished tasks. A
+finished task that overlapped a task it waited for has no issue, but
+`CriticalPath` counts it from the day its predecessor allows, so "Plan ends"
+stays later than the latest due date for every overlap that was kept on
+purpose. The line under the toolbar says so; whether `CriticalPath` should
+leave finished tasks where they are is not decided. Also open: the list is
+only on the timeline tab, so the overview and the project list do not show
+that a plan has issues.

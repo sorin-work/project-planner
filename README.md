@@ -34,7 +34,8 @@ the point is knowing whether a project will land on time and on budget.
   tasks without a due date (those are not enforced), tasks due after the project's
   end date and subtasks outside their parent's dates. Finished tasks are left out.
   A task that starts too early comes with the dates that would fix it, and "Move to"
-  applies them in one click.
+  applies them in one click. When those dates would put the task after the project's
+  end or outside its parent, the button says so first.
 - **Critical path** (CPM forward/backward pass over working days) with float per task.
 - **Views**: list grouped by phase, kanban board with drag and drop, and an SVG
   timeline (Gantt) with dependency arrows, the critical path, today line, collapsible
@@ -249,7 +250,7 @@ Task updates that change dates return `{ task, rescheduled: [...] }` so the clie
 show which dependants were pushed back.
 
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
-returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue? }`,
+returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses? }`,
 ordered by the date of the task:
 
 | Type                    | Meaning                                                                  | `relatedTaskId` | `days` (working days)   |
@@ -264,6 +265,16 @@ the task's predecessors allow, and the due date that keeps its length in working
 They are the dates the rescheduler would give the task, so a client fixes the issue by
 sending both back in `PATCH /tasks/{id}` and does no calendar arithmetic of its own.
 A task with several broken links gets one issue per link, all with the same dates.
+
+The suggestion only looks at the dependencies. When moving the task there would get it
+reported for something it is not reported for today, `suggestionCauses` lists that:
+`AFTER_PROJECT_END`, `OUTSIDE_PARENT` or both, worked out by the rules that report those
+issues. It says nothing about the tasks that the move pushes in turn.
+
+Finished tasks are never in the list, but the critical path does not make that
+exception: it still moves a finished task that overlapped a task it waited for. So the
+`finish` of the critical path can be later than the latest due date while this list is
+empty. The timeline says which of the two it is in a line under its toolbar.
 
 ## License
 
