@@ -1,7 +1,9 @@
 package com.projectplanner.report;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.CsvWriter;
+import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Organisation;
@@ -15,6 +17,13 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.enums.SchemaType;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -30,7 +39,13 @@ import java.util.Objects;
  */
 @Path("/api/orgs/{orgId}/reports")
 @Authenticated
+@Tag(name = "Reports")
 public class ReportResource {
+
+    private static final String RANGE = "Either a preset, which is worked out from the organisation's date, or from and to."
+            + " Both days are included, and a range covers at most two years.";
+    private static final String PRESET = "this_week, last_week, this_month or last_month. Wins over from and to.";
+    private static final String GROUP_BY = "project (the default), client, member or task.";
 
     private final OrgAccess access;
     private final TimeReportService reports;
@@ -48,11 +63,17 @@ public class ReportResource {
      */
     @GET
     @Path("/time")
+    @Operation(summary = "Logged time per project, client, member or task",
+            description = "For the team, not client viewers. Members get their own time, without amounts. " + RANGE
+                    + " A project, client or person in a filter that is not in the organisation answers 404.")
+    @Fails(status = 400, code = "invalid_range", when = "there is no preset and from or to is missing, to is before from, or the range is longer than two years")
+    @Fails(status = 400, code = "invalid_preset", when = "the preset is not one of the four")
+    @Fails(status = 400, code = "invalid_group", when = "groupBy is not project, client, member or task")
     public TimeReportResponse time(@PathParam("orgId") long orgId,
-                                   @QueryParam("preset") String preset,
+                                   @Parameter(description = PRESET) @QueryParam("preset") String preset,
                                    @QueryParam("from") LocalDate from,
                                    @QueryParam("to") LocalDate to,
-                                   @QueryParam("groupBy") String groupBy,
+                                   @Parameter(description = GROUP_BY) @QueryParam("groupBy") String groupBy,
                                    @QueryParam("userId") Long userId,
                                    @QueryParam("projectId") Long projectId,
                                    @QueryParam("clientId") Long clientId,
@@ -64,11 +85,20 @@ public class ReportResource {
     @GET
     @Path("/time.csv")
     @Produces("text/csv")
+    @Operation(summary = "The time report as CSV",
+            description = "The same rows, range, filters and access rules as the JSON form, without the total.")
+    @APIResponse(responseCode = "200",
+            description = "A header row and one row per group, as an attachment: from, to, group_by, key, label, minutes,"
+                    + " billable_minutes and, for owners and managers, billable_amount.",
+            content = @Content(mediaType = "text/csv", schema = @Schema(type = SchemaType.STRING)))
+    @Fails(status = 400, code = "invalid_range", when = "there is no preset and from or to is missing, to is before from, or the range is longer than two years")
+    @Fails(status = 400, code = "invalid_preset", when = "the preset is not one of the four")
+    @Fails(status = 400, code = "invalid_group", when = "groupBy is not project, client, member or task")
     public Response timeCsv(@PathParam("orgId") long orgId,
-                            @QueryParam("preset") String preset,
+                            @Parameter(description = PRESET) @QueryParam("preset") String preset,
                             @QueryParam("from") LocalDate from,
                             @QueryParam("to") LocalDate to,
-                            @QueryParam("groupBy") String groupBy,
+                            @Parameter(description = GROUP_BY) @QueryParam("groupBy") String groupBy,
                             @QueryParam("userId") Long userId,
                             @QueryParam("projectId") Long projectId,
                             @QueryParam("clientId") Long clientId,
@@ -94,32 +124,47 @@ public class ReportResource {
 
     /**
      * Billable time against capacity per team member, for owners and managers. Capacity is
-     * what the workload page uses: weekly hours over the working days, counted up to today.
+     * what the workload page uses: weekly hours over the working days. Time and capacity
+     * are both counted up to today.
      */
     @GET
     @Path("/utilisation")
+    @Operation(summary = "Billable time against capacity, per team member",
+            description = "For owners and managers. " + RANGE + " Time and capacity are counted up to today when the range runs"
+                    + " into the future. Capacity is the weekly hours of each member as they are now, spread over Monday to"
+                    + " Friday. People who are no longer in the organisation are not listed.")
+    @Fails(status = 400, code = "invalid_range", when = "there is no preset and from or to is missing, to is before from, or the range is longer than two years")
+    @Fails(status = 400, code = "invalid_preset", when = "the preset is not one of the four")
     public UtilisationResponse utilisation(@PathParam("orgId") long orgId,
-                                           @QueryParam("preset") String preset,
+                                           @Parameter(description = PRESET) @QueryParam("preset") String preset,
                                            @QueryParam("from") LocalDate from,
                                            @QueryParam("to") LocalDate to) {
         access.manager(orgId);
         LocalDate today = Organisation.<Organisation>findById(orgId).today(clock);
         ReportRange range = ReportRange.resolve(preset, from, to, today);
         UtilisationReport report = reports.utilisation(orgId, range, today);
-        return new UtilisationResponse(range.from(), range.to(), report.capacityTo(), report.workingDays(),
-                report.result().rows(), report.result().total());
+        return new UtilisationResponse(range.from(), range.to(), report.countedTo(), report.workingDays(),
+                report.result().rows().stream().map(UtilisationRow::of).toList(), UtilisationRow.of(report.result().total()));
     }
 
     @GET
     @Path("/utilisation.csv")
     @Produces("text/csv")
+    @Operation(summary = "The utilisation report as CSV",
+            description = "The same rows, range and access rules as the JSON form, without the total.")
+    @APIResponse(responseCode = "200",
+            description = "A header row and one row per team member, as an attachment: from, to, member, minutes,"
+                    + " billable_minutes, capacity_minutes and utilisation_pct.",
+            content = @Content(mediaType = "text/csv", schema = @Schema(type = SchemaType.STRING)))
+    @Fails(status = 400, code = "invalid_range", when = "there is no preset and from or to is missing, to is before from, or the range is longer than two years")
+    @Fails(status = 400, code = "invalid_preset", when = "the preset is not one of the four")
     public Response utilisationCsv(@PathParam("orgId") long orgId,
-                                   @QueryParam("preset") String preset,
+                                   @Parameter(description = PRESET) @QueryParam("preset") String preset,
                                    @QueryParam("from") LocalDate from,
                                    @QueryParam("to") LocalDate to) {
         UtilisationResponse report = utilisation(orgId, preset, from, to);
         CsvWriter csv = new CsvWriter().row("from", "to", "member", "minutes", "billable_minutes", "capacity_minutes", "utilisation_pct");
-        for (Utilisation.Row row : report.rows()) {
+        for (UtilisationRow row : report.rows()) {
             csv.row(report.from(), report.to(), row.name(), row.minutes(), row.billableMinutes(), row.capacityMinutes(),
                     row.utilisationPct() == null ? "" : row.utilisationPct());
         }
@@ -138,9 +183,10 @@ public class ReportResource {
             throw ApiException.forbidden("You can only see your own time");
         }
         // The other filters have to name something the caller can see. A project, client or
-        // person that is not there is a 404, not an empty report.
+        // person that is not there is a 404, not an empty report. Somebody who has left the
+        // organisation and has time in it is still there to be asked for.
         if (manager && userId != null) {
-            access.memberIn(orgId, userId);
+            access.personIn(orgId, userId);
         }
         if (projectId != null) {
             access.projectIn(orgId, projectId);
@@ -171,7 +217,8 @@ public class ReportResource {
                 .build();
     }
 
-    /** {@code billableAmount} is only filled in for owners and managers. */
+    /** {@code billableAmount} is only there for owners and managers. Members get no such field. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record TimeRow(String key, String label, long minutes, long billableMinutes, BigDecimal billableAmount) {
         static TimeRow of(TimeReport.Row row, boolean withMoney) {
             return new TimeRow(row.key(), row.label(), row.minutes(), row.billableMinutes(), withMoney ? row.billableAmount() : null);
@@ -182,10 +229,23 @@ public class ReportResource {
     }
 
     /**
-     * {@code capacityTo} is the last day capacity was counted for: the end of the range, or
-     * today when the range runs into the future. {@code workingDays} are the days counted.
+     * {@code userId} is left out of the total, and {@code utilisationPct} where there is no
+     * capacity to compare with.
      */
-    public record UtilisationResponse(LocalDate from, LocalDate to, LocalDate capacityTo, int workingDays,
-                                      List<Utilisation.Row> rows, Utilisation.Row total) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record UtilisationRow(Long userId, String name, long minutes, long billableMinutes, long capacityMinutes, Double utilisationPct) {
+        static UtilisationRow of(Utilisation.Row row) {
+            return new UtilisationRow(row.userId(), row.name(), row.minutes(), row.billableMinutes(), row.capacityMinutes(), row.utilisationPct());
+        }
+    }
+
+    /**
+     * {@code countedTo} is the last day time and capacity were counted for: the end of the
+     * range, or today when the range runs into the future. It is left out when the whole
+     * range lies in the future. {@code workingDays} are the working days counted.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record UtilisationResponse(LocalDate from, LocalDate to, LocalDate countedTo, int workingDays,
+                                      List<UtilisationRow> rows, UtilisationRow total) {
     }
 }

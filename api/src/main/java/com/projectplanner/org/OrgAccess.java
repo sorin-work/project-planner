@@ -4,6 +4,7 @@ import com.projectplanner.auth.CurrentUser;
 import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.project.Project;
+import com.projectplanner.time.TimeEntry;
 import jakarta.enterprise.context.RequestScoped;
 
 import java.util.Objects;
@@ -103,10 +104,18 @@ public class OrgAccess {
         return client;
     }
 
-    /** Somebody named in a filter: a member of this organisation, as seen by a member of it. */
-    public Membership memberIn(long organisationId, long userId) {
+    /**
+     * Somebody whose time a filter asks for: a member of this organisation, or somebody who
+     * was one and has time logged in it. Their time is still in the reports, so it has to be
+     * possible to ask for it. An id that never had anything to do with the organisation is a 404.
+     */
+    public long personIn(long organisationId, long userId) {
         member(organisationId);
-        return Membership.find(organisationId, userId).orElseThrow(() -> ApiException.notFound("Member"));
+        if (Membership.find(organisationId, userId).isEmpty()
+                && TimeEntry.count("organisationId = ?1 and userId = ?2", organisationId, userId) == 0) {
+            throw ApiException.notFound("Member");
+        }
+        return userId;
     }
 
     public long userId() {

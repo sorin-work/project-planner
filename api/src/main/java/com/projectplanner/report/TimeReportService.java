@@ -142,25 +142,29 @@ public class TimeReportService {
     }
 
     /**
-     * Logged and billable time of every team member against their capacity. Capacity is
-     * counted from the first day of the range to its last day or {@code today}, whichever
-     * comes first: days that have not happened yet have no time to compare with.
+     * Logged and billable time of every team member against their capacity. Both are counted
+     * from the first day of the range to its last day or {@code today}, whichever comes
+     * first. Time can be logged a week ahead, and days that have not happened yet have no
+     * capacity to hold it against: a week filled in on its Monday would read five hundred percent.
      */
     public UtilisationReport utilisation(long organisationId, ReportRange range, LocalDate today) {
-        LocalDate capacityTo = range.to().isAfter(today) ? today : range.to();
-        int workingDays = WorkCalendar.DEFAULT.workingDaysBetween(range.from(), capacityTo);
+        LocalDate countedTo = range.to().isAfter(today) ? today : range.to();
+        boolean begun = !countedTo.isBefore(range.from());
+        int workingDays = WorkCalendar.DEFAULT.workingDaysBetween(range.from(), countedTo);
 
         Map<Long, long[]> time = new HashMap<>();
-        TimeEntry.getEntityManager().createQuery("select e.userId, e.billable, sum(e.minutes) from TimeEntry e" + WHERE
-                        + " group by e.userId, e.billable", Object[].class)
-                .setParameter("org", organisationId).setParameter("from", range.from()).setParameter("to", range.to())
-                .getResultList()
-                .forEach(r -> {
-                    long[] sums = time.computeIfAbsent((Long) r[0], k -> new long[2]);
-                    long minutes = ((Number) r[2]).longValue();
-                    sums[0] += minutes;
-                    sums[1] += (Boolean) r[1] ? minutes : 0;
-                });
+        if (begun) {
+            TimeEntry.getEntityManager().createQuery("select e.userId, e.billable, sum(e.minutes) from TimeEntry e" + WHERE
+                            + " group by e.userId, e.billable", Object[].class)
+                    .setParameter("org", organisationId).setParameter("from", range.from()).setParameter("to", countedTo)
+                    .getResultList()
+                    .forEach(r -> {
+                        long[] sums = time.computeIfAbsent((Long) r[0], k -> new long[2]);
+                        long minutes = ((Number) r[2]).longValue();
+                        sums[0] += minutes;
+                        sums[1] += (Boolean) r[1] ? minutes : 0;
+                    });
+        }
 
         List<Membership> team = Membership.forOrganisation(organisationId).stream().filter(m -> m.role.isTeam()).toList();
         Map<Long, String> names = new HashMap<>();
@@ -168,13 +172,13 @@ public class TimeReportService {
         List<Utilisation.Person> people = team.stream().map(m -> {
             long[] sums = time.getOrDefault(m.userId, new long[2]);
             long capacity = workload.capacityMinutes(new WorkloadCalculator.Person(m.userId, m.weeklyCapacityHours.doubleValue()),
-                    range.from(), capacityTo);
+                    range.from(), countedTo);
             return new Utilisation.Person(m.userId, names.get(m.userId), sums[0], sums[1], capacity);
         }).toList();
-        return new UtilisationReport(capacityTo.isBefore(range.from()) ? null : capacityTo, workingDays, Utilisation.of(people));
+        return new UtilisationReport(begun ? countedTo : null, workingDays, Utilisation.of(people));
     }
 
-    /** {@code capacityTo} is null when the whole range lies in the future. */
-    public record UtilisationReport(LocalDate capacityTo, int workingDays, Utilisation.Result result) {
+    /** {@code countedTo} is the last day time and capacity were counted for. Null when the whole range lies in the future. */
+    public record UtilisationReport(LocalDate countedTo, int workingDays, Utilisation.Result result) {
     }
 }
