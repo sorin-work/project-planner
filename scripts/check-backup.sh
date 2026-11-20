@@ -84,19 +84,62 @@ PGDATABASE="$scratch" ATTACHMENTS_DIR="$restored_files" sh "$here/backup.sh" res
 diff "$work/files-before.txt" "$work/files-after.txt" || fail "the restored attachments (+) are not the ones that were archived (-)"
 [ ! -e "$restored_files/.restoring" ] || fail "the unpacked copy was left behind"
 
-echo "== an archive that holds a link is restored without it"
-crafted="$work/crafted"
-mkdir -p "$crafted/cc" "$work/crafted-target/cc"
-echo "a real file" >"$crafted/cc/cc000000000000000000000000000004"
-ln -s /etc/hostname "$crafted/cc/cc000000000000000000000000000005"
+echo "== an archive with a symbolic link and a hard link to a file outside is restored without them"
+# Written by hand, since tar itself never stores a hard link to a file that is not in the
+# archive: a folder, a plain file, a symbolic link to /etc/hostname and a hard link to
+# ../../outside, which from the folder a restore unpacks into is $work/outside.
+outside="$work/outside"
+echo "not an attachment" >"$outside"
+owner_before=$(stat -c %u:%g "$outside")
+crafted="$BACKUP_DIR/planner-20000101T000000Z.files.tar"
 cp "$BACKUP_DIR/$newest" "$BACKUP_DIR/planner-20000101T000000Z.dump"
-tar -C "$crafted" -cf "$BACKUP_DIR/planner-20000101T000000Z.files.tar" .
-PGDATABASE="$scratch" ATTACHMENTS_DIR="$work/crafted-target" sh "$here/backup.sh" restore planner-20000101T000000Z.dump >"$work/crafted.log"
-grep -q "left out 1 entries" "$work/crafted.log" || fail "the link in the archive was not reported"
-[ -f "$work/crafted-target/cc/cc000000000000000000000000000004" ] || fail "the plain file of the crafted archive was not restored"
-[ ! -e "$work/crafted-target/cc/cc000000000000000000000000000005" ] && [ ! -L "$work/crafted-target/cc/cc000000000000000000000000000005" ] ||
-  fail "the link in the archive was restored"
-rm -f "$BACKUP_DIR/planner-20000101T000000Z.dump" "$BACKUP_DIR/planner-20000101T000000Z.files.tar"
+pad() {
+  printf '%s' "$1"
+  head -c $(($2 - ${#1})) /dev/zero
+}
+# One ustar header: name, type flag, link name and size.
+entry() {
+  {
+    pad "$1" 100; pad "$([ "$2" = 5 ] && echo 0000755 || echo 0000644)" 8; pad 0000000 8; pad 0000000 8
+    pad "$(printf '%011o' "$4")" 12; pad 00000000000 12
+    printf '        '
+    printf '%s' "$2"; pad "$3" 100
+    printf 'ustar\000'; printf '00'
+    head -c 247 /dev/zero
+  } >"$work/header"
+  sum=$(od -An -v -tu1 "$work/header" | awk '{ for (i = 1; i <= NF; i++) s += $i } END { print s }')
+  head -c 148 "$work/header"
+  printf '%06o\000 ' "$sum"
+  tail -c +157 "$work/header"
+}
+real="a real file"
+{
+  entry ./cc/ 5 '' 0
+  entry ./cc/cc000000000000000000000000000004 0 '' ${#real}
+  printf '%s' "$real"
+  head -c $((512 - ${#real})) /dev/zero
+  entry ./cc/cc000000000000000000000000000005 2 /etc/hostname 0
+  entry ./cc/cc000000000000000000000000000006 1 ../../outside 0
+  head -c 1024 /dev/zero
+} >"$crafted"
+tar -tvf "$crafted" >/dev/null || fail "the crafted archive is not a tar file"
+target="$work/crafted-target"
+mkdir -p "$target"
+if PGDATABASE="$scratch" ATTACHMENTS_DIR="$target" sh "$here/backup.sh" restore planner-20000101T000000Z.dump >"$work/crafted.log" 2>&1; then
+  grep -q "left out 2 entries" "$work/crafted.log" || fail "the two links were not reported: $(cat "$work/crafted.log")"
+  [ "$(cat "$target/cc/cc000000000000000000000000000004")" = "$real" ] || fail "the plain file of the crafted archive was not restored"
+else
+  # A tar that refuses a link out of the folder stops the restore before anything changed. That is safe too.
+  grep -q "nothing was restored" "$work/crafted.log" || fail "the restore of the crafted archive failed for another reason: $(cat "$work/crafted.log")"
+fi
+for link in cc000000000000000000000000000005 cc000000000000000000000000000006; do
+  [ ! -e "$target/cc/$link" ] && [ ! -L "$target/cc/$link" ] || fail "the link $link in the archive was restored"
+done
+# The file outside was neither given to the api's user nor changed, and nothing links to it.
+[ "$(stat -c %u:%g "$outside")" = "$owner_before" ] || fail "the restore changed the owner of a file outside the attachments"
+[ "$(stat -c %h "$outside")" = 1 ] || fail "a hard link to a file outside the attachments was left behind"
+[ "$(cat "$outside")" = "not an attachment" ] || fail "the restore changed a file outside the attachments"
+rm -f "$BACKUP_DIR/planner-20000101T000000Z.dump" "$crafted"
 
 echo "== row counts"
 row_counts "$PGDATABASE" >"$work/source.txt"
