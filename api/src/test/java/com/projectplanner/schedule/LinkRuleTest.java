@@ -115,7 +115,23 @@ class LinkRuleTest {
     void theOffsetsOfTheCriticalPathSayTheSameAsTheDates() {
         // On working days only, an offset is a working day counted from the origin. Every type, every lag
         // from a lead of ten days to a lag of ten, and lengths up to fifteen days.
-        Random random = new Random(17);
+        offsetsMatchDates(calendar, new Random(17));
+    }
+
+    @Test
+    void theOffsetsSayTheSameAsTheDatesWithHolidaysToo() {
+        // The same 5,000 cases on a calendar with random holidays over the range they use, some of them on
+        // weekends, which change nothing. Offsets count working days, so they must still agree with the dates.
+        Random random = new Random(23);
+        java.util.List<LocalDate> holidays = new java.util.ArrayList<>();
+        for (int i = 0; i < 25; i++) {
+            holidays.add(day(0).plusDays(random.nextInt(140)));
+        }
+        offsetsMatchDates(new WorkCalendar(holidays), random);
+    }
+
+    private static void offsetsMatchDates(WorkCalendar calendar, Random random) {
+        LinkRule rule = new LinkRule(calendar);
         LocalDate origin = day(0);
         for (int i = 0; i < 5000; i++) {
             DependencyType type = DependencyType.values()[random.nextInt(4)];

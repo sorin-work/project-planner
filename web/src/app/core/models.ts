@@ -224,6 +224,16 @@ export interface ProjectListItem {
   health: HealthSummary;
 }
 
+/** A project as a select needs it, from `/projects/options`: nothing is worked out for it. */
+export interface ProjectOption {
+  id: number;
+  code: string;
+  name: string;
+  status: ProjectStatus;
+  clientId?: number;
+  clientName?: string;
+}
+
 export interface Phase {
   id: number;
   projectId: number;
@@ -433,7 +443,8 @@ export interface Week {
   reviewedByName?: string;
   reviewNote?: string;
   entries: TimeEntry[];
-  days: { date: string; minutes: number }[];
+  /** Each day of the week, with the name of the organisation's holiday when it is one. */
+  days: { date: string; minutes: number; holiday?: string }[];
   totalMinutes: number;
   billableMinutes: number;
 }
@@ -520,9 +531,28 @@ export interface UtilisationReport {
 export interface WeekLoad {
   weekStart: string;
   allocatedHours: number;
+  /** The week's capacity: the weekly hours, less a fifth for each holiday and each day off. */
   capacityHours: number;
   overallocated: boolean;
   taskIds: number[];
+  holidays: number;
+  daysOff: number;
+}
+
+/** A day nobody in the organisation works. */
+export interface Holiday {
+  id: number;
+  date: string;
+  name: string;
+}
+
+/** Days one person is away, both included. It lowers their capacity and moves no plan. */
+export interface TimeOff {
+  id: number;
+  userId: number;
+  firstDay: string;
+  lastDay: string;
+  note?: string;
 }
 
 export interface MemberWorkload {

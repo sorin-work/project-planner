@@ -108,7 +108,16 @@ the point is knowing whether a project will land on time and on budget.
   about.
 - **Workload**: allocated hours per person per week against their capacity, with
   overallocated weeks flagged. Each open task's estimate is spread over its working
-  days.
+  days. A week's capacity is a fifth lower for each holiday and each day off, and the
+  cell says so.
+- **Holidays and time off**: managers keep the organisation's holidays in Settings.
+  A holiday is not a working day anywhere: moves and the dependency cascade skip it,
+  the critical path, the schedule check, progress, the copy of a plan and capacity
+  leave it out, and the timeline shades it like a weekend. Adding one moves no task, so
+  a task across it is a working day shorter. On the Team page people add their own time
+  off and managers anybody's. Time off only lowers capacity, in the workload and in
+  the utilisation report. Time can still be logged on a holiday, and the timesheet
+  marks it in its header.
 - **Project health**: progress by estimate, planned vs earned hours (schedule variance
   and SPI), forecast end against the planned end, hours and money burn, overdue tasks,
   and an on track / at risk / off track status.
@@ -180,7 +189,7 @@ dependencies, so they are tested in isolation:
 
 | Class                 | What it does                                                         |
 | --------------------- | -------------------------------------------------------------------- |
-| `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
+| `WorkCalendar`        | Working-day arithmetic (Mon–Fri without the organisation's holidays): durations, lags, week starts |
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
 | `LinkRule`            | The one rule for what a link of each type asks of its successor, in dates and in critical-path offsets |
 | `Rescheduler`         | Pushes dependants later when a task moves and shifts a task by working days, keeping durations |
@@ -209,7 +218,7 @@ request rather than stored in the token.
 On the web side, `core/` holds the API clients, auth and the current-organisation
 context; `features/` has one folder per page; the timeline lives in
 `features/gantt` with its layout maths (`gantt-layout.ts`) and the arithmetic of a
-drag (`gantt-edit.ts`: pixels to days, weekend snapping, handles, drop targets)
+drag (`gantt-edit.ts`: pixels to days, snapping off weekends and holidays, handles, drop targets)
 separate from the component so they can be unit tested. The weekly grid is split the
 same way: `timesheet-grid.ts` says what a typed cell means, `save-queue.ts` runs one
 save per cell at a time so that typing again during a slow save never makes a second
@@ -234,7 +243,9 @@ planned), phases, milestones and about ninety tasks with dependencies, a year of
 time entries for five people, timesheets
 (older weeks approved, last week waiting for review, one sent back and one still a
 draft with a reminder), comments with mentions and some notifications, among them the
-budget alert of the Globex patient portal, which is over its hours budget. All dates are
+budget alert of the Globex patient portal, which is over its hours budget, and each
+person's two holidays of the year as time off (Tom is also away three days next week,
+which the workload shows). All dates are
 relative to the day it runs. Set `SEED_DEMO=false` for an empty database.
 
 Two of the demo projects have schedule issues to look at on their timeline: in the
@@ -447,6 +458,14 @@ workload and missing timesheet tests are plain JUnit tests and need no database.
 `@QuarkusTest` API tests start the application against H2 in PostgreSQL mode and run
 the same Flyway migrations as production.
 
+`QueryCountTest` counts the statements that the project list, the dashboard, the
+approval queue, the members, `/me` and a comment with a mention send, on an organisation
+of fifty projects with a thousand tasks and twenty thousand time entries on one of them
+(`support/LargeOrganisation`, built by the test, not by the demo seed). The counts come
+from Hibernate's statistics, which are on in the test profile, and each has a fixed
+bound. A change that queries per row fails there instead of getting slow later. The
+project list is nine statements.
+
 A restore that is never tested is not a backup, so CI also runs
 `scripts/check-restore.sh` once the images are built. It is the only check that starts
 the stack on PostgreSQL. On a Compose project of its own, with its own volume, it:
@@ -570,6 +589,28 @@ because that is what PostgreSQL and the H2 database of the tests have in common.
 index helps a search for text in the middle, so every search reads all of the
 organisation's tasks and comments. That is fine for a few thousand tasks, and it is
 not a search engine. On PostgreSQL alone a trigram index would be the next step.
+
+`/orgs/{org}/holidays` lists the holidays (`?from=&to=` optional) for every member, client
+viewers included since they see the timeline, and takes `POST`, `PUT /{id}` and
+`DELETE /{id}` from owners and managers. A second holiday on a date is
+`409 holiday_taken`, also when two requests ask for the same date at once. A holiday that
+is added, moved or removed is in the organisation's activity log, since it changes every
+duration and capacity across it. `/orgs/{org}/time-off` lists the team's time off (`?userId=`,
+`?from=&to=`) for the team. People add, change and remove their own, owners and managers
+anybody's on the team (`unknown_member` for anybody else). Days that are already off are
+`409 time_off_overlaps`, checked with the person's membership locked so that two requests
+can not both get through. Every count of working days in a request uses one calendar of
+the organisation (`calendar/OrgCalendars`, request-scoped, one query for the holidays),
+and the web app counts drags on the timeline with the same holidays (`shared/dates.ts`).
+
+`GET /orgs/{org}/projects` answers with each project and a summary of its health, in a
+fixed number of statements however many projects, tasks and entries there are: the
+tasks of all listed projects come in one query, their time in one query grouped by
+project, person, billable flag and length, and the rates once. Money is still priced
+entry by entry and rounded to a cent each time, so the list, the overview, the CSV and
+the reports agree. A form that only needs a project select asks
+`GET /orgs/{org}/projects/options` instead: id, code, name, status and client of each
+project the caller can see, by name, with nothing worked out.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.

@@ -1,6 +1,7 @@
 package com.projectplanner.report;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.common.ApiDocs;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
@@ -30,33 +31,40 @@ import java.util.Map;
 public class ProjectHealthService {
 
     private final Clock clock;
-    private final ProgressCalculator progressCalculator = new ProgressCalculator(WorkCalendar.DEFAULT);
+    private final OrgCalendars calendars;
     private final BudgetCalculator budgetCalculator = new BudgetCalculator();
 
-    public ProjectHealthService(Clock clock) {
+    public ProjectHealthService(Clock clock, OrgCalendars calendars) {
         this.clock = clock;
+        this.calendars = calendars;
     }
 
     public ProjectHealth health(Project project, Membership viewer) {
         LocalDate today = Organisation.<Organisation>findById(project.organisationId).today(clock);
         List<Task> tasks = Task.forProject(project.id);
-        Progress progress = progressCalculator.calculate(tasks.stream().map(ProjectHealthService::facts).toList(), today);
-        Budget budget = budget(project, RateBook.load(project.organisationId));
+        return health(project, viewer, calendars.of(project.organisationId), today, tasks,
+                budget(project, RateBook.load(project.organisationId)));
+    }
+
+    /** Progress, overdue days and the end variance are counted in the organisation's working days. */
+    private ProjectHealth health(Project project, Membership viewer, WorkCalendar calendar, LocalDate today, List<Task> tasks,
+                                 Budget budget) {
+        Progress progress = new ProgressCalculator(calendar).calculate(tasks.stream().map(ProjectHealthService::facts).toList(), today);
         HealthStatus status = HealthStatus.of(progress, budget, project.status == ProjectStatus.DONE, started(project, tasks, today));
 
         List<OverdueTask> overdue = tasks.stream()
                 .filter(t -> !t.isDone() && t.dueDate != null && t.dueDate.isBefore(today))
                 .sorted(Comparator.comparing((Task t) -> t.dueDate).thenComparing(t -> t.id))
                 .map(t -> new OverdueTask(t.id, t.title, t.dueDate, t.assigneeId,
-                        WorkCalendar.DEFAULT.workingDaysBetween(t.dueDate.plusDays(1), today)))
+                        calendar.workingDaysBetween(t.dueDate.plusDays(1), today)))
                 .toList();
 
         LocalDate plannedEnd = project.endDate;
         LocalDate forecastEnd = tasks.stream().map(t -> t.dueDate).filter(d -> d != null).max(Comparator.naturalOrder()).orElse(null);
         Integer endVarianceDays = plannedEnd == null || forecastEnd == null ? null
                 : (forecastEnd.isAfter(plannedEnd)
-                    ? WorkCalendar.DEFAULT.workingDaysBetween(plannedEnd.plusDays(1), forecastEnd)
-                    : -WorkCalendar.DEFAULT.workingDaysBetween(forecastEnd.plusDays(1), plannedEnd));
+                    ? calendar.workingDaysBetween(plannedEnd.plusDays(1), forecastEnd)
+                    : -calendar.workingDaysBetween(forecastEnd.plusDays(1), plannedEnd));
 
         boolean money = viewer.role.canManage();
         BudgetView budgetView = new BudgetView(budget.budgetHours(), budget.loggedHours(), budget.billableHours(),
@@ -66,9 +74,31 @@ public class ProjectHealthService {
         return new ProjectHealth(project.id, status, today, progress, budgetView, overdue, plannedEnd, forecastEnd, endVarianceDays);
     }
 
-    /** A lighter version for project lists. */
-    public HealthSummary summary(Project project, Membership viewer) {
-        ProjectHealth h = health(project, viewer);
+    /**
+     * The summary of each project of one organisation, for a list, with a fixed number of
+     * queries however many projects there are: the organisation, one for the tasks of all of
+     * them, the rates once, the holidays once, and one grouped query for their time.
+     */
+    public Map<Long, HealthSummary> summaries(long organisationId, List<Project> projects, Membership viewer) {
+        Map<Long, HealthSummary> summaries = new HashMap<>();
+        if (projects.isEmpty()) {
+            return summaries;
+        }
+        LocalDate today = Organisation.<Organisation>findById(organisationId).today(clock);
+        List<Long> ids = projects.stream().map(p -> p.id).toList();
+        Map<Long, List<Task>> tasks = new HashMap<>();
+        Task.<Task>list("projectId in ?1 order by position, id", ids)
+                .forEach(t -> tasks.computeIfAbsent(t.projectId, id -> new ArrayList<>()).add(t));
+        Map<Long, Budget> budgets = budgets(projects, RateBook.load(organisationId));
+        WorkCalendar calendar = calendars.of(organisationId);
+        for (Project project : projects) {
+            ProjectHealth h = health(project, viewer, calendar, today, tasks.getOrDefault(project.id, List.of()), budgets.get(project.id));
+            summaries.put(project.id, summary(h));
+        }
+        return summaries;
+    }
+
+    private static HealthSummary summary(ProjectHealth h) {
         return new HealthSummary(h.status(), h.progress().progressPct(), h.budget().hoursBurnPct(),
                 h.budget().amountBurnPct(), h.progress().overdueTasks(), h.progress().openTasks(),
                 h.progress().scheduleVarianceHours());
@@ -86,6 +116,9 @@ public class ProjectHealthService {
 
     /** The same for several projects of one organisation, in one grouped query. */
     Map<Long, Budget> budgets(List<Project> projects, RateBook rates) {
+        if (projects.isEmpty()) {
+            return Map.of();
+        }
         Map<Long, List<TimeFacts>> entries = new HashMap<>();
         Map<Long, Project> byId = new HashMap<>();
         for (Project project : projects) {

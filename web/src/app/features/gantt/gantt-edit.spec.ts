@@ -1,5 +1,5 @@
 import { Task } from '../../core/models';
-import { addDays, formatDate, isWeekend } from '../../shared/dates';
+import { addDays, diffDays, formatDate, isWeekend, workingDaysBetween } from '../../shared/dates';
 import {
   barAt, barDates, barHandles, dragHint, dropDate, moveWorkingDays, previewDates, resizeDates, shiftedDates, snapToWorkingDay,
 } from './gantt-edit';
@@ -20,27 +20,106 @@ function task(id: number, startDate?: string, dueDate?: string, extra: Partial<T
   };
 }
 
+/** What the API counts as a working day, written out again here: WorkCalendar.isWorkingDay with the holidays. */
+function apiWorkingDay(date: string, holidays: ReadonlySet<string>): boolean {
+  return !isWeekend(date) && !holidays.has(date);
+}
+
 /** What the API does with a shift, written out again here: WorkCalendar.addWorkingDays. */
-function addWorkingDays(date: string, days: number): string {
+function addWorkingDays(date: string, days: number, holidays: ReadonlySet<string> = new Set()): string {
   let d = date;
   for (let left = Math.abs(days); left > 0; ) {
     d = addDays(d, days > 0 ? 1 : -1);
-    if (!isWeekend(d)) {
+    if (apiWorkingDay(d, holidays)) {
       left--;
     }
   }
   return d;
 }
 
-/** Rescheduler.shift for a task with both dates: the start moves, the due date keeps the working days. */
-function apiShift(start: string, due: string, days: number): { from: string; to: string } {
-  let length = 0;
-  for (let d = start; d <= due; d = addDays(d, 1)) {
-    length += isWeekend(d) ? 0 : 1;
+/**
+ * WorkCalendar.workingDaysBetween as the API does it: five days for every whole week, the
+ * weekdays of what is left, and then the holidays on weekdays in the range taken off.
+ */
+function apiWorkingDaysBetween(start: string, end: string, holidays: ReadonlySet<string>): number {
+  if (end < start) {
+    return 0;
   }
-  const from = addWorkingDays(start, days);
-  return { from, to: addWorkingDays(from, Math.max(1, length) - 1) };
+  const days = diffDays(start, end) + 1;
+  const weeks = Math.floor(days / 7);
+  let count = weeks * 5;
+  for (let d = addDays(start, weeks * 7); d <= end; d = addDays(d, 1)) {
+    count += isWeekend(d) ? 0 : 1;
+  }
+  return count - [...holidays].filter((h) => h >= start && h <= end && !isWeekend(h)).length;
 }
+
+/** Rescheduler.shift for a task with both dates: the start moves, the due date keeps the working days. */
+function apiShift(start: string, due: string, days: number, holidays: ReadonlySet<string> = new Set()): { from: string; to: string } {
+  const length = apiWorkingDaysBetween(start, due, holidays);
+  const from = addWorkingDays(start, days, holidays);
+  return { from, to: addWorkingDays(from, Math.max(1, length) - 1, holidays) };
+}
+
+/** A small random generator with a seed, so that a failure can be repeated. */
+function seeded(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1103515245 + 12345) % 2147483648;
+    return state / 2147483648;
+  };
+}
+
+describe('dragging across a holiday', () => {
+  // Wednesday 2026-03-04 is a holiday.
+  const holidays = new Set(['2026-03-04']);
+
+  it('snaps off a holiday like off a weekend', () => {
+    expect(snapToWorkingDay('2026-03-04', 1, holidays)).toBe(THU);
+    expect(snapToWorkingDay('2026-03-04', -1, holidays)).toBe('2026-03-03');
+    expect(dropDate(MON, 2, holidays)).toBe(THU);
+  });
+
+  it('counts and previews a move in the working days the API counts', () => {
+    // Monday to Tuesday, dropped one column later: one working day, and it runs Tuesday to Thursday.
+    const twoDays = task(1, MON, '2026-03-03');
+    expect(moveWorkingDays(MON, 1, holidays)).toBe(1);
+    expect(shiftedDates(twoDays, 1, holidays)).toEqual({ startDate: '2026-03-03', dueDate: THU });
+    expect(previewDates(twoDays, 'move', 1, holidays)).toEqual({ from: '2026-03-03', to: THU });
+    // Dropped on the holiday itself, it lands on Thursday: two working days.
+    expect(moveWorkingDays(MON, 2, holidays)).toBe(2);
+    expect(dragHint(twoDays, 'move', 2, holidays)).toBe('Move by +2 working days');
+    // Without the holidays it is Monday to Friday, as before.
+    expect(shiftedDates(twoDays, 1)).toEqual({ startDate: '2026-03-03', dueDate: '2026-03-04' });
+  });
+
+  it('counts working days as the server does, whole weeks and holidays included, on random ranges', () => {
+    const random = seeded(7);
+    for (let round = 0; round < 200; round++) {
+      const holidays = new Set(Array.from({ length: 1 + Math.floor(random() * 12) }, () => addDays(MON, Math.floor(random() * 90))));
+      const start = addDays(MON, Math.floor(random() * 60));
+      const end = addDays(start, Math.floor(random() * 40) - 3);
+      expect(workingDaysBetween(start, end, holidays), `${start} to ${end}`).toBe(apiWorkingDaysBetween(start, end, holidays));
+    }
+  });
+
+  it('previews every move on a calendar with random holidays where the API puts the bar', () => {
+    const random = seeded(11);
+    for (let round = 0; round < 400; round++) {
+      const holidays = new Set(Array.from({ length: 1 + Math.floor(random() * 8) }, () => addDays(MON, Math.floor(random() * 50))));
+      const start = addDays(MON, Math.floor(random() * 30));
+      const due = addDays(start, Math.floor(random() * 12));
+      const columns = Math.floor(random() * 19) - 9;
+      const days = moveWorkingDays(start, columns, holidays);
+      const expected = days === 0 ? { from: start, to: due } : apiShift(start, due, days, holidays);
+      expect(previewDates(task(1, start, due), 'move', columns, holidays), `${start} to ${due} by ${columns}`).toEqual(expected);
+    }
+  });
+
+  it('never resizes an end onto a holiday', () => {
+    expect(resizeDates(task(1, MON, '2026-03-03'), 'end', 1, holidays)).toEqual({ dueDate: THU });
+  });
+});
 
 describe('dragging on the timeline', () => {
   it('snaps a weekend to the next working day in the direction of the drag', () => {

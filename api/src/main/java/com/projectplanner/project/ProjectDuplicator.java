@@ -2,6 +2,7 @@ package com.projectplanner.project;
 
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.attachment.AttachmentService;
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
@@ -63,17 +64,19 @@ public class ProjectDuplicator {
     private final ActivityLog activity;
     private final EntityManager em;
     private final Clock clock;
-    // The organisation's own calendar belongs here once there is one (roadmap item 15).
-    private final WorkCalendar calendar = WorkCalendar.DEFAULT;
+    /** The dates of a copy are moved in the working days of the organisation, holidays included. */
+    private final OrgCalendars calendars;
 
     private final AttachmentService attachments;
 
-    public ProjectDuplicator(ProjectService projects, ActivityLog activity, EntityManager em, Clock clock, AttachmentService attachments) {
+    public ProjectDuplicator(ProjectService projects, ActivityLog activity, EntityManager em, Clock clock, OrgCalendars calendars,
+                             AttachmentService attachments) {
         this.attachments = attachments;
         this.projects = projects;
         this.activity = activity;
         this.em = em;
         this.clock = clock;
+        this.calendars = calendars;
     }
 
     /** A name, a free code and a start date to offer for a copy of {@code source}. */
@@ -83,6 +86,7 @@ public class ProjectDuplicator {
         List<String> taken = em.createQuery("select p.code from Project p where p.organisationId = ?1", String.class)
                 .setParameter(1, source.organisationId).getResultList();
         Organisation organisation = Organisation.findById(source.organisationId);
+        WorkCalendar calendar = calendars.of(source.organisationId);
         return new DuplicateDefaults(stem + COPY_SUFFIX, ProjectCodes.next(source.code, taken),
                 calendar.onOrAfter(organisation.today(clock)),
                 Phase.count("projectId", source.id),
@@ -99,12 +103,13 @@ public class ProjectDuplicator {
         Set<Long> team = request.keepAssignees() ? teamOf(source.organisationId) : Set.of();
 
         // The first day of the plan lands on the day that was asked for, and everything else keeps its distance from it.
+        WorkCalendar calendar = calendars.of(source.organisationId);
         LocalDate first = PlanShift.firstDay(calendar, tasks.stream().map(SourceTask::dates).toList(), source.startDate);
         PlanShift shift = first == null ? null : new PlanShift(calendar, first, request.startDate());
 
         Project copy = projects.insert(source.organisationId, new ProjectRequest(request.name(), request.code(),
                 source.description, request.clientId(), ProjectStatus.PLANNED,
-                newStart(source, shift, request.startDate()), newEnd(source, shift),
+                newStart(calendar, source, shift, request.startDate()), newEnd(source, shift),
                 source.budgetHours, source.budgetAmount, source.hourlyRate, source.color));
         em.flush();
 
@@ -126,7 +131,7 @@ public class ProjectDuplicator {
     }
 
     /** The project's own start moves with the plan. A project where nothing has a date starts on the day that was asked for. */
-    private LocalDate newStart(Project source, PlanShift shift, LocalDate asked) {
+    private static LocalDate newStart(WorkCalendar calendar, Project source, PlanShift shift, LocalDate asked) {
         return shift == null ? calendar.onOrAfter(asked) : shift.start(source.startDate);
     }
 

@@ -22,8 +22,7 @@ public final class OrgDtos {
     }
 
     public record MembershipSummary(long organisationId, String organisationName, Role role, String currency) {
-        public static MembershipSummary of(Membership membership) {
-            Organisation org = Organisation.findById(membership.organisationId);
+        public static MembershipSummary of(Membership membership, Organisation org) {
             return new MembershipSummary(org.id, org.name, membership.role, org.currency);
         }
     }

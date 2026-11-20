@@ -1,5 +1,5 @@
 import { DependencyType, Phase, Task } from '../../core/models';
-import { addDays, diffDays, isWeekend, maxDate, minDate, monthName, toDate, today, weekStart } from '../../shared/dates';
+import { Holidays, NO_HOLIDAYS, addDays, diffDays, isWorkingDay, maxDate, minDate, monthName, toDate, today, weekStart } from '../../shared/dates';
 import { linkTag } from '../project/dependency-text';
 import { linkKey } from '../project/schedule-issues';
 import { groupTasks } from '../project/task-groups';
@@ -181,6 +181,7 @@ export function layoutGantt(
     broken?: Set<string>;
     /** Baseline dates by task, from the API's comparison. A task without an entry has no thin bar. */
     baseline?: Map<number, { start: string; due: string }>;
+    holidays?: Holidays;
   },
 ): GanttLayout {
   const dayWidth = DAY_WIDTH[options.zoom];
@@ -275,6 +276,7 @@ export function layoutGantt(
     }
   }
 
+  const holidays = options.holidays ?? NO_HOLIDAYS;
   const ticks: GanttTick[] = [];
   const months = monthLabels(start, days, dayWidth);
   const weekends: { x: number; width: number }[] = [];
@@ -282,11 +284,12 @@ export function layoutGantt(
     const date = addDays(start, i);
     const x = i * dayWidth;
     if (options.zoom === 'day') {
-      ticks.push({ x, label: String(toDate(date).getUTCDate()), major: !isWeekend(date) });
+      ticks.push({ x, label: String(toDate(date).getUTCDate()), major: isWorkingDay(date, holidays) });
     } else if (options.zoom === 'week' && i % 7 === 0) {
       ticks.push({ x, label: String(toDate(date).getUTCDate()), major: true });
     }
-    if (isWeekend(date) && options.zoom !== 'month') {
+    // Holidays are shaded like weekends: nobody works on them.
+    if (!isWorkingDay(date, holidays) && options.zoom !== 'month') {
       weekends.push({ x, width: dayWidth });
     }
   }

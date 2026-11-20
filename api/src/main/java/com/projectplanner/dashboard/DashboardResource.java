@@ -28,8 +28,12 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 @Path("/api/orgs/{orgId}/dashboard")
 @Authenticated
@@ -74,8 +78,9 @@ public class DashboardResource {
                 .stream()
                 .filter(p -> me.role != Role.CLIENT || Objects.equals(p.clientId, me.clientId))
                 .toList();
-        List<ProjectCard> cards = projects.stream()
-                .map(p -> new ProjectCard(ProjectService.toResponse(p, me.role.canManage()), health.summary(p, me)))
+        Map<Long, HealthSummary> summaries = health.summaries(orgId, projects, me);
+        List<ProjectCard> cards = ProjectService.toResponses(projects, me.role.canManage()).stream()
+                .map(p -> new ProjectCard(p, summaries.get(p.id())))
                 .toList();
 
         long minutesThisWeek = 0;
@@ -98,8 +103,13 @@ public class DashboardResource {
                 : 0;
         TimesheetStatus lastWeek = Timesheet.statusOf(orgId, me.userId, weekStart.minusWeeks(1));
 
-        return new Dashboard(today, mapper.toResponses(overdue), mapper.toResponses(dueSoon),
-                mapper.toResponses(inProgress), cards, minutesThisWeek, billableThisWeek, pendingApprovals,
+        // The three lists share their tasks' details, looked up once for all of them.
+        Map<Long, TaskResponse> details = new HashMap<>();
+        List<Task> shown = Stream.of(overdue, dueSoon, inProgress).flatMap(List::stream).distinct().toList();
+        mapper.toResponses(shown).forEach(t -> details.put(t.id(), t));
+        Function<List<Task>, List<TaskResponse>> responses = tasks -> tasks.stream().map(t -> details.get(t.id)).toList();
+        return new Dashboard(today, responses.apply(overdue), responses.apply(dueSoon),
+                responses.apply(inProgress), cards, minutesThisWeek, billableThisWeek, pendingApprovals,
                 missingTimesheets, me.role.isTeam() ? lastWeek : null);
     }
 

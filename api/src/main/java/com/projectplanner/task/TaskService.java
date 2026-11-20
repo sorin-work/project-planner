@@ -1,5 +1,6 @@
 package com.projectplanner.task;
 
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.attachment.Attachment;
 import com.projectplanner.attachment.AttachmentFiles;
@@ -12,7 +13,6 @@ import com.projectplanner.project.Phase;
 import com.projectplanner.project.Project;
 import com.projectplanner.schedule.Rescheduler;
 import com.projectplanner.schedule.ScheduledTask;
-import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.TaskDtos.CreateTaskRequest;
 import com.projectplanner.task.TaskDtos.TaskChange;
 import com.projectplanner.task.TaskDtos.UpdateTaskRequest;
@@ -38,16 +38,23 @@ public class TaskService {
     private final Notifier notifier;
     private final TaskMapper mapper;
     private final Clock clock;
-    private final Rescheduler rescheduler = new Rescheduler(WorkCalendar.DEFAULT);
+    private final OrgCalendars calendars;
 
     private final AttachmentFiles attachmentFiles;
 
-    public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock, AttachmentFiles attachmentFiles) {
+    public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock, OrgCalendars calendars,
+                       AttachmentFiles attachmentFiles) {
         this.activity = activity;
         this.notifier = notifier;
         this.mapper = mapper;
         this.clock = clock;
         this.attachmentFiles = attachmentFiles;
+        this.calendars = calendars;
+    }
+
+    /** Moves and pushes in the working days of the project's organisation. */
+    private Rescheduler rescheduler(Project project) {
+        return new Rescheduler(calendars.of(project.organisationId));
     }
 
     public Task create(Membership me, Project project, CreateTaskRequest request) {
@@ -159,7 +166,7 @@ public class TaskService {
         if (task.startDate == null && task.dueDate == null) {
             throw ApiException.badRequest("unscheduled", "Give the task dates before moving it on the timeline");
         }
-        ScheduledTask moved = rescheduler.shift(task.toScheduled(), days);
+        ScheduledTask moved = rescheduler(project).shift(task.toScheduled(), days);
         UpdateTaskRequest request = new UpdateTaskRequest(null, null, null, false, null, null, null,
                 moved.start(), moved.due(), false, null, false, null, null);
         return update(me, project, task, request);
@@ -201,6 +208,7 @@ public class TaskService {
         List<Task> tasks = Task.forProject(project.id);
         List<ScheduledTask> scheduled = tasks.stream().map(Task::toScheduled).toList();
         var links = TaskDependency.forProject(project.id).stream().map(TaskDependency::toLink).toList();
+        Rescheduler rescheduler = rescheduler(project);
         Map<Long, ScheduledTask> shifted = includeChanged
                 ? rescheduler.propagateFrom(scheduled, links, changed)
                 : rescheduler.propagate(scheduled, links, changed);

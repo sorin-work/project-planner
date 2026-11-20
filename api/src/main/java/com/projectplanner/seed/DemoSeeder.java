@@ -6,6 +6,7 @@ import com.projectplanner.auth.User;
 import com.projectplanner.baseline.Baseline;
 import com.projectplanner.baseline.BaselinePhase;
 import com.projectplanner.baseline.BaselineTask;
+import com.projectplanner.calendar.TimeOff;
 import com.projectplanner.client.Client;
 import com.projectplanner.comment.Comment;
 import com.projectplanner.notification.Notification;
@@ -578,11 +579,17 @@ public class DemoSeeder {
      * non-billable admin time.
      */
     private void logTime() {
+        // Tom is away for three days next week, which the workload shows as a lower capacity.
+        LocalDate nextMonday = WorkCalendar.weekStart(today).plusWeeks(1);
+        timeOff(users.get("tom"), nextMonday.plusDays(1), nextMonday.plusDays(3), "Moving house");
         Project operations = project("INT-OPS");
         LocalDate first = today.minusDays(365);
         for (String key : List.of("maya", "priya", "tom", "lena", "samir")) {
             User user = users.get(key);
             List<LocalDate> holidays = holidays(key);
+            for (LocalDate h : holidays) {
+                timeOff(user, h, h.plusDays(9), "Holiday");
+            }
             for (LocalDate d = first; d.isBefore(today); d = d.plusDays(1)) {
                 LocalDate day = d;
                 if (!CAL.isWorkingDay(day) || holidays.stream().anyMatch(h -> !day.isBefore(h) && day.isBefore(h.plusDays(10)))) {
@@ -746,6 +753,17 @@ public class DemoSeeder {
     }
 
     private static final String[] BENCH_WORK = {"Training and research", "Pitch preparation", "Internal tooling", "Portfolio write-up"};
+
+    private void timeOff(User user, LocalDate first, LocalDate last, String note) {
+        TimeOff off = new TimeOff();
+        off.organisationId = org.id;
+        off.userId = user.id;
+        off.firstDay = first;
+        off.lastDay = last;
+        off.note = note;
+        off.createdAt = now;
+        off.persist();
+    }
 
     private List<LocalDate> holidays(String key) {
         int base = switch (key) {
