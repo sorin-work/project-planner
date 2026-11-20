@@ -91,6 +91,9 @@
     @for (note of dateNotes(); track note) {
       <p class="issue-note">{{ note }}</p>
     }
+    @if (baselineNote(); as note) {
+      <p class="muted small baseline-note">Baseline {{ note.name }}: {{ note.text }}.</p>
+    }
 
     <label for="tp-description" class="block-label">Description</label>
     <textarea id="tp-description" rows="4" [disabled]="!canEdit()" [value]="t.description ?? ''"
