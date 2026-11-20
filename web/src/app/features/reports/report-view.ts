@@ -37,18 +37,19 @@ export function formatShare(pct: number | null | undefined): string {
   return pct === null || pct === undefined ? '–' : `${pct.toFixed(1)}%`;
 }
 
-/** Says what utilisation is measured against, in words for under the table. */
-export function capacityNote(report: Pick<UtilisationReport, 'from' | 'to' | 'capacityTo' | 'workingDays'>): string {
+/** Says what utilisation is measured against and who is in it, in words for under the table. */
+export function capacityNote(report: Pick<UtilisationReport, 'from' | 'to' | 'countedTo' | 'workingDays'>): string {
   const basis = "It uses each person's weekly hours as they are today, and does not know about holidays or time off yet.";
-  if (!report.capacityTo) {
-    return `This range has not begun, so there is no capacity to compare with yet. ${basis}`;
+  const who = 'People who have left the organisation are not listed, so the total can be less than the Summary shows for the same range.';
+  if (!report.countedTo) {
+    return `This range has not begun, so there is no time and no capacity to compare yet. ${basis} ${who}`;
   }
   const days = report.workingDays === 1 ? '1 working day' : `${report.workingDays} working days`;
   const counted = `Capacity is the weekly hours from the Team page spread over Monday to Friday, for the ${days} from ${formatDate(
     report.from,
-  )} to ${formatDate(report.capacityTo)}.`;
-  const cut = report.capacityTo < report.to ? ' Days after today are not counted.' : '';
-  return `${counted}${cut} Utilisation is billable time as a share of that. ${basis}`;
+  )} to ${formatDate(report.countedTo)}.`;
+  const cut = report.countedTo < report.to ? ' Days after today are not counted, neither their capacity nor time logged ahead on them.' : '';
+  return `${counted}${cut} Utilisation is billable time as a share of that. ${basis} ${who}`;
 }
 
 /** The file name the API gives its CSV, for the download link. */

@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { Role, TimeReport, UtilisationReport } from '../../core/models';
+import { OrgContext } from '../../core/org-context.service';
 import { ReportsPage } from './reports.page';
 
 const TIME_URL = '/api/orgs/7/reports/time';
@@ -31,7 +32,7 @@ const BY_TASK: TimeReport = {
 const UTILISATION: UtilisationReport = {
   from: '2026-03-09',
   to: '2026-03-15',
-  capacityTo: '2026-03-11',
+  countedTo: '2026-03-11',
   workingDays: 3,
   rows: [
     { userId: 1, name: 'Gwen', minutes: 300, billableMinutes: 300, capacityMinutes: 1440, utilisationPct: 20.8 },
@@ -48,7 +49,10 @@ describe('ReportsPage', () => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])] });
     TestBed.inject(AuthService).me.set({
       user: { id: 1, email: 'gwen@example.com', name: 'Gwen', handle: 'gwen' },
-      organisations: [{ organisationId: 7, organisationName: 'Brightline Studio', role, currency: 'EUR' }],
+      organisations: [
+        { organisationId: 7, organisationName: 'Brightline Studio', role, currency: 'EUR' },
+        { organisationId: 8, organisationName: 'Side Project', role: 'OWNER', currency: 'USD' },
+      ],
     });
     http = TestBed.inject(HttpTestingController);
   }
@@ -156,7 +160,8 @@ describe('ReportsPage', () => {
     expect(texts(el, '.report tfoot th')).toEqual(['Total', '11h 48m', '9h 48m', '43h 12m', '', '22.7%']);
     const note = el.querySelector('section.card > p.muted')?.textContent ?? '';
     expect(note).toContain('for the 3 working days from 9 Mar');
-    expect(note).toContain('Days after today are not counted.');
+    expect(note).toContain('Days after today are not counted');
+    expect(note).toContain('People who have left the organisation are not listed');
     expect(note).toContain('holidays or time off');
   });
 
@@ -173,6 +178,42 @@ describe('ReportsPage', () => {
     expect(texts(el, '.report thead th')).toEqual(['Project', 'Share of the longest row', 'Time', 'Billable']);
     expect(texts(el, '.report tfoot th.num')).toEqual(['4h', '3h']);
     expect(el.textContent).toContain('Your own time');
+  });
+
+  it('starts over in another organisation, and takes the rows away when a report can not be loaded', async () => {
+    const { fixture, el, asked } = await open();
+    (await asked(TIME_URL)).flush(BY_PROJECT);
+    await fixture.whenStable();
+    button(el, 'WEB · Website').click();
+    (await asked(TIME_URL)).flush(BY_TASK);
+    await fixture.whenStable();
+    expect(el.querySelector('.report-drill')).not.toBeNull();
+
+    // The switcher in the side bar changes the organisation without leaving the page.
+    TestBed.inject(OrgContext).select(8);
+    const other = await asked('/api/orgs/8/reports/time');
+    // The project that was open belongs to the first organisation and is not asked for here.
+    expect(other.request.params.toString()).toBe('preset=this_month&groupBy=project');
+    expect(el.querySelector('.report-drill')).toBeNull();
+    expect(el.querySelector('.report')).toBeNull();
+
+    other.flush({ status: 500, code: 'internal_error', message: 'Something went wrong on our side' }, { status: 500, statusText: 'Server Error' });
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Something went wrong on our side');
+    // Nothing of the first organisation is left under the name and the currency of the second.
+    expect(el.querySelector('.report')).toBeNull();
+    expect(el.textContent).not.toContain('WEB · Website');
+
+    // And a report that fails takes the rows it was meant to replace with it.
+    button(el, 'Last week').click();
+    (await asked('/api/orgs/8/reports/time')).flush(BY_PROJECT);
+    await fixture.whenStable();
+    expect(texts(el, '.report tfoot th.num')).toEqual(['4h', '3h', 'US$269.99']);
+    button(el, 'This week').click();
+    (await asked('/api/orgs/8/reports/time')).flush({ status: 400, code: 'invalid_range', message: 'No such range' }, { status: 400, statusText: 'Bad Request' });
+    await fixture.whenStable();
+    expect(el.querySelector('.report')).toBeNull();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('No such range');
   });
 
   it('downloads the rows on screen as CSV, with the same range and grouping', async () => {

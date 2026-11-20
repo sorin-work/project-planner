@@ -31,18 +31,22 @@ describe('report view', () => {
   });
 
   it('says what utilisation is measured against', () => {
-    const whole = capacityNote({ from: '2026-03-02', to: '2026-03-08', capacityTo: '2026-03-08', workingDays: 5 });
+    const whole = capacityNote({ from: '2026-03-02', to: '2026-03-08', countedTo: '2026-03-08', workingDays: 5 });
     expect(whole).toContain('for the 5 working days from 2 Mar');
     expect(whole).toContain('to 8 Mar');
     expect(whole).toContain('billable time as a share of that');
     expect(whole).toContain('holidays or time off');
     expect(whole).not.toContain('after today');
+    // The total is about the team as it is now, which the Summary is not.
+    expect(whole).toContain('People who have left the organisation are not listed');
 
-    const running = capacityNote({ from: '2026-03-09', to: '2026-03-15', capacityTo: '2026-03-09', workingDays: 1 });
+    const running = capacityNote({ from: '2026-03-09', to: '2026-03-15', countedTo: '2026-03-09', workingDays: 1 });
     expect(running).toContain('for the 1 working day from');
-    expect(running).toContain('Days after today are not counted.');
+    expect(running).toContain('Days after today are not counted, neither their capacity nor time logged ahead on them.');
 
-    expect(capacityNote({ from: '2026-03-16', to: '2026-03-22', capacityTo: null, workingDays: 0 })).toContain('has not begun');
+    const future = capacityNote({ from: '2026-03-16', to: '2026-03-22', countedTo: null, workingDays: 0 });
+    expect(future).toContain('has not begun');
+    expect(future).toContain('People who have left');
   });
 
   it('names the download like the API does', () => {

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, linkedSignal, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { messageOf } from '../../core/errors';
 import { Member, ProjectListItem, ReportGroupBy, ReportPreset, TimeReport, TimeReportRow, UtilisationReport } from '../../core/models';
@@ -56,15 +56,25 @@ export class ReportsPage {
     return 'preset' in range ? range.preset : null;
   });
   protected readonly groupBy = signal<ReportGroupBy>('PROJECT');
-  /** A project whose tasks are shown, after its row was clicked. */
-  protected readonly drill = signal<{ projectId: number; label: string } | null>(null);
+  /**
+   * A project whose tasks are shown, after its row was clicked. It belongs to the
+   * organisation it was clicked in, like the reports below: all three start empty again
+   * when the organisation changes, since the switcher changes it without leaving the page.
+   */
+  protected readonly drill = linkedSignal<number | null, { projectId: number; label: string } | null>({
+    source: this.org.orgId,
+    computation: () => null,
+  });
   /** What the summary asks for: the tasks of one project after a click on its row, otherwise the chosen grouping. */
   private readonly query = computed<TimeReportQuery>(() => {
     const drill = this.drill();
     return { range: this.range(), groupBy: drill ? 'TASK' : this.groupBy(), projectId: drill?.projectId ?? null };
   });
-  protected readonly summary = signal<TimeReport | null>(null);
-  protected readonly utilisation = signal<UtilisationReport | null>(null);
+  protected readonly summary = linkedSignal<number | null, TimeReport | null>({ source: this.org.orgId, computation: () => null });
+  protected readonly utilisation = linkedSignal<number | null, UtilisationReport | null>({
+    source: this.org.orgId,
+    computation: () => null,
+  });
   protected readonly reportError = signal<string | null>(null);
   /** The report on screen, of whichever tab. */
   protected readonly shown = computed(() => (this.tab() === 'summary' ? this.summary() : this.tab() === 'utilisation' ? this.utilisation() : null));
@@ -96,6 +106,16 @@ export class ReportsPage {
   protected billable: boolean | null = null;
 
   constructor() {
+    // The export form's choices are a person and a project of one organisation.
+    effect(() => {
+      this.org.orgId();
+      untracked(() => {
+        this.userId = null;
+        this.projectId = null;
+        this.members.set([]);
+        this.projects.set([]);
+      });
+    });
     // The lists for the export form, once that tab is opened.
     effect(() => {
       const orgId = this.org.orgId();
@@ -189,7 +209,11 @@ export class ReportsPage {
           this.showDates(report);
         }
       },
-      error: (err: unknown) => this.failed(asked, err),
+      error: (err: unknown) => {
+        if (this.failed(asked, err)) {
+          this.summary.set(null);
+        }
+      },
     });
   }
 
@@ -203,7 +227,11 @@ export class ReportsPage {
           this.showDates(report);
         }
       },
-      error: (err: unknown) => this.failed(asked, err),
+      error: (err: unknown) => {
+        if (this.failed(asked, err)) {
+          this.utilisation.set(null);
+        }
+      },
     });
   }
 
@@ -213,10 +241,15 @@ export class ReportsPage {
     this.to = report.to;
   }
 
-  private failed(asked: number, err: unknown): void {
+  /**
+   * Shows why the report could not be loaded. True when it was the one asked for last: the
+   * caller then takes the rows off the screen, which belong to another question.
+   */
+  private failed(asked: number, err: unknown): boolean {
     if (asked === this.asked) {
       this.reportError.set(messageOf(err));
     }
+    return asked === this.asked;
   }
 
   exportPreset(kind: 'lastWeek' | 'lastMonth' | 'thisYear'): void {

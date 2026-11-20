@@ -387,8 +387,8 @@ export interface UtilisationRow {
 export interface UtilisationReport {
   from: string;
   to: string;
-  /** The last day capacity was counted for: the end of the range, or today when it runs into the future. */
-  capacityTo?: string | null;
+  /** The last day time and capacity were counted for: the end of the range, or today when it runs into the future. */
+  countedTo?: string | null;
   workingDays: number;
   rows: UtilisationRow[];
   total: UtilisationRow;
