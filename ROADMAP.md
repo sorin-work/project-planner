@@ -101,10 +101,15 @@ and a one-click fix.
   `earliestStart` about the task that moved.
 - New plain class `ScheduleCheck` in `schedule/`, next to `Rescheduler`, with
   the same inputs (`ScheduledTask`, `Link`, a `WorkCalendar`) and a list of
-  issues out: type, task, related task, days, earliest allowed start. Reuse
+  issues out: type, task, related task and days. Reuse
   `Rescheduler.earliestStart` (package-private today) for the rule, so the two
   cannot disagree. The calendar is `WorkCalendar.DEFAULT` like everywhere
   else today, or the organisation's if item 15 has landed.
+- An issue that moving the task would fix also carries the dates to move it
+  to: a suggested start (the earliest allowed one) and a suggested due date
+  that keeps the task's length in working days. The server works both out.
+  The web app can count working days (`shared/dates.ts`) but cannot add them,
+  and should not start doing calendar arithmetic for this.
 - Issue types to start with: the task starts before a predecessor's due date
   plus lag allows; the task waits for a task without dates (such a link is
   silently ignored by both `Rescheduler` and `CriticalPath`); the task is due
@@ -118,8 +123,8 @@ and a one-click fix.
   flag from the issue list (do not redo working-day arithmetic in
   `gantt-layout.ts`), the task panel shows the issue under "Waits for" with a
   "Move to" button, and the timeline toolbar shows a count.
-- The fix button sends `PATCH /api/tasks/{id}` with the earliest start and a
-  due date that keeps the length in working days. Not
+- The "Move to" button shows the suggested start and sends
+  `PATCH /api/tasks/{id}` with exactly the two suggested dates. Not
   `POST /api/tasks/{id}/shift`: that one moves by calendar days.
 - Tricky: `CriticalPath` already treats the planned start as "no earlier
   than", and pushes a successor that starts too early in its own forward pass.
