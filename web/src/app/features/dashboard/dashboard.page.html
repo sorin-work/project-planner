@@ -24,8 +24,14 @@
           <span class="stat-label">Timesheets to approve</span>
           <span class="stat-value">{{ d.pendingApprovals }}</span>
         </a>
-      } @else if (d.lastWeekTimesheet) {
-        <a class="card stat" routerLink="/time">
+        <a class="card stat" routerLink="/approvals" [queryParams]="{ tab: 'missing' }">
+          <span class="stat-label">Not submitted last week</span>
+          <span class="stat-value" [class.danger]="d.missingTimesheets > 0">{{ d.missingTimesheets }}</span>
+          <span class="muted small">with time logged</span>
+        </a>
+      }
+      @if (d.lastWeekTimesheet) {
+        <a class="card stat" routerLink="/time" [queryParams]="{ week: lastWeek(d.today) }">
           <span class="stat-label">Last week's timesheet</span>
           <span class="stat-value small-value">{{ timesheetLabels[d.lastWeekTimesheet] }}</span>
         </a>
