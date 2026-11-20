@@ -1,11 +1,5 @@
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { TestBed } from '@angular/core/testing';
-import { provideRouter, withComponentInputBinding } from '@angular/router';
-import { RouterTestingHarness } from '@angular/router/testing';
 import { expectNoAxeViolations } from '../testing/axe';
-import { fakeApi } from '../testing/fake-api';
-import { routes } from './app.routes';
-import { FIXTURES } from '../testing/fixtures';
+import { renderPage as render } from '../testing/render-page';
 
 /**
  * Every page of the app, rendered as a whole inside the shell with an API that
@@ -31,23 +25,6 @@ const PAGES = [
   '/notifications',
   '/settings',
 ];
-
-async function render(url: string, loggedIn = true): Promise<{ harness: RouterTestingHarness; missed: string[] }> {
-  localStorage.clear();
-  if (loggedIn) {
-    localStorage.setItem('pp.token', 'token');
-    localStorage.setItem('pp.tokenExpiresAt', '2999-01-01T00:00:00Z');
-    localStorage.setItem('pp.orgId', '3');
-  }
-  const missed: string[] = [];
-  TestBed.configureTestingModule({
-    providers: [provideRouter(routes, withComponentInputBinding()), provideHttpClient(withInterceptors([fakeApi(FIXTURES, missed)]))],
-  });
-  const harness = await RouterTestingHarness.create();
-  await harness.navigateByUrl(url);
-  await harness.fixture.whenStable();
-  return { harness, missed };
-}
 
 describe('accessibility of every page', () => {
   afterEach(() => localStorage.clear());

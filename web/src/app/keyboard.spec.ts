@@ -1,0 +1,114 @@
+import { TestBed } from '@angular/core/testing';
+import { Title } from '@angular/platform-browser';
+import { renderPage } from '../testing/render-page';
+import { Announcer } from './core/announcer';
+
+/** Waits for what the app does a moment later: focus moves, a title with the project's name. */
+const later = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * What a keyboard and a screen reader need from the whole app, on rendered pages: the
+ * way past the navigation, the state of the controls, the title, the task panel's focus,
+ * moving a card without a mouse, and the live regions that say what happened.
+ */
+describe('the app from the keyboard', () => {
+  afterEach(() => localStorage.clear());
+
+  it('skips past the navigation to the page, and says which page is the current one', async () => {
+    const { harness } = await renderPage('/projects');
+    const el = harness.fixture.nativeElement as HTMLElement;
+    const skip = el.querySelector<HTMLAnchorElement>('a.skip-link')!;
+    expect(el.querySelector('a, button')).toBe(skip);
+    skip.click();
+    expect(document.activeElement).toBe(el.querySelector('main#content'));
+
+    const current = [...el.querySelectorAll('nav[aria-label="Main"] a[aria-current="page"]')].map((a) => a.textContent?.trim());
+    expect(current).toEqual(['Projects']);
+  });
+
+  it('says whether the menu is open and how many notifications are unread', async () => {
+    const { harness } = await renderPage('/');
+    const el = harness.fixture.nativeElement as HTMLElement;
+    const menu = el.querySelector<HTMLButtonElement>('.menu-toggle')!;
+    expect(menu.getAttribute('aria-expanded')).toBe('false');
+    expect(menu.getAttribute('aria-controls')).toBe('sidebar');
+    menu.click();
+    await harness.fixture.whenStable();
+    expect(menu.getAttribute('aria-expanded')).toBe('true');
+    expect(el.querySelector('.bell')!.getAttribute('aria-label')).toBe('Notifications, 3 unread');
+  });
+
+  it('gives every page a title, with the name of the project on a project page', async () => {
+    const { harness } = await renderPage('/time');
+    expect(TestBed.inject(Title).getTitle()).toBe('Timesheet · project-planner');
+    await harness.navigateByUrl('/projects/7/timeline');
+    await harness.fixture.whenStable();
+    await later();
+    expect(TestBed.inject(Title).getTitle()).toBe('Timeline · Website · project-planner');
+  });
+
+  it('moves the focus into the task panel, closes it with Escape and gives the focus back to the row', async () => {
+    const { harness } = await renderPage('/projects/7/list');
+    const el = harness.fixture.nativeElement as HTMLElement;
+    const row = el.querySelector<HTMLButtonElement>('button.task-title[data-task="2"]')!;
+    row.focus();
+    row.click();
+    await harness.fixture.whenStable();
+    await later();
+    const panel = el.querySelector<HTMLElement>('aside.task-panel')!;
+    expect(panel).not.toBeNull();
+    expect(document.activeElement).toBe(panel);
+
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await harness.fixture.whenStable();
+    await later();
+    expect(el.querySelector('aside.task-panel')).toBeNull();
+    expect((document.activeElement as HTMLElement).getAttribute('data-task')).toBe('2');
+  });
+
+  it('moves a board card with Alt and an arrow key, and says where it went', async () => {
+    const sent: { method: string; url: string; body: unknown }[] = [];
+    const { harness } = await renderPage('/projects/7/board', true, sent);
+    const el = harness.fixture.nativeElement as HTMLElement;
+    const card = el.querySelector<HTMLElement>('[data-card="2"]')!;
+    expect(card.getAttribute('aria-describedby')).toBe('board-keys');
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true }));
+    await harness.fixture.whenStable();
+    await later(120);
+    expect(sent).toContainEqual({ method: 'PATCH', url: '/api/tasks/2', body: { status: 'IN_PROGRESS', position: 1 } });
+    expect(TestBed.inject(Announcer).polite()).toBe('Build moved to In progress, place 2.');
+    // Without Alt an arrow key does nothing to the card.
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(sent.filter((s) => s.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('reads out a move on the timeline made with the arrow keys', async () => {
+    const sent: { method: string; url: string; body: unknown }[] = [];
+    const { harness } = await renderPage('/projects/7/timeline', true, sent);
+    const el = harness.fixture.nativeElement as HTMLElement;
+    const svg = el.querySelector('svg.gantt-svg')!;
+    expect(svg.getAttribute('role')).toBe('group');
+    const bar = el.querySelector<SVGGElement>('g.bar[data-task="1"]')!;
+    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    await harness.fixture.whenStable();
+    await later(120);
+    expect(sent.map((s) => `${s.method} ${s.url}`)).toContain('POST /api/tasks/1/shift');
+    expect(TestBed.inject(Announcer).polite()).toMatch(/^Design: /);
+  });
+});
+
+describe('Announcer', () => {
+  it('reads out the same message twice by emptying the region first', async () => {
+    const announcer = TestBed.inject(Announcer);
+    announcer.announce('Saved.');
+    await later();
+    expect(announcer.polite()).toBe('Saved.');
+    announcer.announce('Saved.');
+    expect(announcer.polite()).toBe('');
+    await later();
+    expect(announcer.polite()).toBe('Saved.');
+    announcer.alert('Not saved.');
+    await later();
+    expect(announcer.assertive()).toBe('Not saved.');
+  });
+});

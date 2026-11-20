@@ -180,6 +180,8 @@ export const FIXTURES: FakeRoute[] = [
   { path: /^\/projects\/7\/duplicate$/, body: { name: 'Website (copy)', code: 'WEB-2', startDate: day(7), phases: 1, tasks: 4,
     dependencies: 2, attachments: 1, attachmentBytes: 14336 } },
   { path: /^\/tasks\/\d+$/, body: taskFrom },
+  { method: 'POST', path: /^\/tasks\/\d+\/shift$/, body: (req: HttpRequest<unknown>) => ({ task: taskFrom({ ...req, url: req.url.replace('/shift', '') } as HttpRequest<unknown>), rescheduled: [] }) },
+  { method: 'PATCH', path: /^\/tasks\/\d+$/, body: (req: HttpRequest<unknown>) => ({ task: { ...taskFrom(req), ...(req.body as object) }, rescheduled: [] }) },
   { path: /^\/tasks\/\d+\/comments$/, body: COMMENTS },
   { path: /^\/tasks\/\d+\/attachments$/, body: FILES },
 ];
