@@ -46,6 +46,13 @@ jobs:
     needs: [api, web]
     steps:
       - uses: actions/checkout@v4
+
+      # The restore check below removes a database volume. This makes sure
+      # that it refuses wherever that volume could be somebody's data. A
+      # stand-in plays docker, so nothing is started.
+      - name: Check the guards of the restore check
+        run: sh scripts/check-restore-guards.sh
+
       - run: docker compose build
 
       # The only place where the stack is started. Brings up db and api with
@@ -54,7 +61,7 @@ jobs:
       # restores an older dump onto a new volume and lets the api migrate it,
       # and checks that the api refuses a database from a newer version. The
       # project name is the default one, so that the images built above are
-      # used.
+      # used. The script accepts that name in CI only.
       - name: Check that the stack starts and a backup restores
         run: sh scripts/check-restore.sh
         env:
