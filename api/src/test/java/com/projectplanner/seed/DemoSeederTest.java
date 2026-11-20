@@ -78,15 +78,16 @@ class DemoSeederTest {
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/dashboard").then().statusCode(200)
                 .body("activeProjects", hasSize(4)).body("pendingApprovals", notNullValue());
 
+        // Other tests may use the same codes in organisations of their own, so the lookups stay in the demo one.
         // The demo plan has something to warn about: one task that was pulled in front of the task it
         // waits for, and the tail of the project that runs past the client's deadline.
-        Long booking = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("code", "ACME-APP").firstResult().id);
+        Long booking = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("organisationId = ?1 and code = ?2", orgId.longValue(), "ACME-APP").firstResult().id);
         given().auth().oauth2(token).get("/api/projects/" + booking + "/schedule-issues").then().statusCode(200)
                 .body("$", hasSize(1))
                 .body("[0].type", equalTo("STARTS_TOO_EARLY"))
                 .body("[0].days", equalTo(3))
                 .body("[0].suggestedStart", notNullValue());
-        Long portal = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("code", "GLX-PORTAL").firstResult().id);
+        Long portal = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("organisationId = ?1 and code = ?2", orgId.longValue(), "GLX-PORTAL").firstResult().id);
         given().auth().oauth2(token).get("/api/projects/" + portal + "/schedule-issues").then().statusCode(200)
                 .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
                 .body("$", hasSize(2));
@@ -108,6 +109,25 @@ class DemoSeederTest {
         }
         assertThat(given().auth().oauth2(token).get("/api/notifications?limit=200").then().extract().jsonPath()
                 .<String>getList("findAll { it.type == 'BUDGET_ALERT' }.message")).isEqualTo(alerts);
+
+        // Copies of the two plans, moved to next summer, say the same about their dates as the
+        // originals: one task too early for its dependency, and two past the project's end.
+        Number bookingCopy = given().auth().oauth2(token).contentType(ContentType.JSON)
+                .body(Map.of("name", "Acme booking app, season two", "code", "ACME-APP-2", "startDate", "2027-06-01"))
+                .post("/api/projects/" + booking + "/duplicate").then().statusCode(201).extract().path("id");
+        given().auth().oauth2(token).get("/api/projects/" + bookingCopy + "/schedule-issues").then().statusCode(200)
+                .body("$", hasSize(1))
+                .body("[0].type", equalTo("STARTS_TOO_EARLY"))
+                .body("[0].days", equalTo(3));
+        Number portalCopy = given().auth().oauth2(token).contentType(ContentType.JSON)
+                .body(Map.of("name", "Globex portal, second clinic group", "code", "GLX-PORTAL-2", "startDate", "2027-06-05"))
+                .post("/api/projects/" + portal + "/duplicate").then().statusCode(201).extract().path("id");
+        given().auth().oauth2(token).get("/api/projects/" + portalCopy + "/schedule-issues").then().statusCode(200)
+                .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
+                .body("days", equalTo(given().auth().oauth2(token).get("/api/projects/" + portal + "/schedule-issues")
+                        .then().extract().path("days")));
+        given().auth().oauth2(token).get("/api/orgs/" + orgId + "/projects").then().statusCode(200).body("$", hasSize(10));
+
         // Last week Tom has a draft and Samir a week that was sent back. Tom was reminded today, Samir was not.
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/timesheets/missing").then().statusCode(200)
                 .body("people.userName", contains("Samir Haddad", "Tom Becker"))

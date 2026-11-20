@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { ActivityEntry } from '../../core/models';
 import { ProjectApi } from '../../core/project.api';
 import { timeAgo } from '../../shared/dates';
@@ -7,6 +8,7 @@ import { ProjectStore } from './project.store';
 
 @Component({
   selector: 'app-activity-tab',
+  imports: [RouterLink],
   template: `
     <section class="card">
       <ul class="activity">
@@ -14,6 +16,9 @@ import { ProjectStore } from './project.store';
           <li>
             <span>
               <strong>{{ a.actorName || 'Someone' }}</strong> · {{ a.summary }}
+              @if (a.relatedProjectId && a.relatedProjectName) {
+                (<a [routerLink]="['/projects', a.relatedProjectId]">{{ a.relatedProjectName }}</a>)
+              }
               @if (a.taskId) {
                 <button type="button" class="link small" (click)="openTask(a.taskId)">open</button>
               }
