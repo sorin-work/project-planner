@@ -600,11 +600,19 @@ editing the database.
   towards requiring the token when mail is configured and keeping the current
   behaviour when it is not.
 - Tricky: a reset does not end other sessions. Logins are stateless JWTs valid
-  for `JWT_TTL` (seven days), and `CurrentUser` only checks that the user
-  still exists. Either accept that, or put a "password changed at" time on
-  `users` and reject tokens issued before it, at the price of a user lookup
-  per request. I lean towards the second, since `MeResource.changePassword`
-  has the same hole.
+  for `JWT_TTL` (seven days). Only `CurrentUser.get()` loads the user, and
+  only `MeResource` calls it. Everything else goes through `OrgAccess` or
+  `NotificationResource`, which ask `CurrentUser.id()` for the id in the token
+  and never look at the user. A check in `get()` would leave old tokens valid
+  on nearly every endpoint.
+- So the check goes into `CurrentUser.id()`, the one method every signed-in
+  request passes through (`get()` calls it too). Load the user there, once per
+  request (the bean is request-scoped), and answer 401 when the token was
+  issued before a new `password_changed_at` on `users` (same migration).
+  `TokenService.issue` already puts an issued-at time in the token. Compare in
+  whole seconds: issued-at has no fractions, and a login straight after the
+  change must not be thrown out. The price is one user lookup per request. I
+  would pay it, since `MeResource.changePassword` has the same hole.
 - Tricky: `/api/auth/forgot` can be used to flood somebody's inbox, and
   nothing in the API is rate limited. One live token per user and a minimum
   gap between mails covers it without new machinery.
