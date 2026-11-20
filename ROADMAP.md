@@ -922,6 +922,8 @@ a drag is in its own file, `gantt-edit.ts`, next to `gantt-layout.ts`; bars can
 still be moved at month zoom, only the handles are left out there; and a click
 on a handle that does not move opens the task, like a click on the bar. Still
 open: the start date has no key of its own on the bar (the Start field in the
-task panel does that), linking by keyboard stays in the task panel, a parent's
+task panel does that), linking by keyboard stays in the task panel, the
+timeline does not scroll while something is dragged (two bars that are not on
+screen together are linked at week zoom or in the task panel), a parent's
 subtasks do not follow when it is resized, and drawing a bar for a task
 without dates is the follow-up it was.
