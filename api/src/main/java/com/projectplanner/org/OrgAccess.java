@@ -1,6 +1,7 @@
 package com.projectplanner.org;
 
 import com.projectplanner.auth.CurrentUser;
+import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.project.Project;
 import jakarta.enterprise.context.RequestScoped;
@@ -75,6 +76,37 @@ public class OrgAccess {
         }
         viewProject(project);
         return project;
+    }
+
+    /**
+     * A project named in a filter: it has to belong to this organisation and be one the
+     * signed-in user can see. Anything else is a 404, so that a filter can't be used to find
+     * out which projects exist.
+     */
+    public Project projectIn(long organisationId, long projectId) {
+        Project project = Project.findById(projectId);
+        if (project == null || !Objects.equals(project.organisationId, organisationId)) {
+            throw ApiException.notFound("Project");
+        }
+        viewProject(project);
+        return project;
+    }
+
+    /** A client named in a filter. A client viewer only finds their own. */
+    public Client clientIn(long organisationId, long clientId) {
+        Membership membership = member(organisationId);
+        Client client = Client.findById(clientId);
+        if (client == null || !Objects.equals(client.organisationId, organisationId)
+                || (membership.role == Role.CLIENT && !Objects.equals(membership.clientId, clientId))) {
+            throw ApiException.notFound("Client");
+        }
+        return client;
+    }
+
+    /** Somebody named in a filter: a member of this organisation, as seen by a member of it. */
+    public Membership memberIn(long organisationId, long userId) {
+        member(organisationId);
+        return Membership.find(organisationId, userId).orElseThrow(() -> ApiException.notFound("Member"));
     }
 
     public long userId() {
