@@ -72,11 +72,33 @@ export function workingDaysBetween(start: string, end: string): number {
   return count;
 }
 
+/**
+ * Moves {@code days} working days later, or earlier when negative. Zero returns
+ * the date unchanged, even on a weekend. The same rule as the API's
+ * WorkCalendar.addWorkingDays, so the timeline can show where a move will land.
+ */
+export function addWorkingDays(iso: string, days: number): string {
+  let date = iso;
+  for (let left = Math.abs(days); left > 0; ) {
+    date = addDays(date, days > 0 ? 1 : -1);
+    if (!isWeekend(date)) {
+      left--;
+    }
+  }
+  return date;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export function dayName(iso: string): string {
   return DAYS[weekday(iso)];
+}
+
+const LONG_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+export function dayNameLong(iso: string): string {
+  return LONG_DAYS[weekday(iso)];
 }
 
 export function monthName(iso: string): string {

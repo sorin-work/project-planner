@@ -24,7 +24,18 @@ export function formatHours(hours: number | null | undefined): string {
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}h`;
 }
 
-/** "1h 30m", "90m", "1.5" or "1:30" into minutes; null when it can't be read. */
+/** 78 -> "1:18", 45 -> "0:45", 480 -> "8:00". Hours and minutes with nothing to misread, as in a time grid. */
+export function formatClock(minutes: number): string {
+  const sign = minutes < 0 ? '-' : '';
+  const abs = Math.abs(minutes);
+  return `${sign}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`;
+}
+
+/**
+ * "1h 30m", "90m", "1.5" or "1:30" into minutes; null when it can't be read. Decimal
+ * hours have to come to a whole number of minutes: "1.25" is 75, but "1.555" is 93.3
+ * minutes and is not rounded to something nobody typed.
+ */
 export function parseDuration(input: string): number | null {
   const text = input.trim().toLowerCase();
   if (!text) {
@@ -36,15 +47,23 @@ export function parseDuration(input: string): number | null {
   }
   const units = /^(?:(\d+(?:[.,]\d+)?)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?$/.exec(text);
   if (units && (units[1] || units[2])) {
-    const hours = units[1] ? Number(units[1].replace(',', '.')) : 0;
-    const minutes = units[2] ? Number(units[2]) : 0;
-    return Math.round(hours * 60 + minutes);
+    const hours = units[1] ? decimalHours(units[1]) : 0;
+    return hours === null ? null : hours + (units[2] ? Number(units[2]) : 0);
   }
-  const decimal = /^\d+(?:[.,]\d+)?$/.exec(text);
-  if (decimal) {
-    return Math.round(Number(text.replace(',', '.')) * 60);
-  }
-  return null;
+  return /^\d+(?:[.,]\d+)?$/.test(text) ? decimalHours(text) : null;
+}
+
+/** Whether the text is a decimal number of hours, readable or not ("1.5", "1,555"). */
+export function isDecimalHours(input: string): boolean {
+  return /^\d+[.,]\d+\s*h?$/.test(input.trim().toLowerCase());
+}
+
+/** "1.25" or "1,25" hours as minutes, worked out on the digits so that nothing is lost to floating point. Null unless it is whole minutes. */
+function decimalHours(text: string): number | null {
+  const [whole, fraction = ''] = text.replace(',', '.').split('.');
+  const scale = 10 ** fraction.length;
+  const sixtieths = Number(fraction || '0') * 60;
+  return sixtieths % scale === 0 ? Number(whole) * 60 + sixtieths / scale : null;
 }
 
 export function formatMoney(amount: number | null | undefined, currency: string): string {

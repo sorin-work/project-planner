@@ -13,6 +13,7 @@ import com.projectplanner.time.TimeDtos.StartTimerRequest;
 import com.projectplanner.time.TimeDtos.TimeEntryRequest;
 import com.projectplanner.time.TimeDtos.TimeEntryResponse;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -44,6 +45,12 @@ public class TimeService {
     }
 
     public TimeEntry create(Membership me, TimeEntryRequest request) {
+        if (request.clientKey() != null) {
+            Optional<TimeEntry> made = madeBefore(me, request);
+            if (made.isPresent()) {
+                return made.get();
+            }
+        }
         Target target = target(me.organisationId, request.projectId(), request.taskId());
         checkDate(me.organisationId, request.date());
         checkUnlocked(me.organisationId, me.userId, request.date());
@@ -57,22 +64,47 @@ public class TimeService {
         entry.description = blankToNull(request.description());
         entry.billable = request.billable() != null ? request.billable() : defaultBillable(target.project());
         entry.createdAt = Instant.now(clock);
+        entry.clientKey = request.clientKey();
         entry.persist();
         return entry;
+    }
+
+    /**
+     * The entry an earlier create with the same key made, if there is one: the answer to the
+     * first request may never have arrived, and the client asks again. The entry is returned
+     * as it is now, also when the week has been locked or its time changed since. A key that
+     * was used for another project, task or day is not a repeat and is refused.
+     */
+    private static Optional<TimeEntry> madeBefore(Membership me, TimeEntryRequest request) {
+        // One keyed create at a time per person: a repeat that arrives while the first one is
+        // still being stored waits here and then finds it.
+        Membership.find("organisationId = ?1 and userId = ?2", me.organisationId, me.userId)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).list();
+        Optional<TimeEntry> made = TimeEntry.madeWith(me.organisationId, me.userId, request.clientKey());
+        made.ifPresent(entry -> {
+            if (!Objects.equals(entry.projectId, request.projectId()) || !Objects.equals(entry.taskId, request.taskId())
+                    || !Objects.equals(entry.entryDate, request.date())) {
+                throw ApiException.conflict("client_key_reused", "This key was already used for another time entry");
+            }
+        });
+        return made;
     }
 
     public void update(Membership me, TimeEntry entry, TimeEntryRequest request) {
         checkOwner(me, entry);
         checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
         Target target = target(entry.organisationId, request.projectId(), request.taskId());
-        checkDate(entry.organisationId, request.date());
-        checkUnlocked(entry.organisationId, entry.userId, request.date());
-        entry.projectId = target.project().id;
-        entry.taskId = target.task() == null ? null : target.task().id;
-        entry.entryDate = request.date();
         if (!entry.isRunning()) {
+            // Both the week the entry leaves and the one it moves into have to be open.
+            checkDate(entry.organisationId, request.date());
+            checkUnlocked(entry.organisationId, entry.userId, request.date());
+            entry.entryDate = request.date();
             entry.minutes = request.minutes();
         }
+        // A running timer keeps its day and has no length yet: both are set when it stops,
+        // so neither can be moved here.
+        entry.projectId = target.project().id;
+        entry.taskId = target.task() == null ? null : target.task().id;
         entry.description = blankToNull(request.description());
         if (request.billable() != null) {
             entry.billable = request.billable();
@@ -124,10 +156,20 @@ public class TimeService {
      */
     void finish(TimeEntry entry) {
         Instant now = Instant.now(clock);
+        LocalDate day = dayOf(entry);
+        // Stopping books time like any other entry does, so that week has to be open.
+        checkUnlocked(entry.organisationId, entry.userId, day);
         long minutes = Math.round(Duration.between(entry.startedAt, now).toSeconds() / 60.0);
         entry.endedAt = now;
         entry.minutes = (int) Math.max(1, Math.min(1440, minutes));
-        entry.entryDate = LocalDate.ofInstant(entry.startedAt, organisation(entry.organisationId).zone());
+        entry.entryDate = day;
+    }
+
+    /** The day an entry counts for. For a running timer that is the day it was started, whatever its date says. */
+    public LocalDate dayOf(TimeEntry entry) {
+        return entry.isRunning()
+                ? LocalDate.ofInstant(entry.startedAt, organisation(entry.organisationId).zone())
+                : entry.entryDate;
     }
 
     public List<TimeEntryResponse> toResponses(Collection<TimeEntry> entries) {

@@ -3,6 +3,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, tap } from 'rxjs';
 import { AuthResponse, Me, User } from './models';
+import { forgetUser } from './user-storage';
 
 const TOKEN_KEY = 'pp.token';
 const EXPIRES_KEY = 'pp.expiresAt';
@@ -39,6 +40,15 @@ export class AuthService {
   }
 
   logout(redirect = true): void {
+    const user = this.user();
+    try {
+      if (user) {
+        // What was kept for this person on this browser goes with them.
+        forgetUser(localStorage, user.id);
+      }
+    } catch {
+      // Private mode: there is nothing to remove.
+    }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(EXPIRES_KEY);
     this.tokenState.set(null);

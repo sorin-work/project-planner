@@ -39,14 +39,38 @@ the point is knowing whether a project will land on time and on budget.
 - **Critical path** (CPM forward/backward pass over working days) with float per task.
 - **Views**: list grouped by phase, kanban board with drag and drop, and an SVG
   timeline (Gantt) with dependency arrows, the critical path, today line, collapsible
-  phases, day/week/month zoom, and bars you can drag (or move with the arrow keys)
-  to reschedule. Dependencies with a schedule issue are drawn red and dashed, and the
-  toolbar counts the issues and lists them.
+  phases and day/week/month zoom. Dependencies with a schedule issue are drawn red
+  and dashed, and the toolbar counts the issues and lists them.
+- **Editing on the timeline**: drag a bar to move it, drag either end to change its
+  start or due date, drag the dot after a bar onto another bar to make that one wait
+  for it, and click an arrow to remove the link. Everything counts in working days: a
+  bar dropped on a weekend goes on to the next working day in the direction of the
+  drag, and a moved task keeps its length. While it is dragged, a bar is drawn where
+  it will land. With the keyboard, the arrow keys move the focused bar by a working
+  day, Shift with the arrow keys moves its due date (every press counts), Delete
+  removes the focused arrow and Escape gives up a drag. Tab goes from a bar to the
+  arrows that leave it. The timeline is edited at day and week zoom; at month zoom it
+  is read-only.
 - **Time tracking**: start/stop timers from a task or the top bar, manual entries,
   billable and non-billable time. Timers stopped after midnight book the time on the
   day they started.
-- **Timesheets**: a weekly grid per person; submit a week, managers approve it or send
-  it back with a note. Submitted and approved weeks are locked.
+- **Timesheets**: a weekly grid per person, one row per project and task and one cell
+  per day. Time is typed into the cells as `1:30`, `1.5`, `1,5`, `90m` or `1h 30m` (a
+  number on its own is hours). Anything else is refused, not guessed, and decimal hours
+  are not rounded: `1.555` is refused, and `1.30` is an hour and eighteen minutes. A cell
+  saves when you leave it or press Enter and shows what it read as hours and minutes
+  (`1:18`) at once. The arrow keys move between cells, and rows can be added before
+  they have time or copied from last week.
+  - An empty cell creates an entry. A cell with one entry changes its time and keeps
+    its note and billable flag. A cleared cell deletes the entry.
+  - A change that can't be saved puts the saved time back, marks the cell and says why
+    under the grid, and the week is read again. "Submit week" waits for cells that are
+    still being saved and does not go ahead when one of them was refused.
+  - An entry with a note is never deleted from the grid, and a cell with several
+    entries or a running timer is not typed into at all. Those are changed in the list
+    of entries below the grid, where everything about them can be seen.
+  - Submit a week, managers approve it or send it back with a note. Submitted and
+    approved weeks are locked: the grid shows them as text and the API refuses changes.
 - **Missing timesheets**: for any week that is over, managers see who has not
   submitted it (drafts and weeks that were sent back) with the hours logged against
   capacity, and can remind one person or everybody who logged time. People without any
@@ -108,7 +132,7 @@ dependencies, so they are tested in isolation:
 | --------------------- | -------------------------------------------------------------------- |
 | `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
-| `Rescheduler`         | Pushes dependants later when a task moves, keeping durations         |
+| `Rescheduler`         | Pushes dependants later when a task moves and shifts a task by working days, keeping durations |
 | `ScheduleCheck`       | Lists what does not fit in a plan, with the rescheduler's link rule  |
 | `CriticalPath`        | Early/late start and finish, float and the critical tasks            |
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
@@ -127,8 +151,15 @@ request rather than stored in the token.
 
 On the web side, `core/` holds the API clients, auth and the current-organisation
 context; `features/` has one folder per page; the timeline lives in
-`features/gantt` with its layout maths (`gantt-layout.ts`) separate from the
-component so it can be unit tested.
+`features/gantt` with its layout maths (`gantt-layout.ts`) and the arithmetic of a
+drag (`gantt-edit.ts`: pixels to days, weekend snapping, handles, drop targets)
+separate from the component so they can be unit tested. The weekly grid is split the
+same way: `timesheet-grid.ts` says what a typed cell means, `save-queue.ts` runs one
+save per cell at a time so that typing again during a slow save never makes a second
+entry (and makes the keys that do the same for a create whose answer got lost), and
+`timesheet-rows.ts` keeps the rows that have no time yet in `localStorage`, under
+keys that start with the person's id (`core/user-storage.ts`). Signing out removes
+them.
 
 ## Running with Docker
 
@@ -156,7 +187,7 @@ the client's deadline.
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
-| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; API reference at http://localhost:5191/api/docs |
+| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
@@ -313,7 +344,7 @@ npm start
 | `JWT_SECRET`           | a development value (min. 32 bytes)           | api     |
 | `JWT_TTL`              | `P7D` (ISO-8601 duration)                     | api     |
 | `SEED_DEMO`            | `false` (`true` in compose)                   | api     |
-| `API_DOCS`             | `false` (`true` in compose)                   | api     |
+| `API_DOCS`             | `false` (`true` in `.env.example`)            | api     |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
@@ -378,21 +409,39 @@ fewer dumps behind than it should.
 
 The [API reference](#api-reference) is held to the code by `ApiReferenceTest`. Every
 resource method has to be in the document with a summary, a tag, the status it really
-answers with and the error body. Everything but sign-up and login has to ask for the
-token. Every error code that the code can answer with has to be named: with `@Fails` on
-the resource method, or for the ones any endpoint can answer with in the introduction
-(`api/src/main/resources/META-INF/openapi.yaml`).
+answers with and the error body, and everything but sign-up and login has to ask for
+the token. Two of its rules reach into every change to an endpoint:
 
-The shape of the document is pinned in `api/src/test/resources/api-shape.txt`: paths,
-parameters, statuses and schemas, one fact per line, without the prose. The test fails
-when the shape changes, so that no field or status changes by accident. When the change
-is meant, refresh the file and commit the difference with it:
+**Error codes.** A resource method names every error code it can answer with for a
+reason of its own, with a line like
+`@Fails(status = 409, code = "code_taken", when = "another project already uses the code")`.
+The test reads the codes from the sources (`ApiException.badRequest`,
+`ApiException.conflict` and `new ApiException`, as a string literal or a string
+constant) and compares per resource: a code has to be named, with the status it is
+thrown with, on a method of a resource that reaches the class where it is thrown, and a
+resource cannot name a code that nothing it reaches throws. A resource reaches the
+classes its source mentions and the ones those mention. A code the test cannot read,
+for example one that is put together at run time, fails it too. The message lists only
+what is wrong, each with its file and line and with what to do about it. The codes any
+endpoint can answer with (`validation_failed`, `not_found` and so on) are not named per
+method: they are in the introduction, `api/src/main/resources/META-INF/openapi.yaml`.
+
+**The shape.** `api/src/test/resources/api-shape.txt` pins the shape of the document:
+every path, parameter, response status and schema, one fact per line (a line per enum
+value and per required field), without the prose. The test fails when the shape
+changes, so that no field or status changes by accident, and prints the lines that are
+gone and the ones that are new. When the change is meant, refresh the file and commit
+the difference with the change:
 
 ```bash
 cd api && ./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update
 ```
 
 After a merge that conflicts in that file, take either side and run the same command.
+
+Schemas are named after their class. Two records with the same class name that both
+end up in the API stop the build, with a message that names them: give one of them a
+name of its own in `SCHEMA_NAMES` in `ApiReferenceFilter`.
 
 ## API reference
 
@@ -407,11 +456,14 @@ API is built, so it cannot fall behind the code:
   `POST /api/auth/login`, and then requests can be tried from the page. It is served
   when `API_DOCS=true`.
 
-With Docker both go through the web container: http://localhost:5191/api/docs. Compose
-sets `API_DOCS=true`. The API by itself leaves the page off, because it is third-party
-script on the address where the web app keeps the login token. On a host that is open
-to the internet, set `API_DOCS=false` in `.env`. The document stays either way: it says
-nothing that the source does not, and it only describes `/api`.
+With Docker both go through the web container: http://localhost:5191/api/docs. The
+page is off unless `API_DOCS=true`, with Compose as well, because Compose is also how the
+app runs for real and the page is third-party script on the address where the web app
+keeps the login token. For development, turn it on: `.env.example` has the line, or pass
+it inline (`API_DOCS=true docker compose up`, or `API_DOCS=true ./mvnw quarkus:dev`
+without Docker). The page loads nothing from other sites and does not ask the Swagger
+validator about the document. The document itself stays either way: it says nothing
+that the source does not, and it only describes `/api`.
 
 The rules that hold for every endpoint:
 
@@ -430,6 +482,12 @@ The rest of this section is what the reference only mentions in passing.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
+
+`POST /tasks/{id}/shift` takes `{ "days": n }` in working days, negative for earlier.
+The start moves by that many working days and the due date keeps the task's length in
+working days, so a Thursday to Friday task shifted by 1 runs Friday to Monday. The
+result is not pulled onto a working day afterwards: a Monday start shifted by -1 is
+the Friday before.
 
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
 returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses? }`,
@@ -457,6 +515,22 @@ Finished tasks are never in the list, but the critical path does not make that
 exception: it still moves a finished task that overlapped a task it waited for. So the
 `finish` of the critical path can be later than the latest due date while this list is
 empty. The timeline says which of the two it is in a line under its toolbar.
+
+`GET .../timesheets/week` takes `?date=` (any day of the week) and, for owners and
+managers, `?userId=`. Without a date it is the current week by the organisation's date.
+The weekly grid needs no endpoints of its own: a cell is a `POST`, `PUT` or `DELETE` on
+`/orgs/{org}/time-entries`. A `PUT` replaces the entry, so the note has to be sent back
+with it. A week that is submitted or approved answers `409 timesheet_locked` to
+everything that would change its time: a new entry, a change, an entry moved into or
+out of it, a delete, and stopping a timer that was started in it. A running timer
+keeps its day until it is stopped, and its week can't be submitted while it runs.
+
+A create can carry a `clientKey` (8 to 64 characters, made up by the client). The same
+key from the same person for the same project, task and day is taken as the same
+request: the answer is the entry that was made the first time, as it is now, and no
+second one is made. That makes it safe to send a create again when its answer never
+arrived. The web app does so for every new entry. A key that was used for something
+else answers `409 client_key_reused`.
 
 `GET .../timesheets/missing` and `POST .../timesheets/remind` are for owners and
 managers and only take weeks that are over by the organisation's date

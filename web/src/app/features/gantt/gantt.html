@@ -16,7 +16,7 @@
     }
   </div>
   <div class="gantt-scroll" #scroller>
-    <svg [attr.width]="layout().width" [attr.height]="layout().height" class="gantt-svg" role="img"
+    <svg #svg [attr.width]="layout().width" [attr.height]="layout().height" class="gantt-svg" role="img"
       aria-label="Timeline of tasks">
       <defs>
         <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -55,17 +55,26 @@
         <line class="today" [attr.x1]="layout().todayX" [attr.x2]="layout().todayX" y1="44" [attr.y2]="layout().height" />
       }
 
+      <!-- The arrows are drawn under the bars. Their keyboard stand-ins follow each bar further down. -->
       @for (link of layout().links; track link.id) {
-        <path [attr.d]="link.path" class="link" [class.critical]="link.critical && !link.broken" [class.broken]="link.broken"
-          [attr.marker-end]="link.broken ? 'url(#arrow-broken)' : link.critical ? 'url(#arrow-critical)' : 'url(#arrow)'" />
+        <g class="link-group" [class.selected]="link.id === selectedLinkId()" (pointerup)="pickLink(link)">
+          <title>{{ linkLabel(link) }}</title>
+          <path [attr.d]="link.path" class="link" [class.critical]="link.critical && !link.broken" [class.broken]="link.broken"
+            [attr.marker-end]="link.broken ? 'url(#arrow-broken)' : link.critical ? 'url(#arrow-critical)' : 'url(#arrow)'" />
+          @if (canEdit()) {
+            <!-- The arrow is too thin to click: a wide invisible copy of it takes the pointer. -->
+            <path [attr.d]="link.path" class="link-hit" />
+          }
+        </g>
       }
 
-      @for (bar of layout().bars; track bar.task.id) {
-        <g class="bar" [class.critical]="bar.critical" [class.done]="bar.done" [class.editable]="editable()"
-          [class.dragging]="drag()?.taskId === bar.task.id" [attr.transform]="'translate(' + offset(bar) + ',0)'"
+      @for (bar of bars(); track bar.task.id) {
+        <g class="bar" [class.critical]="bar.critical" [class.done]="bar.done" [class.editable]="canEdit()"
+          [class.dragging]="drag()?.active && drag()?.taskId === bar.task.id"
+          [class.link-target]="linkDraft()?.target?.id === bar.task.id" [attr.data-task]="bar.task.id"
           tabindex="0" role="button" [attr.aria-label]="bar.task.title + ', ' + formatRange(bar.task.startDate, bar.task.dueDate)"
-          (pointerdown)="onPointerDown($event, bar)" (pointermove)="onPointerMove($event)" (pointerup)="onPointerUp($event, bar)"
-          (keydown)="onKey($event, bar)">
+          (pointerdown)="onPointerDown($event, bar)" (pointermove)="onPointerMove($event)" (pointerup)="onPointerUp($event)"
+          (pointercancel)="cancelDrag()" (focus)="selectedLinkId.set(null)" (keydown)="onKey($event, bar)">
           <title>{{ bar.task.title }} ({{ formatRange(bar.task.startDate, bar.task.dueDate) }})</title>
           @if (bar.milestone) {
             <polygon [attr.points]="diamond(bar)" class="milestone" />
@@ -79,11 +88,40 @@
               <text [attr.x]="bar.x + 6" [attr.y]="bar.y + 13" class="bar-label">{{ bar.task.assigneeName ?? '' }}</text>
             }
           }
+          @if (canEdit()) {
+            @let grab = grabAreas(bar);
+            @if (!bar.milestone) {
+              <rect class="handle" [attr.x]="grab.start.x" [attr.y]="grab.start.y" [attr.width]="grab.start.width"
+                [attr.height]="grab.start.height" (pointerdown)="onPointerDown($event, bar, 'start')" />
+              <rect class="handle" [attr.x]="grab.end.x" [attr.y]="grab.end.y" [attr.width]="grab.end.width"
+                [attr.height]="grab.end.height" (pointerdown)="onPointerDown($event, bar, 'end')" />
+            }
+            <circle class="connector" [attr.cx]="grab.connector.x" [attr.cy]="grab.connector.y" [attr.r]="connectorRadius"
+              (pointerdown)="onPointerDown($event, bar, 'link')" />
+          }
         </g>
+        @if (canEdit()) {
+          <!-- A bar is followed by the arrows that leave it, so Tab goes from a task to what waits for it. -->
+          @for (link of outgoing().get(bar.task.id) ?? []; track link.id) {
+            <path class="link-focus" [class.selected]="link.id === selectedLinkId()" [attr.d]="link.path" [attr.data-link]="link.id"
+              tabindex="0" role="button" [attr.aria-label]="linkLabel(link) + '. Press Delete to remove this link.'"
+              (focus)="selectLink(link)" (keydown)="onLinkKey($event, link)" />
+          }
+        }
+      }
+
+      @if (linkDraft(); as draft) {
+        <path [attr.d]="draft.path" class="link-draft" />
       }
     </svg>
   </div>
 </div>
-@if (drag() && dragPreviewDays() !== 0) {
-  <p class="gantt-hint">Move by {{ dragPreviewDays() > 0 ? '+' : '' }}{{ dragPreviewDays() }} days</p>
+@if (hint(); as text) {
+  <p class="gantt-hint">{{ text }}</p>
+} @else if (selectedLink(); as link) {
+  <p class="gantt-hint gantt-selection" role="status">
+    {{ linkLabel(link) }}
+    <button type="button" class="small" (click)="removeLink(link)">Remove link</button>
+    <button type="button" class="small" (click)="keepLink(link)">Keep</button>
+  </p>
 }

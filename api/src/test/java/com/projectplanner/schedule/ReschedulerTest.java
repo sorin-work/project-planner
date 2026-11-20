@@ -89,6 +89,40 @@ class ReschedulerTest {
     }
 
     @Test
+    void shiftsByWorkingDaysAndKeepsTheLength() {
+        var task = new ScheduledTask(1, day(3), day(4)); // Thu - Fri
+        // One day later is Fri - Mon, still two working days. Calendar days would have made it Fri - Sat.
+        assertThat(rescheduler.shift(task, 1)).isEqualTo(new ScheduledTask(1, day(4), day(7)));
+        assertThat(rescheduler.shift(task, 5)).isEqualTo(new ScheduledTask(1, day(10), day(11)));
+        assertThat(rescheduler.shift(task, -4)).isEqualTo(new ScheduledTask(1, day(-3), day(0))); // Fri - Mon
+    }
+
+    @Test
+    void aMondayStartShiftedEarlierLandsOnFridayAndStaysThere() {
+        var task = new ScheduledTask(1, day(7), day(8)); // Mon - Tue
+        // Pulling the result onto a working day would put it back on Monday and the bar would never move.
+        assertThat(rescheduler.shift(task, -1)).isEqualTo(new ScheduledTask(1, day(4), day(7))); // Fri - Mon
+        assertThat(rescheduler.shift(task, -2)).isEqualTo(new ScheduledTask(1, day(3), day(4))); // Thu - Fri
+    }
+
+    @Test
+    void shiftsOutOfAWeekendIntoTheNextWorkingDay() {
+        var task = new ScheduledTask(1, day(5), day(8)); // Sat - Tue, two working days
+        assertThat(rescheduler.shift(task, 1)).isEqualTo(new ScheduledTask(1, day(7), day(8))); // Mon - Tue
+        assertThat(rescheduler.shift(task, -1)).isEqualTo(new ScheduledTask(1, day(4), day(7))); // Fri - Mon
+    }
+
+    @Test
+    void shiftsTheOnlyDateATaskHasAndLeavesEverythingAloneForZero() {
+        assertThat(rescheduler.shift(new ScheduledTask(1, day(4), null), 1)).isEqualTo(new ScheduledTask(1, day(7), null));
+        assertThat(rescheduler.shift(new ScheduledTask(1, null, day(7)), -1)).isEqualTo(new ScheduledTask(1, null, day(4)));
+        assertThat(rescheduler.shift(new ScheduledTask(1, day(4), day(4)), 2)).isEqualTo(new ScheduledTask(1, day(8), day(8)));
+        // Thu - Sat is two working days. Recomputing its due date would move it to Friday.
+        var odd = new ScheduledTask(1, day(3), day(5));
+        assertThat(rescheduler.shift(odd, 0)).isEqualTo(odd);
+    }
+
+    @Test
     void doesNotTouchTasksOutsideTheMovedTasksChain() {
         // C already violates its link to D, but nothing upstream of it moved.
         var a = new ScheduledTask(1, day(0), day(0));

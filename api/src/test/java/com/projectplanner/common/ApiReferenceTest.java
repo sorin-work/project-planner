@@ -3,6 +3,8 @@ package com.projectplanner.common;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.projectplanner.support.ErrorCodeScan;
+import com.projectplanner.support.ErrorCodeScan.Thrown;
 import io.quarkus.arc.Arc;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.enterprise.inject.Any;
@@ -188,40 +190,103 @@ class ApiReferenceTest {
     }
 
     /**
-     * The codes the reference promises are the codes the code answers with: every code
-     * named by {@code @Fails} is thrown somewhere, every code that is thrown is named by
-     * an operation, and the ones any operation can answer with are in the introduction.
+     * The rule for error codes. An operation names, with {@code @Fails}, every code it can
+     * answer with for a reason of its own, and no other.
+     *
+     * <p>"Can answer with" is read from the sources, per resource class: the codes thrown in
+     * the resource itself and in the classes its source reaches (the classes it mentions,
+     * and the ones those mention). So a code has to be named on an operation of a resource
+     * that reaches the place where it is thrown, with the status it is thrown with, and a
+     * resource cannot name a code that nothing it reaches throws.
      */
     @Test
-    void theErrorCodesAreTheOnesInTheCode() throws IOException {
-        Set<String> thrown = new TreeSet<>();
-        Set<String> common = new TreeSet<>();
-        Pattern ownCode = Pattern.compile("(?:badRequest|conflict)\\(\"([a-z_]+)\"|new ApiException\\(\\d+, \"([a-z_]+)\"");
-        Pattern commonCode = Pattern.compile("new Api(?:Error|Exception)\\(\\d+, \"([a-z_]+)\"|-> \"([a-z_]+)\";");
-        try (Stream<Path> sources = Files.walk(Path.of("src/main/java"))) {
-            for (Path source : sources.filter(file -> file.toString().endsWith(".java")).toList()) {
-                boolean shared = source.endsWith("ErrorMappers.java") || source.endsWith("ApiException.java");
-                Matcher matcher = (shared ? commonCode : ownCode).matcher(Files.readString(source));
-                while (matcher.find()) {
-                    (shared ? common : thrown).add(matcher.group(1) != null ? matcher.group(1) : matcher.group(2));
-                }
+    void everyOperationNamesTheErrorCodesItsResourceCanAnswerWith() throws IOException {
+        Map<String, String> sources = sources();
+        // These two make the errors that every endpoint shares. They are checked below.
+        Map<String, String> own = new TreeMap<>(sources);
+        own.keySet().removeIf(file -> file.endsWith("/ApiException.java") || file.endsWith("/ErrorMappers.java"));
+        ErrorCodeScan.Result scan = ErrorCodeScan.scan(own);
+        Map<String, Set<String>> reach = ErrorCodeScan.reach(own);
+        assertThat(scan.thrown()).as("codes found in the sources").extracting(Thrown::code)
+                .contains("dependency_cycle", "timesheet_locked", "code_taken");
+
+        List<String> problems = new ArrayList<>();
+        scan.unreadable().forEach(place -> problems.add("Cannot read the error at " + place.file() + ":" + place.line() + ": "
+                + place.why() + ".\n    Write the code as a string literal or a string constant, and the status as a number,"
+                + " so that the API reference can say what the endpoint answers with."));
+
+        Map<String, List<Method>> resources = new TreeMap<>();
+        resourceMethods().values().forEach(method -> resources
+                .computeIfAbsent(method.getDeclaringClass().getSimpleName(), name -> new ArrayList<>()).add(method));
+
+        for (Thrown thrown : scan.thrown()) {
+            List<String> reaching = resources.keySet().stream()
+                    .filter(resource -> reach.getOrDefault(resource, Set.of()).contains(ErrorCodeScan.className(thrown.file()))).toList();
+            List<Fails> naming = reaching.stream().flatMap(resource -> resources.get(resource).stream())
+                    .flatMap(method -> Arrays.stream(method.getAnnotationsByType(Fails.class)))
+                    .filter(fails -> fails.code().equals(thrown.code())).toList();
+            String line = "@Fails(status = " + thrown.status() + ", code = \"" + thrown.code() + "\", when = \"...\")";
+            if (reaching.isEmpty()) {
+                problems.add("`" + thrown.code() + "` is thrown at " + thrown.place() + ", in a class that no resource reaches."
+                        + "\n    If an endpoint can answer with it, the resource has to mention that class. If none can, remove it.");
+            } else if (naming.isEmpty()) {
+                problems.add("`" + thrown.code() + "` is thrown at " + thrown.place() + " and no operation names it."
+                        + "\n    Add " + line + " to the method of " + String.join(" or ", reaching) + " that can answer with it.");
+            } else if (naming.stream().noneMatch(fails -> fails.status() == thrown.status())) {
+                problems.add("`" + thrown.code() + "` is thrown with status " + thrown.status() + " at " + thrown.place()
+                        + " and named with status " + naming.getFirst().status() + "."
+                        + "\n    Make the @Fails line say " + thrown.status() + ", or the code throw what the line says.");
             }
         }
-        assertThat(thrown).as("codes found in the sources").contains("dependency_cycle", "timesheet_locked", "code_taken");
-        assertThat(common).as("codes found in ErrorMappers").contains("validation_failed", "not_found", "internal_error");
-
-        Set<String> named = new TreeSet<>();
-        resourceMethods().forEach((id, method) -> {
+        resources.forEach((resource, methods) -> methods.forEach(method -> {
             for (Fails fails : method.getAnnotationsByType(Fails.class)) {
-                named.add(fails.code());
-                assertThat(operations().get(id).at("/responses/" + fails.status() + "/description").asText())
-                        .as("%s documents %s", id, fails.code()).contains("`" + fails.code() + "`: " + fails.when());
+                boolean thrownInReach = scan.thrown().stream().anyMatch(thrown -> thrown.code().equals(fails.code())
+                        && reach.getOrDefault(resource, Set.of()).contains(ErrorCodeScan.className(thrown.file())));
+                if (!thrownInReach) {
+                    problems.add(resource + "." + method.getName() + " names `" + fails.code() + "` with @Fails, and nothing that "
+                            + resource + " reaches throws it.\n    Remove the line, or check the spelling of the code.");
+                }
+                assertThat(operations().get(resource + "_" + method.getName()).at("/responses/" + fails.status() + "/description").asText())
+                        .as("%s.%s documents %s", resource, method.getName(), fails.code()).contains("`" + fails.code() + "`: " + fails.when());
+            }
+        }));
+
+        if (!problems.isEmpty()) {
+            fail("The error codes in the code and in the API reference differ in " + problems.size() + " place(s).\n\n  "
+                    + String.join("\n\n  ", problems) + "\n\nAn operation names every code it can answer with for a reason of its own,"
+                    + " with a @Fails line on the resource method. The API reference is built from those lines.\n");
+        }
+    }
+
+    /** The errors every endpoint shares are made in two classes, and the introduction lists their codes. */
+    @Test
+    void theIntroductionListsTheCodesEveryOperationCanAnswerWith() throws IOException {
+        Set<String> common = new TreeSet<>();
+        Pattern commonCode = Pattern.compile("new Api(?:Error|Exception)\\(\\d+, \"([a-z0-9_]+)\"|-> \"([a-z0-9_]+)\";");
+        sources().forEach((file, text) -> {
+            if (file.endsWith("/ApiException.java") || file.endsWith("/ErrorMappers.java")) {
+                Matcher matcher = commonCode.matcher(ErrorCodeScan.withoutComments(text));
+                while (matcher.find()) {
+                    common.add(matcher.group(1) != null ? matcher.group(1) : matcher.group(2));
+                }
             }
         });
-        assertThat(named).as("codes named with @Fails against codes thrown in the code").isEqualTo(thrown);
+        assertThat(common).contains("validation_failed", "unauthorized", "forbidden", "not_found", "internal_error");
 
         String introduction = document().at("/info/description").asText();
-        assertThat(common).allSatisfy(code -> assertThat(introduction).contains("`" + code + "`"));
+        assertThat(common).allSatisfy(code -> assertThat(introduction)
+                .as("the introduction in META-INF/openapi.yaml lists `%s`", code).contains("`" + code + "`"));
+    }
+
+    /** Every source file of the API, by its path, with forward slashes. */
+    private static Map<String, String> sources() throws IOException {
+        Map<String, String> sources = new TreeMap<>();
+        try (Stream<Path> files = Files.walk(Path.of("src/main/java"))) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
+                sources.put(file.toString().replace('\\', '/'), Files.readString(file));
+            }
+        }
+        return sources;
     }
 
     @Test
@@ -272,8 +337,8 @@ class ApiReferenceTest {
             gone.removeAll(new HashSet<>(shape));
             List<String> added = new ArrayList<>(shape);
             added.removeAll(new HashSet<>(pinned));
-            fail("The API has changed shape.\n\nNo longer there:\n  " + String.join("\n  ", gone)
-                    + "\n\nNew:\n  " + String.join("\n  ", added)
+            fail("The API has changed shape.\n\nNo longer there:\n  " + (gone.isEmpty() ? "(nothing)" : String.join("\n  ", gone))
+                    + "\n\nNew:\n  " + (added.isEmpty() ? "(nothing)" : String.join("\n  ", added))
                     + "\n\nIf that is what you meant to do, refresh " + PINNED_SHAPE + " and commit it:\n  " + REFRESH + "\n");
         }
     }
@@ -284,7 +349,9 @@ class ApiReferenceTest {
     /**
      * The document as sorted lines of "where = what", without the introduction, the tag
      * list and the prose. One fact per line keeps two changes to different endpoints from
-     * touching the same line.
+     * touching the same line: a list of values (an enum, the required fields) has a line
+     * per value. Whatever has no fact of its own still gets a line, so that a response
+     * that is only a status and a description, as every 204 is, is pinned as well.
      */
     static List<String> shape(JsonNode document) {
         List<String> lines = new ArrayList<>();
@@ -299,11 +366,15 @@ class ApiReferenceTest {
 
     private static void flatten(String where, JsonNode node, List<String> lines) {
         if (node.isObject()) {
+            int before = lines.size();
             node.properties().forEach(field -> {
                 if (!PROSE.contains(field.getKey()) || field.getValue().isObject()) {
                     flatten(where + " " + field.getKey(), field.getValue(), lines);
                 }
             });
+            if (lines.size() == before) {
+                lines.add(where + " = {}");
+            }
         } else if (node.isArray() && where.endsWith(" parameters")) {
             // By place and name instead of by position. The two then need no lines of their own.
             node.forEach(parameter -> {
@@ -314,11 +385,11 @@ class ApiReferenceTest {
         } else if (node.isArray() && where.endsWith(" security")) {
             node.forEach(requirement -> lines.add(where + " = " + String.join(", ", fieldNames(requirement))));
         } else if (node.isArray() && (node.isEmpty() || node.get(0).isValueNode())) {
-            // required, enum, tags: the order says nothing.
-            List<String> values = new ArrayList<>();
-            node.forEach(value -> values.add(value.asText()));
-            values.sort(null);
-            lines.add(where + " = " + String.join(", ", values));
+            // required, enum, tags: a line per value, and the order says nothing.
+            node.forEach(value -> lines.add(where + " = " + value.asText()));
+            if (node.isEmpty()) {
+                lines.add(where + " = []");
+            }
         } else if (node.isArray()) {
             for (int i = 0; i < node.size(); i++) {
                 flatten(where + " " + i, node.get(i), lines);

@@ -1324,6 +1324,8 @@ select.compact {
 
 .gantt-svg .bar.editable {
   cursor: grab;
+  /* Otherwise a drag on a touch screen scrolls the timeline instead of moving the bar. */
+  touch-action: none;
 }
 
 .gantt-svg .bar.dragging {
@@ -1368,6 +1370,66 @@ select.compact {
   pointer-events: none;
 }
 
+/* Editing on the timeline: resize strips at both ends of a bar, a dot to draw a link from. */
+.gantt-svg .handle {
+  fill: transparent;
+  cursor: ew-resize;
+}
+
+.gantt-svg .connector {
+  fill: var(--surface);
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  cursor: crosshair;
+  opacity: 0;
+}
+
+.gantt-svg .bar:hover .connector,
+.gantt-svg .bar:focus .connector,
+.gantt-svg .bar.dragging .connector {
+  opacity: 1;
+}
+
+.gantt-svg .bar.link-target .bar-bg,
+.gantt-svg .bar.link-target .milestone {
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
+.gantt-svg .link-draft {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.gantt-svg .link-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/*
+ * The keyboard stand-in of an arrow: it sits after its bar in the tab order and is
+ * only drawn, as a band along the arrow, while that arrow is selected or focused.
+ * A thicker line would also blow up the arrowhead.
+ */
+.gantt-svg .link-focus {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: none;
+  outline: none;
+}
+
+.gantt-svg .link-focus.selected,
+.gantt-svg .link-focus:focus-visible {
+  stroke: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
 .gantt-hint {
   position: fixed;
   bottom: 1rem;
@@ -1377,6 +1439,17 @@ select.compact {
   color: var(--surface);
   padding: 0.4rem 0.8rem;
   border-radius: 6px;
+}
+
+.gantt-selection {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* The toast is dark with light text, which its buttons would inherit on their light background. */
+.gantt-selection button {
+  color: var(--text);
 }
 
 /* Time */
@@ -1425,6 +1498,55 @@ select.compact {
 
 .timesheet-grid tfoot th {
   color: var(--text);
+}
+
+.timesheet-grid.editable tbody td.num {
+  padding: 0.25rem 0.3rem;
+}
+
+.cell-input,
+.cell-several {
+  width: 4.75rem;
+  padding: 0.3rem 0.4rem;
+  text-align: right;
+}
+
+.cell-input.has-note {
+  border-bottom-style: dashed;
+}
+
+.cell-input.saving {
+  color: var(--muted);
+}
+
+.cell-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.cell-several {
+  border-style: dashed;
+}
+
+.grid-problems {
+  list-style: none;
+  padding-left: 0.8rem;
+}
+
+.grid-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.grid-tools select {
+  width: auto;
+  max-width: 18rem;
+}
+
+.entries li.shown {
+  background: var(--surface-2);
 }
 
 .review-actions {

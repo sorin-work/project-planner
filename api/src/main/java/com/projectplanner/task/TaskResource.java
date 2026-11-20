@@ -105,8 +105,8 @@ public class TaskResource {
     @POST
     @Path("/tasks/{taskId}/shift")
     @Transactional
-    @Operation(summary = "Move a task by a number of days, keeping its length",
-            description = "For the team: owners, managers and members, not client viewers. Dependants are pushed back as with a change of dates.")
+    @Operation(summary = "Move a task by a number of working days, keeping its length",
+            description = "For the team: owners, managers and members, not client viewers. A negative number moves the task earlier. Its length stays the same in working days. Dependants are pushed back as with a change of dates.")
     @Fails(status = 400, code = "unscheduled", when = "the task has no dates")
     public TaskChange shift(@PathParam("taskId") long taskId, @Valid @NotNull ShiftRequest request) {
         Task task = find(taskId);
