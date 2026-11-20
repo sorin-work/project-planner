@@ -53,7 +53,12 @@ import { MoveTo, issueLines, planEndNote } from './schedule-issues';
       </section>
     }
     @if (org.isTeam()) {
-      <p class="muted small">Drag a bar (or focus it and use the arrow keys) to move it; tasks that depend on it move too.</p>
+      <p class="muted small">
+        Drag a bar to move it and tasks that depend on it move too. At day and week zoom, drag an end to change the start or
+        due date, and drag the dot after a bar onto the task that should wait for it. Click an arrow to remove it. With the
+        keyboard: the arrow keys move the focused bar by a working day, Shift with the arrow keys moves its due date, and
+        Delete removes the focused arrow.
+      </p>
     }
     @if (message()) {
       <p class="alert info" role="status">{{ message() }}</p>
@@ -64,7 +69,8 @@ import { MoveTo, issueLines, planEndNote } from './schedule-issues';
     <div class="card gantt-card">
       <app-gantt [tasks]="store.tasks()" [phases]="store.phases()" [critical]="store.criticalIds()"
         [broken]="store.brokenLinks()" [showCritical]="showCritical" [zoom]="zoom()" [editable]="org.isTeam()"
-        (moved)="move($event.taskId, $event.days)" (opened)="openTask($event)" />
+        (moved)="move($event.taskId, $event.days)" (resized)="resize($event)" (linked)="link($event)"
+        (unlinked)="unlink($event)" (opened)="openTask($event)" />
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -78,9 +84,7 @@ export class TimelineTab {
   protected readonly zoom = signal<Zoom>('day');
   protected showCritical = true;
   protected readonly showIssues = signal(false);
-  protected readonly lines = computed(() =>
-    issueLines(this.store.issues(), (id) => this.store.byId().get(id)?.title ?? `#${id}`),
-  );
+  protected readonly lines = computed(() => issueLines(this.store.issues(), (id) => this.title(id)));
   protected readonly endNote = computed(() =>
     planEndNote(this.store.criticalPath()?.finish, this.store.tasks(), this.store.issues()),
   );
@@ -88,27 +92,59 @@ export class TimelineTab {
   protected readonly error = signal<string | null>(null);
   protected readonly formatDate = formatDate;
 
+  /** A bar was dragged or moved with the arrow keys, by working days. */
   move(taskId: number, days: number): void {
-    this.apply(this.store.shiftTask(taskId, days));
+    this.apply(this.store.shiftTask(taskId, days), (change) => pushedBack(change, `${change.task.title} moved`));
+  }
+
+  /** One end of a bar was dragged: only that date is sent. */
+  resize(change: { taskId: number; startDate?: string; dueDate?: string }): void {
+    const { taskId, ...dates } = change;
+    this.apply(this.store.updateTask(taskId, dates), (done) => pushedBack(done, `${done.task.title} changed`));
+  }
+
+  /** A link was drawn on the timeline. It goes the way of the form in the task panel, loop check included. */
+  link(link: { predecessorId: number; successorId: number }): void {
+    this.apply(this.store.addDependency(link.successorId, link.predecessorId, 0), (change) => {
+      const waits = `${change.task.title} now waits for ${this.title(link.predecessorId)}`;
+      return pushedBack(change, waits) ?? `${waits}.`;
+    });
+  }
+
+  unlink(link: { successorId: number; dependencyId: number }): void {
+    const waited = this.store.byId().get(link.successorId)?.predecessors.find((d) => d.id === link.dependencyId);
+    const text = waited ? `${this.title(link.successorId)} no longer waits for ${this.title(waited.predecessorId)}.` : null;
+    this.apply(this.store.removeDependency(link.successorId, link.dependencyId), () => text);
   }
 
   /** Moves a task to the dates the API suggested for it, exactly as they came. */
   applyFix(fix: MoveTo): void {
-    this.apply(this.store.updateTask(fix.taskId, { startDate: fix.startDate, dueDate: fix.dueDate }));
+    this.apply(
+      this.store.updateTask(fix.taskId, { startDate: fix.startDate, dueDate: fix.dueDate }),
+      (change) => pushedBack(change, `${change.task.title} moved`),
+    );
   }
 
-  private apply(request: Observable<TaskChange>): void {
+  /**
+   * Sends one edit. The timeline draws what the store holds and the store only takes
+   * what the API answered, so a refused edit leaves the bar where it was.
+   */
+  private apply<T>(request: Observable<T>, describe: (result: T) => string | null): void {
     this.error.set(null);
     this.message.set(null);
     request.subscribe({
-      next: (change) => {
-        if (change.rescheduled.length) {
-          this.message.set(
-            `${change.task.title} moved; ${change.rescheduled.length} dependent task${change.rescheduled.length === 1 ? ' was' : 's were'} pushed back.`,
-          );
-        }
-      },
+      next: (result) => this.message.set(describe(result)),
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
   }
+
+  private title(taskId: number): string {
+    return this.store.byId().get(taskId)?.title ?? `#${taskId}`;
+  }
+}
+
+/** "X moved; 2 dependent tasks were pushed back.", or null when nothing else had to move. */
+function pushedBack(change: TaskChange, what: string): string | null {
+  const count = change.rescheduled.length;
+  return count ? `${what}; ${count} dependent task${count === 1 ? ' was' : 's were'} pushed back.` : null;
 }
