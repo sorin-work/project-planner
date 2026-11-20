@@ -12,9 +12,10 @@
 #      database and the row count of every table.
 #   3. An older dump under this api, with the commands from the README. One
 #      migration is taken back by hand and the database dumped. Then the
-#      volume is thrown away, the dump restored and the api started. Flyway
-#      has to apply the migration again, although the dump holds a newer one,
-#      and the rows have to be back.
+#      volume is thrown away and the dump restored: the rows have to be
+#      back before the api has run. Then the api is started, without the
+#      demo seed. Flyway has to apply the migration again, although the dump
+#      holds a newer one.
 #   4. A database from a newer version than this api. The api has to refuse
 #      to start on it, instead of running old code against a schema it does
 #      not know.
@@ -156,21 +157,27 @@ compose run --rm -T backup once
 dump=$(ls "$BACKUP_DIR")
 [ -r "$BACKUP_DIR/$dump" ] || fail "$dump cannot be read by the owner of the folder it is in"
 
-echo "== lose the volume, restore $dump, start the api"
+echo "== lose the volume, restore $dump"
 compose down -v
 mine=false
 compose up --no-start db
 own_storage
 compose run --rm -T backup restore "$dump"
-compose up -d --wait api
+# Counted before the api has run, and the api is then started without the
+# demo seed. The seed makes the same rows every time, so with it a restore
+# that brought back the tables and no rows would be filled up again and
+# pass.
+restored=$(counts)
+echo "$restored"
+[ "$before" = "$restored" ] || fail "the restored database does not have the row counts from before the dump"
 
-echo "== what the api made of it"
+echo "== start the api on it, without the demo seed"
+export SEED_DEMO=false
+compose up -d --wait api
 sql "select installed_rank, version, description, success from flyway_schema_history order by installed_rank"
 applied=$(sql "select count(*) from flyway_schema_history where version = '14' and success and installed_rank = (select max(installed_rank) from flyway_schema_history)")
 [ "$applied" = 1 ] || fail "the api did not apply V14 on top of the restored dump"
-after=$(counts)
-echo "$after"
-[ "$before" = "$after" ] || fail "the row counts are not the ones from before the dump"
+[ "$before" = "$(counts)" ] || fail "the row counts changed when the api migrated the restored dump"
 
 echo "== a database from a newer version: the api has to refuse it"
 # All that Flyway goes by is a migration in its history that this api has no
