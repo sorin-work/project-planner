@@ -184,6 +184,10 @@ drop() {
 # the old one would keep the tables of migrations newer than the dump, while
 # the restored flyway_schema_history says they never ran, and the api would
 # fail on them at its next start.
+#
+# The swap is two renames in one transaction, and the old database is
+# dropped after it. Whenever this script is killed there is a database with
+# the right name: the old one before the commit, the restored one after.
 restore() {
   check_settings
   file=${1:-}
@@ -207,26 +211,43 @@ restore() {
   done
 
   incoming="${PGDATABASE}_restoring"
+  replaced="${PGDATABASE}_replaced"
   drop "$incoming"
   createdb "$incoming"
   if ! pg_restore --exit-on-error --no-owner --dbname="$incoming" "$file"; then
     drop "$incoming"
     fail "could not restore $(basename "$file"), $PGDATABASE was left as it was"
   fi
-  if ! drop "$PGDATABASE"; then
-    drop "$incoming"
-    fail "could not replace $PGDATABASE, something is still connected to it. It was left as it was. Stop the api and try again."
-  fi
+
   rename="ALTER DATABASE \"$incoming\" RENAME TO \"$PGDATABASE\""
-  if ! psql -qX -v ON_ERROR_STOP=1 -d postgres -c "$rename"; then
-    # The old database is gone and the copy does not have its name yet.
-    log "$PGDATABASE was dropped, but the restored copy could not be given its name." >&2
-    log "Nothing is lost: the data from $(basename "$file") is in the database $incoming." >&2
-    log "To finish the restore, run this against the same server:" >&2
-    log "  psql ${PGUSER:+-U $PGUSER }-d postgres -c '$rename'" >&2
-    log "With the compose stack that is:" >&2
-    log "  docker compose exec db psql ${PGUSER:+-U $PGUSER }-d postgres -c '$rename'" >&2
-    exit 1
+  if ! existing=$(psql -AtXq -d postgres -c "select count(*) from pg_database where datname = '$PGDATABASE'"); then
+    drop "$incoming"
+    fail "could not look up $PGDATABASE, it was left as it was"
+  fi
+  if [ "$existing" = 0 ]; then
+    # A new volume, or a name nothing had yet: there is nothing to replace.
+    if ! psql -qX -v ON_ERROR_STOP=1 -d postgres -c "$rename"; then
+      log "There was no database $PGDATABASE to replace, and the restored copy could not be given that name." >&2
+      log "Nothing is lost: the data from $(basename "$file") is in the database $incoming." >&2
+      log "To finish the restore, run this against the same server:" >&2
+      log "  psql ${PGUSER:+-U $PGUSER }-d postgres -c '$rename'" >&2
+      log "With the compose stack that is:" >&2
+      log "  docker compose exec db psql ${PGUSER:+-U $PGUSER }-d postgres -c '$rename'" >&2
+      exit 1
+    fi
+  else
+    # What an earlier restore replaced, if it was killed before its last step.
+    if ! drop "$replaced"; then
+      drop "$incoming"
+      fail "could not remove $replaced, which an earlier restore left behind. $PGDATABASE was left as it was."
+    fi
+    # A database cannot be renamed while anything is connected to it, which
+    # is how a running api is noticed.
+    if ! psql -qX -v ON_ERROR_STOP=1 -d postgres -c "BEGIN; ALTER DATABASE \"$PGDATABASE\" RENAME TO \"$replaced\"; $rename; COMMIT;"; then
+      drop "$incoming"
+      fail "could not replace $PGDATABASE, something is still connected to it. It was left as it was. Stop the api and try again."
+    fi
+    drop "$replaced" || log "the old database is still there as $replaced, remove it with: dropdb $replaced" >&2
   fi
   log "restored $PGDATABASE from $(basename "$file")"
 }
