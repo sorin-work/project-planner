@@ -40,8 +40,11 @@ public class ProjectHealthService {
     public ProjectHealth health(Project project, Membership viewer) {
         LocalDate today = Organisation.<Organisation>findById(project.organisationId).today(clock);
         List<Task> tasks = Task.forProject(project.id);
+        return health(project, viewer, today, tasks, budget(project, RateBook.load(project.organisationId)));
+    }
+
+    private ProjectHealth health(Project project, Membership viewer, LocalDate today, List<Task> tasks, Budget budget) {
         Progress progress = progressCalculator.calculate(tasks.stream().map(ProjectHealthService::facts).toList(), today);
-        Budget budget = budget(project, RateBook.load(project.organisationId));
         HealthStatus status = HealthStatus.of(progress, budget, project.status == ProjectStatus.DONE, started(project, tasks, today));
 
         List<OverdueTask> overdue = tasks.stream()
@@ -66,9 +69,30 @@ public class ProjectHealthService {
         return new ProjectHealth(project.id, status, today, progress, budgetView, overdue, plannedEnd, forecastEnd, endVarianceDays);
     }
 
-    /** A lighter version for project lists. */
-    public HealthSummary summary(Project project, Membership viewer) {
-        ProjectHealth h = health(project, viewer);
+    /**
+     * The summary of each project of one organisation, for a list, with a fixed number of
+     * queries however many projects there are: the organisation, one for the tasks of all of
+     * them, the rates once, and one grouped query for their time.
+     */
+    public Map<Long, HealthSummary> summaries(long organisationId, List<Project> projects, Membership viewer) {
+        Map<Long, HealthSummary> summaries = new HashMap<>();
+        if (projects.isEmpty()) {
+            return summaries;
+        }
+        LocalDate today = Organisation.<Organisation>findById(organisationId).today(clock);
+        List<Long> ids = projects.stream().map(p -> p.id).toList();
+        Map<Long, List<Task>> tasks = new HashMap<>();
+        Task.<Task>list("projectId in ?1 order by position, id", ids)
+                .forEach(t -> tasks.computeIfAbsent(t.projectId, id -> new ArrayList<>()).add(t));
+        Map<Long, Budget> budgets = budgets(projects, RateBook.load(organisationId));
+        for (Project project : projects) {
+            ProjectHealth h = health(project, viewer, today, tasks.getOrDefault(project.id, List.of()), budgets.get(project.id));
+            summaries.put(project.id, summary(h));
+        }
+        return summaries;
+    }
+
+    private static HealthSummary summary(ProjectHealth h) {
         return new HealthSummary(h.status(), h.progress().progressPct(), h.budget().hoursBurnPct(),
                 h.budget().amountBurnPct(), h.progress().overdueTasks(), h.progress().openTasks(),
                 h.progress().scheduleVarianceHours());
@@ -86,6 +110,9 @@ public class ProjectHealthService {
 
     /** The same for several projects of one organisation, in one grouped query. */
     Map<Long, Budget> budgets(List<Project> projects, RateBook rates) {
+        if (projects.isEmpty()) {
+            return Map.of();
+        }
         Map<Long, List<TimeFacts>> entries = new HashMap<>();
         Map<Long, Project> byId = new HashMap<>();
         for (Project project : projects) {
