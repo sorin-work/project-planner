@@ -110,7 +110,12 @@
       <ul class="activity">
         @for (a of activity(); track a.id) {
           <li>
-            <span><strong>{{ a.actorName || 'Someone' }}</strong> · {{ a.summary }}</span>
+            <span>
+              <strong>{{ a.actorName || 'Someone' }}</strong> · {{ a.summary }}
+              @if (a.relatedProjectId && a.relatedProjectName) {
+                (<a [routerLink]="['/projects', a.relatedProjectId]">{{ a.relatedProjectName }}</a>)
+              }
+            </span>
             <span class="muted small">{{ timeAgo(a.createdAt) }}</span>
           </li>
         }
