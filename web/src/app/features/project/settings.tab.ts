@@ -80,6 +80,8 @@ export class SettingsTab {
     this.api.update(project.id, input).subscribe({
       next: (p) => {
         this.store.project.set(p);
+        // A new end date changes which tasks are due after it.
+        this.store.refreshSchedule();
         this.busy.set(false);
         this.saved.set(true);
       },
