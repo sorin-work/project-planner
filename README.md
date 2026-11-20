@@ -339,9 +339,11 @@ A reset request answers 204 whether or not the address has an account. The looku
 the link and the mail happen on a thread of their own after the answer is ready, so the
 time it takes does not tell either. One client may ask ten times in a quarter of an
 hour, by the address nginx saw: with `BEHIND_PROXY=true` the API takes the
-`X-Forwarded-For` that nginx writes, but only from the addresses in `TRUSTED_PROXIES`
-(`web` in Compose), so a client that reaches the API another way cannot pick an address
-for itself. An account gets at most
+`X-Forwarded-For` that nginx writes, but only from the addresses in `TRUSTED_PROXIES`.
+In Compose that is the web container's fixed address, `WEB_ADDRESS` in the subnet
+`COMPOSE_SUBNET` (`172.28.40.10` in `172.28.40.0/24`), so a client that reaches the API
+another way cannot pick an address for itself. Change both when that subnet is taken on
+the machine, for one when two copies of the stack run side by side. An account gets at most
 three links that work at the same time, and at most one a minute. Asking again never
 cancels a link that was already sent, so nobody can keep the link in somebody else's
 inbox dead. Using a link ends every session of the account that was started before,
@@ -356,13 +358,14 @@ without one you sign up there, with that address. Signed in with another account
 says so and does not let you accept. Sending an invitation again gives it a new link
 and the old one stops working, and cancelling it stops its link at once.
 
-With mail on, an address with a mailed invitation can only sign up with that
-invitation's link (`409 invitation_link_required` without it). Otherwise whoever knows
-the invited address could sign up first and get the invited role. When the link has
-expired, the invitation has to be sent again. Invitations made while mail was off were
-never mailed and are still accepted by signing up with the address, as before.
+With mail on, a mailed invitation is only ever accepted with its link. Signing up with
+the invited address alone makes an account of its own and leaves the invitation
+waiting: otherwise whoever knows the address could sign up first and get the invited
+role. The link still works for that account, after signing in. Nobody is kept from
+signing up by an invitation they did not ask for. Invitations made while mail was off
+were never mailed and are still accepted by signing up with the address, as before.
 `INVITE_LINK_REQUIRED=true` goes further: nobody can sign up without the link of an
-invitation, which closes the app to people nobody invited. It only has an effect with
+invitation (`409 invitation_required`), which closes the app to people nobody invited. It only has an effect with
 mail on, so that a fresh install without mail can still be joined, and it is off by
 default.
 
@@ -523,7 +526,8 @@ npm start
 | `APP_URL`              | none, required with `MAIL_HOST`               | api     |
 | `INVITE_LINK_REQUIRED` | `false`                                       | api     |
 | `BEHIND_PROXY`         | `false` (`true` in compose)                   | api     |
-| `TRUSTED_PROXIES`      | `127.0.0.1` (`web` in compose)                | api     |
+| `TRUSTED_PROXIES`      | `127.0.0.1` (`WEB_ADDRESS` in compose)        | api     |
+| `COMPOSE_SUBNET`, `WEB_ADDRESS` | `172.28.40.0/24`, `172.28.40.10`     | compose |
 | `MAIL_UI_PORT`         | `5192`                                        | compose |
 | `ATTACHMENTS_DIR`      | `data/attachments` (`/data/attachments` in compose) | api |
 | `ATTACHMENTS_MAX_FILE_BYTES` | `20971520` (20 MB)                      | api     |
