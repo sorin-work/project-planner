@@ -22,6 +22,16 @@ class ScheduleCheckTest {
         return LocalDate.of(2026, 3, 2).plusDays(offset);
     }
 
+    /** An issue about a finish-to-start link, which every link here is unless it says otherwise. */
+    private static Issue fs(IssueType type, long taskId, Long relatedTaskId, Integer days, LocalDate start, LocalDate due) {
+        return fs(type, taskId, relatedTaskId, days, start, due, List.of());
+    }
+
+    private static Issue fs(IssueType type, long taskId, Long relatedTaskId, Integer days, LocalDate start, LocalDate due,
+                            List<IssueType> causes) {
+        return new Issue(type, taskId, relatedTaskId, days, start, due, causes, DependencyType.FS);
+    }
+
     private List<Issue> links(List<ScheduledTask> tasks, List<Link> links) {
         return check.check(tasks, links, Map.of(), Set.of(), null);
     }
@@ -40,7 +50,7 @@ class ScheduleCheckTest {
         var build = new ScheduledTask(2, day(2), day(4)); // Wed - Fri, three days
         List<Issue> issues = links(List.of(design, build), List.of(new Link(1, 2)));
         // Build may start on Monday. Wed, Thu and Fri are too early, and three working days from Monday end on Wednesday.
-        assertThat(issues).containsExactly(new Issue(IssueType.STARTS_TOO_EARLY, 2, 1L, 3, day(7), day(9)));
+        assertThat(issues).containsExactly(fs(IssueType.STARTS_TOO_EARLY, 2, 1L, 3, day(7), day(9)));
     }
 
     @Test
@@ -50,7 +60,7 @@ class ScheduleCheckTest {
         assertThat(links(List.of(design, build), List.of(new Link(1, 2)))).isEmpty();
         // With two working days of lag the first allowed day is Tuesday.
         assertThat(links(List.of(design, build), List.of(new Link(1, 2, 2))))
-                .containsExactly(new Issue(IssueType.STARTS_TOO_EARLY, 2, 1L, 2, day(8), day(8)));
+                .containsExactly(fs(IssueType.STARTS_TOO_EARLY, 2, 1L, 2, day(8), day(8)));
     }
 
     @Test
@@ -71,8 +81,8 @@ class ScheduleCheckTest {
         // The link to the review holds. Each of the other two says how early Build is for it,
         // and both carry the dates that satisfy the later one.
         assertThat(issues).containsExactly(
-                new Issue(IssueType.STARTS_TOO_EARLY, 4, 1L, 1, day(4), day(7)),
-                new Issue(IssueType.STARTS_TOO_EARLY, 4, 2L, 3, day(4), day(7)));
+                fs(IssueType.STARTS_TOO_EARLY, 4, 1L, 1, day(4), day(7)),
+                fs(IssueType.STARTS_TOO_EARLY, 4, 2L, 3, day(4), day(7)));
     }
 
     @Test
@@ -100,7 +110,7 @@ class ScheduleCheckTest {
         var build = new ScheduledTask(2, day(9), day(11)); // Wed - Fri, waits for Design
         List<Issue> issues = check.check(List.of(design, build), List.of(new Link(1, 2)), Map.of(), Set.of(), day(11));
         // Moving Build to Monday - Wednesday clears the link and makes it three days late instead.
-        assertThat(issues).containsExactly(new Issue(IssueType.STARTS_TOO_EARLY, 2, 1L, 3, day(14), day(16),
+        assertThat(issues).containsExactly(fs(IssueType.STARTS_TOO_EARLY, 2, 1L, 3, day(14), day(16),
                 List.of(IssueType.AFTER_PROJECT_END)));
     }
 
@@ -112,7 +122,7 @@ class ScheduleCheckTest {
         List<Issue> issues = check.check(List.of(design, build, endpoints), List.of(new Link(1, 3)),
                 Map.of(3L, 2L), Set.of(), day(4));
         // Fri - Mon: Monday is past both the parent and the project.
-        assertThat(issues).containsExactly(new Issue(IssueType.STARTS_TOO_EARLY, 3, 1L, 2, day(4), day(7),
+        assertThat(issues).containsExactly(fs(IssueType.STARTS_TOO_EARLY, 3, 1L, 2, day(4), day(7),
                 List.of(IssueType.AFTER_PROJECT_END, IssueType.OUTSIDE_PARENT)));
     }
 
@@ -135,7 +145,7 @@ class ScheduleCheckTest {
         var build = new ScheduledTask(1, day(0), day(4));
         var launch = new ScheduledTask(2, day(3), day(3));
         assertThat(links(List.of(build, launch), List.of(new Link(1, 2))))
-                .containsExactly(new Issue(IssueType.STARTS_TOO_EARLY, 2, 1L, 2, day(7), day(7)));
+                .containsExactly(fs(IssueType.STARTS_TOO_EARLY, 2, 1L, 2, day(7), day(7)));
     }
 
     @Test
@@ -144,8 +154,8 @@ class ScheduleCheckTest {
         var copy = new ScheduledTask(2, day(0), null);
         var build = new ScheduledTask(3, day(2), day(4));
         assertThat(links(List.of(design, copy, build), List.of(new Link(1, 3), new Link(2, 3)))).containsExactly(
-                new Issue(IssueType.WAITS_FOR_UNSCHEDULED, 3, 1L, null, null, null),
-                new Issue(IssueType.WAITS_FOR_UNSCHEDULED, 3, 2L, null, null, null));
+                fs(IssueType.WAITS_FOR_UNSCHEDULED, 3, 1L, null, null, null),
+                fs(IssueType.WAITS_FOR_UNSCHEDULED, 3, 2L, null, null, null));
     }
 
     @Test
@@ -266,6 +276,7 @@ class ScheduleCheckTest {
             List<Issue> issues = links(List.of(design, build), List.of(link));
             assertThat(issues).as(type.name()).hasSize(1);
             Issue issue = issues.getFirst();
+            assertThat(issue.linkType()).isEqualTo(type);
             ScheduledTask fix = rescheduler.propagate(List.of(design, build), List.of(link), Set.of(1L)).get(2L);
             assertThat(issue.suggestedStart()).as(type.name()).isEqualTo(fix.start());
             assertThat(issue.suggestedDue()).as(type.name()).isEqualTo(fix.due());

@@ -51,12 +51,19 @@ public final class ScheduleCheck {
      *                         for: {@link IssueType#AFTER_PROJECT_END}, {@link IssueType#OUTSIDE_PARENT},
      *                         both or nothing. The suggestion only looks at the dependencies, so this
      *                         is the price to show next to it.
+     * @param linkType         for the two link issues: the type of the link, so that "too early" can
+     *                         say whether the start or the finish is too early
      */
     public record Issue(IssueType type, long taskId, Long relatedTaskId, Integer days,
-                        LocalDate suggestedStart, LocalDate suggestedDue, List<IssueType> suggestionCauses) {
+                        LocalDate suggestedStart, LocalDate suggestedDue, List<IssueType> suggestionCauses, DependencyType linkType) {
+
+        public Issue(IssueType type, long taskId, Long relatedTaskId, Integer days, LocalDate suggestedStart, LocalDate suggestedDue,
+                     List<IssueType> suggestionCauses) {
+            this(type, taskId, relatedTaskId, days, suggestedStart, suggestedDue, suggestionCauses, null);
+        }
 
         public Issue(IssueType type, long taskId, Long relatedTaskId, Integer days, LocalDate suggestedStart, LocalDate suggestedDue) {
-            this(type, taskId, relatedTaskId, days, suggestedStart, suggestedDue, List.of());
+            this(type, taskId, relatedTaskId, days, suggestedStart, suggestedDue, List.of(), null);
         }
     }
 
@@ -124,7 +131,8 @@ public final class ScheduleCheck {
             LocalDate allowed = rule.earliestStart(link, predecessor, task);
             if (allowed == null) {
                 if (!done.contains(predecessor.id())) {
-                    issues.add(new Issue(IssueType.WAITS_FOR_UNSCHEDULED, task.id(), predecessor.id(), null, null, null));
+                    issues.add(new Issue(IssueType.WAITS_FOR_UNSCHEDULED, task.id(), predecessor.id(), null, null, null, List.of(),
+                            link.type()));
                 }
                 continue;
             }
@@ -133,7 +141,7 @@ public final class ScheduleCheck {
                 // The fix has to satisfy every predecessor, not only this one.
                 ScheduledTask fix = rescheduler.startingOn(task, earliest);
                 issues.add(new Issue(IssueType.STARTS_TOO_EARLY, task.id(), predecessor.id(), early, fix.start(), fix.due(),
-                        causedBy(task, fix, parent, projectEnd)));
+                        causedBy(task, fix, parent, projectEnd), link.type()));
             }
         }
     }

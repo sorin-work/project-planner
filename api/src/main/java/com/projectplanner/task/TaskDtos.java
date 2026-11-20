@@ -113,10 +113,11 @@ public final class TaskDtos {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ScheduleIssueResponse(ScheduleCheck.IssueType type, long taskId, Long relatedTaskId, Integer days,
                                         LocalDate suggestedStart, LocalDate suggestedDue,
-                                        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<ScheduleCheck.IssueType> suggestionCauses) {
+                                        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<ScheduleCheck.IssueType> suggestionCauses,
+                                        @Schema(description = "For the two link issues: the type of the link.") DependencyType linkType) {
         public static ScheduleIssueResponse of(ScheduleCheck.Issue issue) {
             return new ScheduleIssueResponse(issue.type(), issue.taskId(), issue.relatedTaskId(), issue.days(),
-                    issue.suggestedStart(), issue.suggestedDue(), issue.suggestionCauses());
+                    issue.suggestedStart(), issue.suggestedDue(), issue.suggestionCauses(), issue.linkType());
         }
     }
 }
