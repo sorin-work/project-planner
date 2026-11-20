@@ -14,6 +14,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 
 @QuarkusTest
@@ -93,6 +94,17 @@ class TimeResourceTest {
                 .post("/api/orgs/" + owner.orgId() + "/time-entries")
                 .then().statusCode(409).body("code", equalTo("timesheet_locked"));
         member.as().delete("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId).then().statusCode(409);
+        // Changing an entry is refused as well, whether it is in the locked week or would move into it.
+        member.as().body(entry(projectId, WEEK, 30))
+                .put("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId)
+                .then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        Number later = member.as().body(entry(projectId, WEEK.plusDays(7), 45))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201).extract().path("id");
+        member.as().body(entry(projectId, WEEK.plusDays(2), 45))
+                .put("/api/orgs/" + owner.orgId() + "/time-entries/" + later)
+                .then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        member.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("totalMinutes", equalTo(120)).body("entries[0].locked", equalTo(true));
 
         owner.as().get("/api/orgs/" + owner.orgId() + "/timesheets")
                 .then().statusCode(200).body("id", hasItem(sheetId.intValue()));
@@ -105,6 +117,37 @@ class TimeResourceTest {
         member.as().get("/api/notifications").then().body("[0].type", equalTo("TIMESHEET_REJECTED"))
                 .body("[0].weekStart", equalTo(WEEK.toString()));
         member.as().delete("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId).then().statusCode(204);
+    }
+
+    @Test
+    void changingAnEntryReplacesItAsAWhole() {
+        Account owner = Api.signup("Odo");
+        Account other = Api.signup("Pim");
+        Api.addMember(owner, other, "MEMBER");
+        long projectId = Api.createProject(owner, "EDIT");
+        long taskId = Api.createTask(owner, projectId, Map.of("title", "Build"));
+        String entries = "/api/orgs/" + owner.orgId() + "/time-entries";
+        // An internal project: time on it is not billable unless the entry says so.
+        Number entryId = owner.as().body(Map.of("projectId", projectId, "taskId", taskId, "date", WEEK.toString(), "minutes", 60,
+                        "description", "Pairing"))
+                .post(entries).then().statusCode(201).body("billable", equalTo(false)).extract().path("id");
+
+        // What the weekly grid sends for a new time: everything else as it was.
+        owner.as().body(Map.of("projectId", projectId, "taskId", taskId, "date", WEEK.toString(), "minutes", 95,
+                        "description", "Pairing", "billable", false))
+                .put(entries + "/" + entryId).then().statusCode(200)
+                .body("id", equalTo(entryId)).body("minutes", equalTo(95))
+                .body("description", equalTo("Pairing")).body("billable", equalTo(false)).body("taskTitle", equalTo("Build"));
+        // A note that is not sent back is gone, and a missing flag stays as it was.
+        owner.as().body(Map.of("projectId", projectId, "taskId", taskId, "date", WEEK.toString(), "minutes", 30))
+                .put(entries + "/" + entryId).then().statusCode(200)
+                .body("minutes", equalTo(30)).body("description", nullValue()).body("billable", equalTo(false));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 0))
+                .put(entries + "/" + entryId).then().statusCode(400).body("errors.field", hasItem("minutes"));
+        other.as().body(entry(projectId, WEEK, 15)).put(entries + "/" + entryId).then().statusCode(403);
+
+        owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("entries", hasSize(1)).body("totalMinutes", equalTo(30));
     }
 
     @Test
