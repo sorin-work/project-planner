@@ -44,13 +44,16 @@ services:
       MAIL_TLS: ${MAIL_TLS:-false}
       APP_URL: ${APP_URL:-}
       INVITE_LINK_REQUIRED: ${INVITE_LINK_REQUIRED:-false}
-      # Requests come through the web container, which sets X-Forwarded-For.
+      # Requests come through the web container, which sets X-Forwarded-For. The header is
+      # only believed when the request comes from that container.
       BEHIND_PROXY: 'true'
+      TRUSTED_PROXIES: web
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - '${API_PORT:-4411}:8080'
+      # Only on this machine: the web container is the way in. See the README on ports.
+      - '127.0.0.1:${API_PORT:-4411}:8080'
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/q/health/ready || exit 1']
       interval: 10s
