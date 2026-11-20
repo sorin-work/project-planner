@@ -87,7 +87,8 @@ the point is knowing whether a project will land on time and on budget.
 - **Search**: `Ctrl+K` (`⌘K` on a Mac), or the Search button in the top bar, opens a
   dialog that finds projects by name, code or client, tasks by title or description and
   comments by their text. Arrow keys and Enter open a hit, and the last five picks are
-  there before anything is typed. Only what you can open is found. The List tab of a
+  there before anything is typed, with their current titles. Only what you can open is
+  found, among the recent picks too. The List tab of a
   project has filters of its own: text, assignee, status and priority, kept in the
   address so that they survive a reload and the back button.
 - **Comments with @mentions** (handles are the part of the email before the @, with

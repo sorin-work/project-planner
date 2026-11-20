@@ -791,19 +791,29 @@ text field over a listbox. The highlight is followed through
 `aria-activedescendant`, Tab stays inside, and closing gives the focus back.
 Enter waits for the answer to the text as typed and never opens a row that is
 left from earlier text, and an answer to earlier text is dropped. The last
-five picks are kept in `localStorage` per person and organisation. The List
+five picks are kept in `localStorage` under the person's key, so that signing
+out removes them, and only by kind and id: their titles are fetched fresh from
+`POST /api/orgs/{orgId}/search/recent`, which leaves out what the person can no
+longer open. The List
 tab has text, assignee, status and priority filters next to "Hide done" and
 "Only mine", all in the address, and a parent whose subtask matches stays,
 greyed out. Different from the design: the dialog is not loaded lazily (it
 costs a few kB of a bundle that is far below its budget, and so cannot fail to
 load), jsdom has no `showModal()`, so the dialog also opens without it, and
 the arrow-key handling is shared with the mention suggestions as
-`moveHighlight`. Still open: the "My tasks" page with its `assigneeId` and
-`status` parameters, which is the follow-up it was. Search reads every task
+`moveHighlight`. Still open: search reads every task
 and comment of the organisation on each request, no portable index helps a
 search for text in the middle, and on PostgreSQL alone a trigram index would.
 After a pick the focus goes back to where it was, not into the page that
-opens.
+opens. When a kind is cut off at the limit, nothing says that there are more
+hits than the list shows.
+
+Follow-up, not in this pull request: a "My tasks" page. The dashboard lists
+my overdue tasks, the ones due within seven days (`DUE_SOON_DAYS`) and the
+ones in progress, so a to-do task due in three weeks shows up nowhere
+outside its project. The page would call the search endpoint with new
+`assigneeId` and `status` parameters and no text. Neither the page nor the
+parameters are built here.
 
 ### 6. Scheduled backups and a tested restore
 
