@@ -1373,6 +1373,55 @@ select.compact {
   color: var(--text);
 }
 
+.timesheet-grid.editable tbody td.num {
+  padding: 0.25rem 0.3rem;
+}
+
+.cell-input,
+.cell-several {
+  width: 4.75rem;
+  padding: 0.3rem 0.4rem;
+  text-align: right;
+}
+
+.cell-input.has-note {
+  border-bottom-style: dashed;
+}
+
+.cell-input.saving {
+  color: var(--muted);
+}
+
+.cell-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.cell-several {
+  border-style: dashed;
+}
+
+.grid-problems {
+  list-style: none;
+  padding-left: 0.8rem;
+}
+
+.grid-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.grid-tools select {
+  width: auto;
+  max-width: 18rem;
+}
+
+.entries li.shown {
+  background: var(--surface-2);
+}
+
 .review-actions {
   margin-top: 1rem;
 }

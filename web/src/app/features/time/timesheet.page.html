@@ -31,7 +31,7 @@
     <div class="right">
       <span class="muted small">{{ formatMinutes(w.totalMinutes) }} total · {{ formatMinutes(w.billableMinutes) }} billable</span>
       @if (w.status === 'DRAFT' || w.status === 'REJECTED') {
-        <button type="button" class="primary" [disabled]="!w.entries.length" (click)="submit()">Submit week</button>
+        <button type="button" class="primary" [disabled]="!w.entries.length || problems().length > 0" (click)="submit()">Submit week</button>
       }
       @if (w.status === 'SUBMITTED') {
         <button type="button" (click)="withdraw()">Withdraw</button>
@@ -40,45 +40,127 @@
   </div>
 
   @if (grid(); as g) {
-    <div class="card table-wrap">
-      <table class="table timesheet-grid">
-        <thead>
-          <tr>
-            <th>Project / task</th>
-            @for (d of g.dates; track d) {
-              <th class="num" [class.weekend]="$index >= 5">{{ dayName(d) }}<br /><span class="muted small">{{ formatDate(d) }}</span></th>
-            }
-            <th class="num">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of g.rows; track row.key) {
+    <div class="card">
+      <div class="table-wrap">
+        <table class="table timesheet-grid" [class.editable]="!locked()">
+          <thead>
             <tr>
-              <td>
-                <span class="code">{{ row.projectCode }}</span> {{ row.taskTitle || row.projectName }}
-                @if (!row.billable) {
-                  <span class="badge muted">non-billable</span>
-                }
-              </td>
-              @for (m of row.days; track $index) {
-                <td class="num" [class.weekend]="$index >= 5">{{ m ? formatMinutes(m) : '' }}</td>
+              <th>Project / task</th>
+              @for (d of g.dates; track d) {
+                <th class="num" [class.weekend]="$index >= 5">{{ dayName(d) }}<br /><span class="muted small">{{ formatDate(d) }}</span></th>
               }
-              <td class="num"><strong>{{ formatMinutes(row.total) }}</strong></td>
+              <th class="num">Total</th>
             </tr>
-          } @empty {
-            <tr><td colspan="9" class="muted">No time logged this week.</td></tr>
-          }
-        </tbody>
-        <tfoot>
-          <tr>
-            <th>Total</th>
-            @for (m of g.dayTotals; track $index) {
-              <th class="num" [class.weekend]="$index >= 5">{{ m ? formatMinutes(m) : '' }}</th>
+          </thead>
+          <tbody>
+            @for (r of view(); track r.row.key; let rowIndex = $index) {
+              <tr>
+                <td>
+                  <span class="code">{{ r.row.projectCode }}</span> {{ r.row.taskTitle || r.row.projectName }}
+                  @if (!r.row.billable) {
+                    <span class="badge muted">non-billable</span>
+                  }
+                  @if (r.removable) {
+                    <button type="button" class="link small" (click)="removeRow(r.row)" [attr.aria-label]="'Remove the row ' + r.label">remove</button>
+                  }
+                </td>
+                @for (cell of r.cells; track cell.date) {
+                  <td class="num" [class.weekend]="cell.day >= 5">
+                    @switch (cell.control) {
+                      @case ('input') {
+                        <input
+                          class="cell-input"
+                          autocomplete="off"
+                          [class.has-note]="cell.note"
+                          [class.saving]="cell.saving"
+                          [attr.data-cell]="rowIndex + ':' + cell.day"
+                          [attr.aria-label]="cell.label"
+                          [attr.aria-invalid]="cell.invalid ? 'true' : null"
+                          [attr.aria-describedby]="cell.invalid ? 'grid-problems' : null"
+                          [attr.title]="cell.note"
+                          [value]="cell.text"
+                          (focus)="selectAll($event)"
+                          (input)="typed(cell, $event)"
+                          (blur)="commit(r.row, cell)"
+                          (keydown)="cellKeydown($event, r.row, cell, rowIndex)"
+                        />
+                      }
+                      @case ('several') {
+                        <button
+                          type="button"
+                          class="cell-several"
+                          [attr.data-cell]="rowIndex + ':' + cell.day"
+                          [attr.aria-label]="cell.label"
+                          title="Several entries: change them in the list below"
+                          (click)="showEntries(cell, entryList)"
+                          (keydown)="cellKeydown($event, r.row, cell, rowIndex)"
+                        >
+                          {{ formatMinutes(cell.minutes) }}<span aria-hidden="true"> +</span>
+                        </button>
+                      }
+                      @case ('running') {
+                        <span class="muted small">running</span>
+                      }
+                      @default {
+                        {{ cell.minutes ? formatMinutes(cell.minutes) : '' }}
+                      }
+                    }
+                  </td>
+                }
+                <td class="num"><strong>{{ formatMinutes(r.row.total) }}</strong></td>
+              </tr>
+            } @empty {
+              <tr><td colspan="9" class="muted">{{ locked() ? 'No time logged this week.' : 'No time logged this week. Add a row to start.' }}</td></tr>
             }
-            <th class="num">{{ formatMinutes(g.total) }}</th>
-          </tr>
-        </tfoot>
-      </table>
+          </tbody>
+          <tfoot>
+            <tr>
+              <th>Total</th>
+              @for (m of g.dayTotals; track $index) {
+                <th class="num" [class.weekend]="$index >= 5">{{ m ? formatMinutes(m) : '' }}</th>
+              }
+              <th class="num">{{ formatMinutes(g.total) }}</th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      @if (!locked()) {
+        @if (problems().length) {
+          <ul id="grid-problems" class="alert error grid-problems" role="alert">
+            @for (problem of problems(); track problem.key) {
+              <li>{{ problem.text }}</li>
+            }
+          </ul>
+        }
+        @if (gridError()) {
+          <p class="alert error" role="alert">{{ gridError() }}</p>
+        }
+        @if (notice()) {
+          <p class="alert info" role="status">{{ notice() }}</p>
+        }
+        <div class="grid-tools">
+          <label class="sr-only" for="row-project">Project for a new row</label>
+          <select id="row-project" name="rowProject" [(ngModel)]="rowForm.projectId" (ngModelChange)="rowProjectChanged($event)">
+            <option [ngValue]="null">Project…</option>
+            @for (p of projects(); track p.id) {
+              <option [ngValue]="p.id">{{ p.label }}</option>
+            }
+          </select>
+          <label class="sr-only" for="row-task">Task for a new row</label>
+          <select id="row-task" name="rowTask" [(ngModel)]="rowForm.taskId" [disabled]="!rowTasks().length">
+            <option [ngValue]="null">No task</option>
+            @for (t of rowTasks(); track t.id) {
+              <option [ngValue]="t.id">{{ t.parentId ? '· ' : '' }}{{ t.title }}</option>
+            }
+          </select>
+          <button type="button" [disabled]="!rowForm.projectId" (click)="addRow()">Add row</button>
+          <button type="button" class="link" [disabled]="!projectsLoaded()" (click)="copyLastWeek()">Copy rows from last week</button>
+        </div>
+        <p class="muted small">
+          Type time as 1:30, 1.5 or 90m. A cell saves when you leave it. Enter saves and moves down, Escape undoes what you typed. A cell
+          marked + holds several entries, which are changed in the list below.
+        </p>
+      }
     </div>
   }
 
@@ -133,11 +215,11 @@
       }
     </section>
 
-    <section class="card">
-      <h2>Entries</h2>
+    <section class="card" id="time-entries" tabindex="-1" aria-labelledby="time-entries-title" #entryList>
+      <h2 id="time-entries-title">Entries</h2>
       <ul class="entries">
         @for (e of w.entries; track e.id) {
-          <li [class.running]="e.running">
+          <li [class.running]="e.running" [class.shown]="isShown(e)">
             <div class="grow">
               <span class="muted small">{{ dayName(e.date) }} {{ formatDate(e.date) }}</span>
               <span><span class="code">{{ e.projectCode }}</span> {{ e.taskTitle || e.projectName }}</span>

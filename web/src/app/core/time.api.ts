@@ -59,8 +59,12 @@ export class TimeApi {
     return this.http.post<TimeEntry>(`/api/orgs/${orgId}/timer/stop`, {});
   }
 
-  week(orgId: number, date: string, userId?: number): Observable<Week> {
-    let params = new HttpParams().set('date', date);
+  /** The week that holds {@code date}; without one, the current week by the organisation's date. */
+  week(orgId: number, date?: string | null, userId?: number): Observable<Week> {
+    let params = new HttpParams();
+    if (date) {
+      params = params.set('date', date);
+    }
     if (userId) {
       params = params.set('userId', userId);
     }
