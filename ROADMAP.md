@@ -617,10 +617,21 @@ timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
   on `MockMailbox`.
 - Tricky: old rows. On the first run every existing notification has no
   `emailed_at`, and the demo data has several. Stamp them in the migration.
-- Tricky: client viewers can be mentioned (`CommentResource.mentionedUsers`
-  goes through every membership) and should get mail like anybody else. The
-  text must not tell them anything they could not see in the app. Today's
-  messages only name the task, which they can see.
+- Tricky: mentions leak task titles. `CommentResource.mentionedUsers` matches
+  the handles against every membership of the organisation and never asks
+  whether that person can see the project. A client viewer mentioned on
+  another client's task gets "... mentioned you on" followed by the task's
+  title in the app today, and would get it by mail. Fix that for mentions in
+  general, as part of this item. The rule is in `OrgAccess.viewProject` (a
+  client viewer only sees projects of their own client) but tied to the
+  signed-in user. Give `OrgAccess` a check that takes any membership and a
+  project, use it in `viewProject`, and have `mentionedUsers` skip the people
+  who fail it. That closes the gap for the in-app notification too. With it in
+  place, client viewers get mail like anybody else. The other types only ever
+  go to team members.
+- The suggestion list in `CommentBox` offers every member as well
+  (`store.members()`). Filter it by the same rule, which the web app can do
+  from the member's `clientId` and the project's.
 - A daily summary ("due today", "overdue", and for managers "timesheets
   waiting") is the other half of what people expect. The queries exist in
   `DashboardResource`. It needs "eight in the morning in the organisation's
