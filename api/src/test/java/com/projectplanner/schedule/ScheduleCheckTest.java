@@ -270,7 +270,7 @@ class ScheduleCheckTest {
     @Test
     void eachTypeIsReportedByItsOwnRuleWithTheDatesTheReschedulerWouldGive() {
         var design = new ScheduledTask(1, day(2), day(8));
-        var build = new ScheduledTask(2, day(0), day(1));
+        var build = new ScheduledTask(2, day(0), day(0));
         for (DependencyType type : DependencyType.values()) {
             Link link = new Link(1, 2, 0, type);
             List<Issue> issues = links(List.of(design, build), List.of(link));

@@ -19,13 +19,16 @@ import java.util.Map;
 public final class CriticalPath {
 
     private final WorkCalendar calendar;
+    private final LinkRule rule;
 
     public CriticalPath(WorkCalendar calendar) {
         this.calendar = calendar;
+        this.rule = new LinkRule(calendar);
     }
 
     public Result calculate(Collection<ScheduledTask> tasks, Collection<Link> links) {
-        List<ScheduledTask> scheduled = tasks.stream().filter(ScheduledTask::isScheduled).toList();
+        // Read the way the rescheduler reads them: a task on days off only is one day on the next working day.
+        List<ScheduledTask> scheduled = tasks.stream().filter(ScheduledTask::isScheduled).map(rule::normalise).toList();
         if (scheduled.isEmpty()) {
             return new Result(null, null, 0, List.of(), List.of());
         }

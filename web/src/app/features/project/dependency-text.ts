@@ -5,7 +5,7 @@ export const DEPENDENCY_TYPES: { type: DependencyType; label: string }[] = [
   { type: 'FS', label: 'starts after it ends' },
   { type: 'SS', label: 'starts when it starts' },
   { type: 'FF', label: 'ends when it ends' },
-  { type: 'SF', label: 'ends when it starts' },
+  { type: 'SF', label: 'ends before it starts' },
 ];
 
 function days(n: number): string {
@@ -30,7 +30,8 @@ export function dependencyPhrase(dependency: Pick<Dependency, 'type' | 'lagDays'
       case 'FF':
         return `ends with ${predecessor}`;
       case 'SF':
-        return `ends when ${predecessor} starts`;
+        // The working day before, as finish-to-start is the working day after.
+        return `ends before ${predecessor} starts`;
     }
   }
   if (dependency.type === 'FS') {

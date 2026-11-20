@@ -16,10 +16,10 @@ import java.util.Map;
  * as the working day it stands for: a start as the next one, an end as the one
  * before. That is how the scheduler reads such dates already, so nothing
  * changes for a task that has at least one working day. A task that lies on
- * days off entirely is the exception. It counts as one day long, becomes a
- * one-day task on the next working day, and can then be in the way of a
- * neighbour it was not in the way of before. The same goes for a task whose
- * only date is on a day off.
+ * days off entirely becomes a one-day task on the next working day, which is
+ * how {@link LinkRule#normalise} reads it in the source as well, so it is in
+ * the way of the same neighbours before and after. The same goes for a task
+ * whose only date is on a day off.
  *
  * <p>All of the arithmetic goes through the {@link WorkCalendar} that is passed
  * in, so a calendar with holidays moves a plan around them.

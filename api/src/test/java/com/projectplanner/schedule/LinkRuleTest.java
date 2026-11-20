@@ -80,8 +80,26 @@ class LinkRuleTest {
 
     @Test
     void startToFinishHoldsTheFinishAgainstTheStart() {
-        // The predecessor starts on Wednesday; a two-day successor may end then at the earliest.
-        assertThat(start(DependencyType.SF, 0, task(day(2), day(9)), task(day(0), day(1)))).isEqualTo(day(1));
+        // The predecessor starts on Wednesday. Without a lag the successor ends the working day before, Tuesday,
+        // the way finish-to-start starts the day after: a two-day successor runs Monday to Tuesday.
+        assertThat(start(DependencyType.SF, 0, task(day(2), day(9)), task(day(0), day(1)))).isEqualTo(day(0));
+        // A lag of one lets it end on the predecessor's first day.
+        assertThat(start(DependencyType.SF, 1, task(day(2), day(9)), task(day(0), day(1)))).isEqualTo(day(1));
+        // Before a Monday start the day before is the Friday: a one-day successor ends there.
+        assertThat(start(DependencyType.SF, 0, task(day(7), day(9)), task(day(0), day(0)))).isEqualTo(day(4));
+        // A Saturday start counts as the Monday after it.
+        assertThat(start(DependencyType.SF, 0, task(day(5), day(9)), task(day(0), day(0)))).isEqualTo(day(4));
+    }
+
+    @Test
+    void aTaskOnADayOffOnlyIsAOneDayTaskOnTheNextWorkingDay() {
+        // A Saturday milestone is a Monday milestone: finish-to-start plus five lands on Tuesday a week later.
+        assertThat(start(DependencyType.FS, 5, task(day(5), day(5)), task(day(0), day(0)))).isEqualTo(day(15));
+        assertThat(start(DependencyType.FS, 5, task(null, day(5)), task(day(0), day(0)))).isEqualTo(day(15));
+        // A weekend-only task, Saturday to Sunday, as well.
+        assertThat(rule.normalise(task(day(5), day(6)))).isEqualTo(task(day(7), day(7)));
+        // A task with a working day in it is left as it is.
+        assertThat(rule.normalise(task(day(4), day(6)))).isEqualTo(task(day(4), day(6)));
     }
 
     @Test
@@ -107,6 +125,18 @@ class LinkRuleTest {
             int successorLength = 1 + random.nextInt(15);
             ScheduledTask predecessor = task(calendar.addWorkingDays(origin, predecessorStart),
                     calendar.addWorkingDays(origin, predecessorStart + predecessorLength - 1));
+            if (random.nextInt(4) == 0) {
+                // A task on days off only: the weekend before the working day at predecessorStart, which it
+                // stands for as a one-day task, so it counts as that day in the offsets too.
+                LocalDate monday = calendar.addWorkingDays(origin, predecessorStart);
+                while (monday.getDayOfWeek() != java.time.DayOfWeek.MONDAY) {
+                    predecessorStart++;
+                    monday = calendar.addWorkingDays(origin, predecessorStart);
+                }
+                predecessorLength = 1;
+                LocalDate saturday = monday.minusDays(2);
+                predecessor = task(saturday, random.nextBoolean() ? saturday : saturday.plusDays(1));
+            }
             ScheduledTask successor = task(origin, calendar.addWorkingDays(origin, successorLength - 1));
             Link link = new Link(1, 2, lag, type);
 
