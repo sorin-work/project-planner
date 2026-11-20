@@ -4,6 +4,8 @@ import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Role;
+import com.projectplanner.project.ProjectDtos.DuplicateDefaults;
+import com.projectplanner.project.ProjectDtos.DuplicateRequest;
 import com.projectplanner.project.ProjectDtos.ProjectRequest;
 import com.projectplanner.project.ProjectDtos.ProjectResponse;
 import com.projectplanner.report.ProjectHealthService;
@@ -40,11 +42,13 @@ public class ProjectResource {
     private final OrgAccess access;
     private final ProjectService projects;
     private final ProjectHealthService health;
+    private final ProjectDuplicator duplicator;
 
-    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health) {
+    public ProjectResource(OrgAccess access, ProjectService projects, ProjectHealthService health, ProjectDuplicator duplicator) {
         this.access = access;
         this.projects = projects;
         this.health = health;
+        this.duplicator = duplicator;
     }
 
     @GET
@@ -127,6 +131,40 @@ public class ProjectResource {
         Project project = access.project(projectId);
         access.manageProject(project);
         project.delete();
+    }
+
+    /** What a copy of this project would be called by default: a name, a code that is free, and a start date. */
+    @GET
+    @Path("/projects/{projectId}/duplicate")
+    @Operation(summary = "Propose a name, a code and a start date for a copy of a project",
+            description = "For owners and managers. The code is free when it is proposed. The counts say how much there is to copy.")
+    public DuplicateDefaults duplicateDefaults(@PathParam("projectId") long projectId) {
+        Project source = access.project(projectId);
+        access.manageProject(source);
+        return duplicator.defaults(source);
+    }
+
+    /**
+     * Copies the plan of a project into a new, planned project that begins on the given
+     * day. One transaction: the copy is there as a whole or not at all.
+     */
+    @POST
+    @Path("/projects/{projectId}/duplicate")
+    @Transactional
+    @ResponseStatus(201)
+    @Operation(summary = "Copy the plan of a project into a new project",
+            description = "For owners and managers. Phases, tasks, subtasks, milestones and links are copied, with every date at "
+                    + "the same distance in working days from the first day of the plan, which lands on startDate. The new project "
+                    + "is planned and every task is to do. Logged time, comments, notifications and activity are not copied. "
+                    + "Without clientId the copy is internal, and without keepAssignees nobody is assigned.")
+    @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
+    @Fails(status = 400, code = "date_out_of_range", when = "a date of the copied plan would lie outside the years 1 to 9999")
+    @Fails(status = 409, code = "code_taken", when = "another project in the organisation already uses the code")
+    @Fails(status = 409, code = "source_changed", when = "a task or phase of the source was deleted while it was being copied")
+    public ProjectResponse duplicate(@PathParam("projectId") long projectId, @Valid @NotNull DuplicateRequest request) {
+        Project source = access.project(projectId);
+        Membership me = access.manageProject(source);
+        return ProjectService.toResponse(duplicator.duplicate(me, source, request), true);
     }
 
     public record ProjectListItem(ProjectResponse project, HealthSummary health) {

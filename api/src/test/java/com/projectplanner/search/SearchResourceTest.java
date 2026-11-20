@@ -6,6 +6,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.response.ValidatableResponse;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.contains;
@@ -206,5 +207,46 @@ class SearchResourceTest {
         search(viewer, owner.orgId(), "fish").statusCode(200)
                 .body("projects", empty()).body("tasks", empty()).body("comments", empty());
         search(owner, "fish").body("projects", hasSize(1)).body("tasks", hasSize(1));
+    }
+
+    private static ValidatableResponse recent(Account who, long orgId, List<Map<String, Object>> picks) {
+        return who.as().body(Map.of("picks", picks)).post("/api/orgs/" + orgId + "/search/recent").then();
+    }
+
+    @Test
+    void recentPicksComeBackAsTheyAreNowAndOnlyWhenTheyCanStillBeOpened() {
+        Account owner = Api.signup("Xia");
+        long clientId = Api.createClient(owner, "Yarrow");
+        long clientProject = Api.createProject(owner, "YAR", clientId);
+        long internal = Api.createProject(owner, "INT");
+        long clientTask = Api.createTask(owner, clientProject, Map.of("title", "Client brief"));
+        long internalTask = Api.createTask(owner, internal, Map.of("title", "Internal budget"));
+        long gone = Api.createTask(owner, internal, Map.of("title", "Soon deleted"));
+        long remark = comment(owner, internalTask, "Keep this between us");
+        Account member = Api.signup("Yan");
+        Api.addMember(owner, member, "MEMBER");
+
+        owner.as().body(Map.of("title", "Client brief, final")).patch("/api/tasks/" + clientTask).then().statusCode(200);
+        owner.as().delete("/api/tasks/" + gone).then().statusCode(204);
+
+        List<Map<String, Object>> picks = List.of(
+                Map.of("type", "TASK", "id", internalTask), Map.of("type", "TASK", "id", gone),
+                Map.of("type", "COMMENT", "id", remark), Map.of("type", "TASK", "id", clientTask),
+                Map.of("type", "PROJECT", "id", clientProject));
+        recent(member, owner.orgId(), picks).statusCode(200)
+                .body("id", contains((int) internalTask, (int) remark, (int) clientTask, (int) clientProject))
+                .body("[2].title", equalTo("Client brief, final"))
+                .body("[1].title", equalTo("Internal budget"))
+                .body("[1].snippet", nullValue());
+
+        // The member is made a client viewer: the internal picks are no longer theirs to see.
+        Number memberId = owner.as().get("/api/orgs/" + owner.orgId() + "/members").then().extract()
+                .path("find { it.userId == " + member.userId() + " }.id");
+        owner.as().body(Map.of("role", "CLIENT", "clientId", clientId))
+                .patch("/api/orgs/" + owner.orgId() + "/members/" + memberId).then().statusCode(200);
+        recent(member, owner.orgId(), picks).statusCode(200).body("id", contains((int) clientTask, (int) clientProject));
+
+        // Somebody outside the organisation gets the same answer as for any other of its paths.
+        recent(Api.signup("Zed"), owner.orgId(), picks).statusCode(404);
     }
 }

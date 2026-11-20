@@ -5,14 +5,18 @@ import com.projectplanner.comment.Comment;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Role;
 import com.projectplanner.project.Project;
+import com.projectplanner.search.SearchDtos.RecentPick;
 import com.projectplanner.search.SearchDtos.SearchHitType;
 import com.projectplanner.search.SearchDtos.SearchHit;
 import com.projectplanner.search.SearchDtos.SearchResponse;
 import com.projectplanner.task.Task;
 import com.projectplanner.task.TaskStatus;
+import io.quarkus.hibernate.orm.panache.Panache;
 import io.quarkus.panache.common.Parameters;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.TypedQuery;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +85,77 @@ public class SearchService {
                     return new SearchHit(SearchHitType.COMMENT, c.id, task.projectId, owners.get(task.projectId).code, task.id, task.title,
                             SearchText.snippet(c.body, needle));
                 }).toList());
+    }
+
+    /**
+     * The recent picks the web app kept, by kind and id, as they are now: with today's
+     * names and titles, and without those that are gone or that the caller can no longer
+     * open. The same rules as {@link #search} decide what is visible, in the queries.
+     */
+    public List<SearchHit> recent(Membership me, List<RecentPick> picks) {
+        if (picks.isEmpty() || (me.role == Role.CLIENT && me.clientId == null)) {
+            return List.of();
+        }
+        String visible = "p.organisationId = :org" + (me.role == Role.CLIENT ? " and p.clientId = :client" : "");
+        Map<Long, Project> projects = byId(find(Project.class, "from Project p where " + visible + " and p.id in :ids",
+                me, ids(picks, SearchHitType.PROJECT)), (Project p) -> p.id);
+        Map<Long, Task> tasks = byId(find(Task.class, "from Task t where t.id in :ids"
+                + " and t.projectId in (select p.id from Project p where " + visible + ")",
+                me, ids(picks, SearchHitType.TASK)), (Task t) -> t.id);
+        Map<Long, Comment> comments = byId(find(Comment.class, "from Comment c where c.id in :ids"
+                + " and c.taskId in (select t.id from Task t where t.projectId in (select p.id from Project p where " + visible + "))",
+                me, ids(picks, SearchHitType.COMMENT)), (Comment c) -> c.id);
+
+        // As in search: what is looked up from here on belongs to rows that were let through.
+        Map<Long, Task> commented = byId(Task.list("id in ?1", ids(comments.values().stream().map(c -> c.taskId))), (Task t) -> t.id);
+        Map<Long, Project> owners = byId(Project.list("id in ?1", ids(Stream.concat(projects.values().stream().map(p -> p.id),
+                Stream.concat(tasks.values().stream(), commented.values().stream()).map(t -> t.projectId)))), (Project p) -> p.id);
+        Map<Long, Client> clients = byId(Client.list("id in ?1", ids(projects.values().stream().map(p -> p.clientId))), (Client c) -> c.id);
+
+        List<SearchHit> hits = new ArrayList<>();
+        for (RecentPick pick : picks) {
+            switch (pick.type()) {
+                case PROJECT -> {
+                    Project p = projects.get(pick.id());
+                    if (p != null) {
+                        hits.add(new SearchHit(SearchHitType.PROJECT, p.id, p.id, p.code, null, p.name,
+                                p.clientId == null ? null : clients.get(p.clientId).name));
+                    }
+                }
+                case TASK -> {
+                    Task t = tasks.get(pick.id());
+                    if (t != null) {
+                        hits.add(new SearchHit(SearchHitType.TASK, t.id, t.projectId, owners.get(t.projectId).code, t.id, t.title, null));
+                    }
+                }
+                case COMMENT -> {
+                    Comment c = comments.get(pick.id());
+                    if (c != null) {
+                        Task task = commented.get(c.taskId);
+                        hits.add(new SearchHit(SearchHitType.COMMENT, c.id, task.projectId, owners.get(task.projectId).code, task.id,
+                                task.title, null));
+                    }
+                }
+            }
+        }
+        return hits;
+    }
+
+    /** One query of {@link #recent}, which is not made at all without ids. */
+    private static <T> List<T> find(Class<T> type, String query, Membership me, Set<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        TypedQuery<T> typed = Panache.getEntityManager().createQuery(query, type)
+                .setParameter("org", me.organisationId).setParameter("ids", ids);
+        if (me.role == Role.CLIENT) {
+            typed.setParameter("client", me.clientId);
+        }
+        return typed.getResultList();
+    }
+
+    private static Set<Long> ids(List<RecentPick> picks, SearchHitType type) {
+        return ids(picks.stream().filter(pick -> pick.type() == type).map(RecentPick::id));
     }
 
     /** The parameters every query takes: whose projects, and the text. */

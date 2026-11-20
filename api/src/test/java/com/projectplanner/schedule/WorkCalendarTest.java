@@ -37,6 +37,13 @@ class WorkCalendarTest {
     }
 
     @Test
+    void onOrBeforeKeepsWorkingDays() {
+        assertThat(cal.onOrBefore(MONDAY)).isEqualTo(MONDAY);
+        assertThat(cal.onOrBefore(SATURDAY)).isEqualTo(FRIDAY);
+        assertThat(cal.onOrBefore(SATURDAY.plusDays(1))).isEqualTo(FRIDAY);
+    }
+
+    @Test
     void addWorkingDaysCountsOnlyWeekdays() {
         assertThat(cal.addWorkingDays(MONDAY, 0)).isEqualTo(MONDAY);
         assertThat(cal.addWorkingDays(MONDAY, 4)).isEqualTo(FRIDAY);

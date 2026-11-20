@@ -26,6 +26,8 @@ class SearchTextTest {
         assertThat(SearchText.snippet("One\n\n  two   three", "two")).isEqualTo("One two three");
         assertThat(SearchText.snippet("nothing here", "absent")).isNull();
         assertThat(SearchText.snippet(null, "x")).isNull();
+        // Space inside the needle is flattened like the space in the text.
+        assertThat(SearchText.snippet("Call the  print   shop", "print  shop")).isEqualTo("Call the print shop");
     }
 
     @Test

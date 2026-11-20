@@ -6,12 +6,13 @@ import { Client, Phase } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { ProjectApi, ProjectInput } from '../../core/project.api';
+import { DuplicateForm } from '../projects/duplicate-form';
 import { ProjectForm } from '../projects/project-form';
 import { ProjectStore } from './project.store';
 
 @Component({
   selector: 'app-settings-tab',
-  imports: [FormsModule, ProjectForm],
+  imports: [FormsModule, ProjectForm, DuplicateForm],
   template: `
     <section class="card">
       <h2>Project details</h2>
@@ -40,6 +41,17 @@ import { ProjectStore } from './project.store';
       </form>
     </section>
 
+    <section class="card">
+      <h2>Duplicate project</h2>
+      @if (duplicating() && store.project(); as source) {
+        <app-duplicate-form [source]="source" [clients]="clients()" (created)="openCopy($event.id)"
+          (cancelled)="duplicating.set(false)" />
+      } @else {
+        <p class="muted">Copies the phases, tasks and links into a new project that begins on a day you pick.</p>
+        <button type="button" (click)="duplicating.set(true)">Duplicate</button>
+      }
+    </section>
+
     <section class="card danger-zone">
       <h2>Delete project</h2>
       <p class="muted">Deletes the project with all of its tasks, comments and logged time. This can't be undone.</p>
@@ -59,6 +71,7 @@ export class SettingsTab {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly saved = signal(false);
+  protected readonly duplicating = signal(false);
   protected newPhase = '';
 
   constructor() {
@@ -139,6 +152,11 @@ export class SettingsTab {
         this.store.reloadTasks();
       },
     });
+  }
+
+  openCopy(id: number): void {
+    this.duplicating.set(false);
+    void this.router.navigate(['/projects', id]);
   }
 
   remove(): void {

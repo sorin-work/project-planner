@@ -197,19 +197,61 @@ describe('SearchDialog', () => {
     expect(document.activeElement).toBe(close);
   });
 
-  it('shows the last picks of this person before anything is typed', async () => {
-    localStorage.setItem(recentKey(7, 3), JSON.stringify([homepage]));
-    localStorage.setItem(recentKey(8, 3), JSON.stringify([website]));
+  it('shows the last picks of this person, with the titles they have now', async () => {
+    localStorage.setItem(recentKey(7, 3), JSON.stringify([{ type: 'TASK', id: 11 }, { type: 'TASK', id: 99 }]));
+    localStorage.setItem(recentKey(8, 3), JSON.stringify([{ type: 'PROJECT', id: 4 }]));
     fixture.componentInstance.open();
+    fixture.detectChanges();
+    // Nothing is shown from storage alone: it holds no titles.
+    expect(options()).toEqual([]);
+
+    const request = http.expectOne('/api/orgs/3/search/recent');
+    expect(request.request.body).toEqual({ picks: [{ type: 'TASK', id: 11 }, { type: 'TASK', id: 99 }] });
+    // Task 99 is gone, or out of reach now, so the answer leaves it out.
+    request.flush([{ ...homepage, title: 'Homepage, renamed' }]);
     fixture.detectChanges();
 
     expect(el().querySelector('[role="group"]')?.getAttribute('aria-label')).toBe('Recent');
-    expect(titles()).toEqual(['Homepage']);
+    expect(titles()).toEqual(['Homepage, renamed']);
+    expect(JSON.parse(localStorage.getItem(recentKey(7, 3)) ?? '[]')).toEqual([{ type: 'TASK', id: 11 }]);
     await press('Enter');
     expect(navigate).toHaveBeenCalledWith(['/projects', 4, 'list'], { queryParams: { task: 11 } });
   });
 
-  it('remembers what was picked, for this person and organisation', async () => {
+  it('drops recent picks that arrive after the dialog was closed', async () => {
+    localStorage.setItem(recentKey(7, 3), JSON.stringify([{ type: 'TASK', id: 11 }]));
+    fixture.componentInstance.open();
+    fixture.componentInstance.close();
+    http.expectOne('/api/orgs/3/search/recent').flush([homepage]);
+    expect(JSON.parse(localStorage.getItem(recentKey(7, 3)) ?? '[]')).toEqual([{ type: 'TASK', id: 11 }]);
+  });
+
+  it('puts the highlight back on the first row when a new answer replaces the list', async () => {
+    fixture.componentInstance.open();
+    await type('home');
+    await answerWith('home', answer);
+    await press('ArrowDown');
+    await press('ArrowDown');
+    expect(field().getAttribute('aria-activedescendant')).toBe(options()[2].id);
+
+    await type('homep');
+    await answerWith('homep', { query: 'homep', projects: [], tasks: [homepage], comments: [] });
+    expect(field().getAttribute('aria-activedescendant')).toBe(options()[0].id);
+    await press('Enter');
+    expect(navigate).toHaveBeenCalledWith(['/projects', 4, 'list'], { queryParams: { task: 11 } });
+  });
+
+  it('ignores a held Enter', async () => {
+    fixture.componentInstance.open();
+    await type('home');
+    await answerWith('home', answer);
+    const held = await press('Enter', field(), { repeat: true });
+    expect(held.defaultPrevented).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(dialog().hasAttribute('open')).toBe(true);
+  });
+
+  it('remembers what was picked, for this person and organisation, by kind and id only', async () => {
     fixture.componentInstance.open();
     await type('home');
     await answerWith('home', answer);
@@ -217,8 +259,6 @@ describe('SearchDialog', () => {
     fixture.detectChanges();
 
     expect(navigate).toHaveBeenCalledWith(['/projects', 4], { queryParams: undefined });
-    expect(JSON.parse(localStorage.getItem(recentKey(7, 3)) ?? '[]')).toEqual([
-      { type: 'PROJECT', id: 4, projectId: 4, projectCode: 'WEB', title: 'Website' },
-    ]);
+    expect(JSON.parse(localStorage.getItem(recentKey(7, 3)) ?? '[]')).toEqual([{ type: 'PROJECT', id: 4 }]);
   });
 });

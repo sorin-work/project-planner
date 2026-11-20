@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } 
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { messageOf } from '../../core/errors';
-import { Client, ProjectListItem, ProjectStatus } from '../../core/models';
+import { Client, Project, ProjectListItem, ProjectStatus } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { ProjectApi, ProjectInput } from '../../core/project.api';
@@ -10,24 +10,40 @@ import { formatRange } from '../../shared/dates';
 import { PROJECT_STATUSES, PROJECT_STATUS_LABELS, formatHours, formatPercent } from '../../shared/format';
 import { HealthBadge } from '../../shared/health-badge';
 import { ProgressBar } from '../../shared/progress-bar';
+import { DuplicateForm } from './duplicate-form';
 import { ProjectForm } from './project-form';
 
 @Component({
   selector: 'app-projects-page',
-  imports: [FormsModule, RouterLink, HealthBadge, ProgressBar, ProjectForm],
+  imports: [FormsModule, RouterLink, HealthBadge, ProgressBar, ProjectForm, DuplicateForm],
   template: `
     <div class="page-header">
       <h1>Projects</h1>
       @if (org.canManage() && !creating()) {
-        <button class="primary" type="button" (click)="creating.set(true)">New project</button>
+        <button class="primary" type="button" (click)="startCreating()">New project</button>
       }
     </div>
 
     @if (creating()) {
       <section class="card">
         <h2>New project</h2>
-        <app-project-form [clients]="clients()" submitLabel="Create project" [busy]="saving()" [error]="formError()"
-          (saved)="create($event)" (cancelled)="creating.set(false)" />
+        @if (sources().length) {
+          <div class="field">
+            <label for="np-copy">Copy the plan from</label>
+            <select id="np-copy" [ngModel]="copyFrom()" (ngModelChange)="copyFrom.set($event)">
+              <option [ngValue]="null">Nothing, start empty</option>
+              @for (source of sources(); track source.id) {
+                <option [ngValue]="source">{{ source.name }} ({{ source.code }})</option>
+              }
+            </select>
+          </div>
+        }
+        @if (copyFrom(); as source) {
+          <app-duplicate-form [source]="source" [clients]="clients()" (created)="open($event.id)" (cancelled)="stopCreating()" />
+        } @else {
+          <app-project-form [clients]="clients()" submitLabel="Create project" [busy]="saving()" [error]="formError()"
+            (saved)="create($event)" (cancelled)="stopCreating()" />
+        }
       </section>
     }
 
@@ -117,6 +133,10 @@ export class ProjectsPage {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly creating = signal(false);
+  /** The project whose plan the new one starts from, when it does not start empty. */
+  protected readonly copyFrom = signal<Project | null>(null);
+  /** Every project that can be copied from. Not the list below, which the filters narrow. */
+  protected readonly sources = signal<Project[]>([]);
   protected readonly saving = signal(false);
   protected readonly formError = signal<string | null>(null);
   protected status: ProjectStatus | '' = '';
@@ -166,6 +186,17 @@ export class ProjectsPage {
         this.formError.set(messageOf(err));
       },
     });
+  }
+
+  startCreating(): void {
+    this.creating.set(true);
+    // Asked for without the page's filters: a finished project is as good a template as an active one.
+    this.api.list(this.org.id()).subscribe({ next: (all) => this.sources.set(all.map((item) => item.project)) });
+  }
+
+  stopCreating(): void {
+    this.creating.set(false);
+    this.copyFrom.set(null);
   }
 
   open(id: number): void {

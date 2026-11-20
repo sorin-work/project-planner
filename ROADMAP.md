@@ -33,7 +33,7 @@ couple of weekends, **L** several weeks of spare time.
 | 10  | Budget alerts                              | Later | both     | S    | -          |
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
-| 13  | Duplicate a project as a template          | Later | both     | M    | -          |
+| 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
 | 14  | Performance on large projects              | Later | both     | M    | -          |
 | 15  | Public holidays and time off               | Later | both     | L    | -          |
 | 16  | Baselines                                  | Maybe | both     | M    | -          |
@@ -60,8 +60,9 @@ A few things hold for every item:
   partial indexes or Postgres-only functions. Where an item needs a migration
   I have written down a version number for it, so that two items in progress
   at the same time do not both take `V16`. Gaps are fine. The numbers run up
-  to `V24`. Item 2 had none and took `V25` for the key on time entries, so the
-  next free one is `V26`.
+  to `V24`. Item 2 had none and took `V25` for the key on time entries, and
+  item 13 took `V26` for the second project of an activity entry, so the next
+  free one is `V27`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -380,52 +381,6 @@ timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
   that follow-up too.
 - Undecided: separate preferences per organisation for people who are in
   several. I lean towards no.
-
-### 13. Duplicate a project as a template
-
-Every client project in the demo data has the same shape: discovery, design,
-build and launch, with the same kinds of tasks and links. A new project starts
-empty, and that shape is typed in by hand each time. People asked Asana for
-years for "copy a project and shift its dates". That is this feature.
-
-- API: `POST /api/projects/{projectId}/duplicate` for managers
-  (`access.manageProject` on the source) with a name, a code, an optional
-  client, a start date and a "keep assignees" flag. It answers with the new
-  project, which starts as `PLANNED`.
-- Copied: phases, tasks, subtasks, milestones, dependencies with their lag,
-  estimates, priorities, descriptions, the colour, the budgets and the fixed
-  rate. Not copied: time entries, comments, activity and notifications. Every
-  task starts again as `TODO` with `completedAt` empty.
-- The order matters because of ids: phases first, then top-level tasks, then
-  subtasks (`parentId`), then the `TaskDependency` rows from
-  `TaskDependency.forProject`, each through a map from old id to new id.
-- Dates: given a start date, every task keeps its distance from the source's
-  earliest task start, and its length, both counted in working days
-  (`WorkCalendar.workingDaysBetween`, `addWorkingDays`, `onOrAfter`). Nothing
-  lands on a weekend and every link still holds. Tasks without dates stay
-  without. The project's own start and end move the same way. Put the shift in
-  a plain class in `schedule/` with its own test.
-- Tricky: do not build the copy with `TaskService.create`. It writes an
-  activity entry per task and notifies every assignee (`notifyAssigned`),
-  which for a forty-task plan is forty notifications. Create the entities
-  directly and record one activity entry for the whole copy.
-- Tricky: positions. The board orders cards by `Task.position` within a
-  status. With everything back in `TODO`, the copied numbers collide.
-  Renumber in the order of the source's list. Phase positions can already
-  have gaps or repeats, because the settings tab reorders with two separate
-  `PUT /api/phases/{id}` calls. Copy the order, not the numbers.
-- Tricky: assignees who have left. `TaskService.assigneeIn` only accepts
-  current team members. With "keep assignees", drop the ones who are gone
-  instead of failing.
-- Web: in `ProjectsPage` the "New project" form (`ProjectForm`) gets a "Copy
-  the plan from" select, and the start date becomes required when it is set. A
-  "Duplicate" button on the project's Settings tab.
-- Undecided: real templates, meaning projects that are flagged as templates
-  and hidden everywhere else. The flag would have to be respected by the
-  project list, the dashboard, the workload (`WorkloadResource` counts every
-  planned and active project), time logging and search. Copying from any
-  project, a finished one included, gets most of the value without that. I
-  would stop there.
 
 ### 14. Performance on large projects
 
@@ -791,19 +746,29 @@ text field over a listbox. The highlight is followed through
 `aria-activedescendant`, Tab stays inside, and closing gives the focus back.
 Enter waits for the answer to the text as typed and never opens a row that is
 left from earlier text, and an answer to earlier text is dropped. The last
-five picks are kept in `localStorage` per person and organisation. The List
+five picks are kept in `localStorage` under the person's key, so that signing
+out removes them, and only by kind and id: their titles are fetched fresh from
+`POST /api/orgs/{orgId}/search/recent`, which leaves out what the person can no
+longer open. The List
 tab has text, assignee, status and priority filters next to "Hide done" and
 "Only mine", all in the address, and a parent whose subtask matches stays,
 greyed out. Different from the design: the dialog is not loaded lazily (it
 costs a few kB of a bundle that is far below its budget, and so cannot fail to
 load), jsdom has no `showModal()`, so the dialog also opens without it, and
 the arrow-key handling is shared with the mention suggestions as
-`moveHighlight`. Still open: the "My tasks" page with its `assigneeId` and
-`status` parameters, which is the follow-up it was. Search reads every task
+`moveHighlight`. Still open: search reads every task
 and comment of the organisation on each request, no portable index helps a
 search for text in the middle, and on PostgreSQL alone a trigram index would.
 After a pick the focus goes back to where it was, not into the page that
-opens.
+opens. When a kind is cut off at the limit, nothing says that there are more
+hits than the list shows.
+
+Follow-up, not in this pull request: a "My tasks" page. The dashboard lists
+my overdue tasks, the ones due within seven days (`DUE_SOON_DAYS`) and the
+ones in progress, so a to-do task due in three weeks shows up nowhere
+outside its project. The page would call the search endpoint with new
+`assigneeId` and `status` parameters and no text. Neither the page nor the
+parameters are built here.
 
 ### 6. Scheduled backups and a tested restore
 
@@ -877,3 +842,34 @@ scroll while something is dragged (two bars that are not on screen together
 are linked at week zoom or in the task panel), a parent's subtasks do not
 follow when it is resized, and drawing a bar for a task without dates is the
 follow-up it was.
+
+### 13. Duplicate a project as a template
+
+`POST /api/projects/{projectId}/duplicate` copies phases, tasks, subtasks,
+milestones and links into a new planned project, in one transaction, and
+`GET` on the same path proposes a name, a free code (`ProjectCodes.next`) and
+a start date. `PlanShift` in `schedule/` moves the dates: the first day of the
+plan lands on the chosen day and everything keeps its distance from it in
+working days. The "New project" form has a "Copy the plan from" select, and
+the Settings tab a "Duplicate" card, both with the same small form. Different
+from the design: the client is not copied unless it is picked, like the
+assignees; the first day of the plan is the earliest of the task dates and
+the project's own start, not only the earliest task start, so a project that
+begins a week before its first task still does; and the rows are not made one
+entity at a time but by one `insert ... select` per table
+(`ProjectDuplicator`), because the ids are identity columns and Hibernate
+cannot batch those. A plan of 3,000 tasks takes the same twenty statements as
+one of twenty, and a table only needs a second statement above 5,000 rows.
+The copy has the schedule issues of the source's dates and no
+others, with two things to know: tasks finished in the source are open again,
+so an overlap the source had stopped reporting is reported, and a task that
+lies on a weekend entirely becomes a one-day task on the next working day and
+can then be in the way of a neighbour. The copy's one activity entry does not
+name the source, because a copy can be made for another client: the source's
+id is kept next to the entry (`related_project_id`, `V26`) and its name is
+added for readers who may see it. A code that two requests take at the same
+moment is `409 code_taken` for the second, from the unique constraint, for a
+plain create as well, and a source that is changed while it is copied is
+`409 source_changed`. Still open: real templates (projects
+flagged as such and hidden elsewhere), a choice of which phases to copy, and
+the organisation's calendar in `ProjectDuplicator` once item 15 has one.
