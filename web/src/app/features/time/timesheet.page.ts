@@ -15,7 +15,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Observable, map, of, switchMap, tap } from 'rxjs';
+import { Observable, map, of, switchMap, tap, throwError } from 'rxjs';
 import { messageOf } from '../../core/errors';
 import { Task, TimeEntry, Week } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
@@ -23,7 +23,7 @@ import { ProjectApi } from '../../core/project.api';
 import { TaskApi } from '../../core/task.api';
 import { TimeApi } from '../../core/time.api';
 import { addDays, dayName, diffDays, formatDate, today, weekStart } from '../../shared/dates';
-import { TIMESHEET_LABELS, formatMinutes, parseDuration } from '../../shared/format';
+import { TIMESHEET_LABELS, formatClock, formatMinutes, parseDuration } from '../../shared/format';
 import { SaveQueue, newClientKey } from './save-queue';
 import {
   ArrowKey,
@@ -37,6 +37,7 @@ import {
   cellEntries,
   cellKey,
   cellLabel,
+  cellText,
   focusableCells,
   nextCell,
   parseCell,
@@ -73,6 +74,7 @@ function without<V>(record: Record<string, V>, key: string): Record<string, V> {
   imports: [FormsModule],
   templateUrl: './timesheet.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(document:visibilitychange)': 'cameBack()' },
 })
 export class TimesheetPage {
   private readonly api = inject(TimeApi);
@@ -110,6 +112,10 @@ export class TimesheetPage {
   private readonly drafts = signal<Record<string, string>>({});
   /** Cells whose text can't be read, with the reason. Nothing is sent for those. */
   private readonly invalid = signal<Record<string, string>>({});
+  /** Cells whose last change was not saved, with the reason. They show the saved time again. */
+  private readonly failed = signal<Record<string, string>>({});
+  /** The cells among them that "Submit week" has not been held back for yet. */
+  private readonly unseen = new Set<string>();
   private readonly saving = signal<Record<string, true>>({});
   protected readonly gridError = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
@@ -125,7 +131,8 @@ export class TimesheetPage {
   /**
    * The key of the create a cell has sent, kept until the API has answered it. A create whose
    * answer never arrived may have been stored all the same, so the next try for that cell
-   * goes out with the same key and gets that entry back instead of making a second one.
+   * goes out with the same key and gets that entry back instead of making a second one. It
+   * also outlives a reload of the week, which may have been read before the entry was stored.
    */
   private readonly createKeys = new Map<string, string>();
   /** The same for the form: a key and what it was made for. */
@@ -148,18 +155,28 @@ export class TimesheetPage {
 
   protected readonly view = computed(() => {
     const grid = this.grid();
-    return grid ? viewRows(grid, { locked: this.locked(), drafts: this.drafts(), invalid: this.invalid(), saving: this.saving() }) : [];
+    return grid
+      ? viewRows(grid, {
+          locked: this.locked(),
+          drafts: this.drafts(),
+          invalid: this.invalid(),
+          failed: this.failed(),
+          saving: this.saving(),
+        })
+      : [];
   });
-  /** What can't be saved as typed, one line per cell. */
+  /** What can't be read or was not saved, one line per cell. Shown whether or not the week can still be changed. */
   protected readonly problems = computed(() =>
-    this.view()
-      .flatMap((r) => r.cells)
-      .filter((c) => c.invalid)
-      .map((c) => ({ key: c.key, text: `${c.label}: ${c.invalid}` })),
+    this.view().flatMap((r) =>
+      r.cells.filter((c) => c.invalid || c.failed).map((c) => ({ key: c.key, text: `${cellLabel(r.row, c.date)}: ${c.invalid ?? c.failed}` })),
+    ),
   );
+  /** Text that can't be read is still in its cell. The week is not submitted around it. */
+  protected readonly unread = computed(() => this.view().some((r) => r.cells.some((c) => c.invalid)));
 
   protected readonly labels = TIMESHEET_LABELS;
   protected readonly formatMinutes = formatMinutes;
+  protected readonly formatClock = formatClock;
   protected readonly formatDate = formatDate;
   protected readonly dayName = dayName;
 
@@ -242,6 +259,7 @@ export class TimesheetPage {
   typed(cell: CellView, event: Event): void {
     const text = (event.target as HTMLInputElement).value;
     this.drafts.update((d) => ({ ...d, [cell.key]: text }));
+    this.clearFailed(cell.key);
   }
 
   /**
@@ -261,14 +279,20 @@ export class TimesheetPage {
       return false;
     }
     this.invalid.update((i) => without(i, cell.key));
-    if (this.asked.get(cell.key) === text) {
+    // What was read goes into the cell at once, as hours and minutes: "1.30" is an hour and
+    // eighteen minutes, and whoever meant half past one sees 1:18 before moving on.
+    const shown = cellText(typed);
+    if (shown !== text) {
+      this.drafts.update((d) => ({ ...d, [cell.key]: shown }));
+    }
+    if (this.asked.get(cell.key) === shown) {
       return true;
     }
-    this.asked.set(cell.key, text);
+    this.asked.set(cell.key, shown);
     this.gridError.set(null);
     const ref = toRowRef(row);
     const atCommit = cellEntries(week.entries, ref, cell.date);
-    this.queue.submit(cell.key, (left) => this.saveCell(orgId, ref, cell.date, text, typed, left ?? atCommit));
+    this.queue.submit(cell.key, (left) => this.saveCell(orgId, ref, cell.date, shown, typed, left ?? atCommit));
     return true;
   }
 
@@ -288,20 +312,30 @@ export class TimesheetPage {
       this.saving.update((s) => without(s, key));
     };
     const action = cellAction(this.onScreen(orgId, date) ? cellEntries(this.week()!.entries, row, date) : known, typed);
-    if (action.kind === 'none' || action.kind === 'refuse') {
-      if (action.kind === 'refuse') {
-        this.gridError.set(`${cellLabel(row, date)}: ${action.message}`);
-      }
+    if (action.kind === 'none') {
       settle();
       return null;
+    }
+    if (action.kind === 'refuse') {
+      // Not sent, and still a change that was not saved: whatever waits for this cell hears of it.
+      this.markFailed(key, action.message);
+      settle();
+      return throwError(() => new Error(action.message));
     }
     const refused = (err: unknown) => {
       if (err instanceof HttpErrorResponse && (err.error as { code?: string } | null)?.code === 'client_key_reused') {
         // The key stands for another entry by now. The next try makes a new one.
         this.createKeys.delete(key);
       }
-      this.gridError.set(`${cellLabel(row, date)}: ${messageOf(err)}`);
+      this.markFailed(key, messageOf(err));
       settle();
+      if (this.onScreen(orgId, date)) {
+        // If the row turns out to have nothing left in it, it stays, so that the reason has a cell to be shown at.
+        this.setRows(addRows(this.rows(), [row]));
+      }
+      // What is on screen may no longer be what the API has: the entry may be gone (a 404),
+      // changed in another tab, or stored although the answer never arrived. Read it again.
+      this.reload(orgId, date);
     };
     this.saving.update((s) => ({ ...s, [key]: true }));
     if (action.kind === 'delete') {
@@ -309,6 +343,7 @@ export class TimesheetPage {
         map((): TimeEntry[] => []),
         tap({
           next: () => {
+            this.clearFailed(key);
             this.removeEntry(orgId, action.entry.id);
             if (this.onScreen(orgId, date) && !this.week()!.entries.some((e) => rowKey({ projectId: e.projectId, taskId: e.taskId ?? null }) === rowKey(row))) {
               // The row has just lost its last entry. Keep it, or it would vanish under the cursor.
@@ -352,6 +387,7 @@ export class TimesheetPage {
     return request.pipe(
       tap({
         next: (entry) => {
+          this.clearFailed(key);
           this.putEntry(orgId, entry);
           settle();
         },
@@ -359,6 +395,34 @@ export class TimesheetPage {
       }),
       map((entry) => [entry]),
     );
+  }
+
+  private markFailed(key: string, reason: string): void {
+    this.failed.update((f) => ({ ...f, [key]: reason }));
+    this.unseen.add(key);
+  }
+
+  private clearFailed(key: string): void {
+    this.failed.update((f) => without(f, key));
+    this.unseen.delete(key);
+  }
+
+  /** Reads the week on screen again, if it is the one that holds {@code date}. */
+  private reload(orgId: number, date: string): void {
+    if (this.onScreen(orgId, date)) {
+      this.load(orgId, this.linkedWeek());
+    }
+  }
+
+  /**
+   * The tab is looked at again. The week may have been changed somewhere else in the
+   * meantime, and typing into a cell that only looks empty would make a second entry.
+   */
+  cameBack(): void {
+    const orgId = this.org.orgId();
+    if (document.visibilityState === 'visible' && orgId !== null && this.week()) {
+      this.load(orgId, this.linkedWeek());
+    }
   }
 
   cellKeydown(event: KeyboardEvent, row: GridRow, cell: CellView, rowIndex: number): void {
@@ -372,6 +436,7 @@ export class TimesheetPage {
     } else if (event.key === 'Escape' && input) {
       this.drafts.update((d) => without(d, cell.key));
       this.invalid.update((i) => without(i, cell.key));
+      this.clearFailed(cell.key);
     } else if (ARROWS.includes(event.key)) {
       const key = event.key as ArrowKey;
       if (input && !caretAtEdge(key, input.value.length, input.selectionStart, input.selectionEnd)) {
@@ -586,13 +651,24 @@ export class TimesheetPage {
       return;
     }
     const orgId = this.org.id();
-    // A cell that was just left is still being saved. It belongs to the week that is submitted.
-    this.queue.whenIdle(() =>
+    this.gridError.set(null);
+    // A cell that was just left is still being saved, and it belongs to the week that is
+    // submitted. If it can't be saved the week stays open: it would be submitted without it.
+    // The same goes for a change that was refused a moment ago, by the very click on this
+    // button leaving the cell. Once that has been said, the next press submits the week as it is.
+    this.queue.whenIdle((saved) => {
+      if (!saved || this.unseen.size > 0) {
+        this.unseen.clear();
+        this.gridError.set(
+          'The week was not submitted, because not everything in it could be saved. Check the cells listed here, then submit again if the week is right as it stands.',
+        );
+        return;
+      }
       this.api.submit(orgId, w.weekStart).subscribe({
         next: (week) => this.reviewed(orgId, week),
         error: (err: unknown) => this.error.set(messageOf(err)),
-      }),
-    );
+      });
+    });
   }
 
   withdraw(): void {
@@ -653,13 +729,13 @@ export class TimesheetPage {
     if (this.weekOrg !== orgId || shown?.weekStart !== week.weekStart) {
       this.drafts.set({});
       this.invalid.set({});
+      this.failed.set({});
+      this.unseen.clear();
       this.gridError.set(null);
       this.notice.set(null);
       this.shownCell.set(null);
     }
     this.weekOrg = orgId;
-    // What the API says now is what there is: a create from here on is a new one.
-    this.createKeys.clear();
     this.rows.set(readRows(localStorage, { userId: week.userId, orgId }, week.weekStart));
     this.week.set(week);
   }

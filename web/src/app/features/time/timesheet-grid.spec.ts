@@ -6,6 +6,7 @@ import {
   cellEntries,
   cellLabel,
   cellMode,
+  cellText,
   focusableCells,
   nextCell,
   parseCell,
@@ -105,11 +106,26 @@ describe('parseCell', () => {
     }
   });
 
-  it('refuses more than a day and less than a minute', () => {
+  it('refuses more than a day', () => {
     // A number on its own is hours, so 90 is not ninety minutes.
     expect(parseCell('90')).toEqual({ kind: 'invalid', message: "A day can't take more than 24 hours" });
     expect(parseCell('24:01')).toEqual({ kind: 'invalid', message: "A day can't take more than 24 hours" });
-    expect(parseCell('0.001')).toEqual({ kind: 'invalid', message: 'Enter at least one minute' });
+    expect(parseCell('24.5')).toEqual({ kind: 'invalid', message: "A day can't take more than 24 hours" });
+  });
+
+  it('does not round decimal hours to minutes nobody typed', () => {
+    const notWholeMinutes = 'That is not a whole number of minutes. Type it as hours and minutes, like 1:33';
+    for (const text of ['1.555', '24.008', '0.001', '1,333', '0.01h']) {
+      expect(parseCell(text)).toEqual({ kind: 'invalid', message: notWholeMinutes });
+    }
+    // An hour and eighteen minutes, not half past one: the cell shows 1:18 as soon as it is left.
+    expect(parseCell('1.30')).toEqual({ kind: 'minutes', minutes: 78 });
+    expect(parseCell('1,30')).toEqual({ kind: 'minutes', minutes: 78 });
+    expect(cellText(parseCell('1.30'))).toBe('1:18');
+    expect(cellText(parseCell('90m'))).toBe('1:30');
+    expect(cellText(parseCell('0'))).toBe('');
+    expect(cellText(45)).toBe('0:45');
+    expect(cellText(0)).toBe('');
   });
 });
 
@@ -193,7 +209,7 @@ describe('applying a saved entry', () => {
 });
 
 describe('viewRows', () => {
-  const state = { locked: false, drafts: {}, invalid: {}, saving: {} };
+  const state = { locked: false, drafts: {}, invalid: {}, failed: {}, saving: {} };
   const entries = [
     entry(1, '2026-03-02', 90, design),
     entry(2, '2026-03-03', 60, { ...design, description: 'Call with Ruth' }),
@@ -208,7 +224,7 @@ describe('viewRows', () => {
   it('lets empty cells and cells with one entry be typed into', () => {
     const [admin, web] = viewRows(grid, state);
     expect(web.cells.map((c) => c.control)).toEqual(['input', 'input', 'several', 'running', 'input', 'input', 'input']);
-    expect(web.cells.map((c) => c.text)).toEqual(['1h 30m', '1h', '1h 15m', '', '', '', '']);
+    expect(web.cells.map((c) => c.text)).toEqual(['1:30', '1:00', '1:15', '', '', '', '']);
     expect(admin.cells.every((c) => c.control === 'input' && c.text === '')).toBe(true);
     // Only a row without any entry can be taken away again.
     expect([admin.removable, web.removable]).toEqual([true, false]);
@@ -224,20 +240,30 @@ describe('viewRows', () => {
     expect(cellLabel({ projectCode: 'ADM', projectName: 'Admin', taskTitle: null }, '2026-03-07')).toBe('ADM, Admin, Saturday');
   });
 
-  it('shows what is being typed, what can not be read and what is on its way', () => {
+  it('shows what is being typed, what can not be read, what is on its way and what was not saved', () => {
     const [, web] = viewRows(grid, {
       locked: false,
       drafts: { '1:5@2026-03-02': '2', '1:5@2026-03-06': 'abc' },
       invalid: { '1:5@2026-03-06': 'Enter time as 1:30, 1.5 or 90m' },
+      failed: { '1:5@2026-03-03': 'Website is finished; reopen it to log more time' },
       saving: { '1:5@2026-03-02': true },
     });
-    expect(web.cells[0]).toMatchObject({ key: '1:5@2026-03-02', text: '2', saving: true, invalid: null });
+    expect(web.cells[0]).toMatchObject({ key: '1:5@2026-03-02', text: '2', saving: true, invalid: null, failed: null });
     expect(web.cells[4]).toMatchObject({ text: 'abc', saving: false, invalid: 'Enter time as 1:30, 1.5 or 90m' });
+    // A change that was not saved leaves the saved time in the cell, with the reason.
+    expect(web.cells[1]).toMatchObject({ text: '1:00', failed: 'Website is finished; reopen it to log more time' });
   });
 
   it('has nothing to type into in a submitted or approved week', () => {
-    const rows = viewRows(buildGrid('2026-03-02', entries), { ...state, locked: true, drafts: { '1:5@2026-03-02': '2' } });
+    const rows = viewRows(buildGrid('2026-03-02', entries), {
+      ...state,
+      locked: true,
+      drafts: { '1:5@2026-03-02': '2' },
+      failed: { '1:5@2026-03-02': 'The timesheet is submitted' },
+    });
     expect(rows[0].cells.every((c) => c.control === 'text')).toBe(true);
+    // What was not saved is still told, also when nothing can be typed any more.
+    expect(rows[0].cells[0].failed).toBe('The timesheet is submitted');
     expect(rows[0].removable).toBe(false);
     expect(focusableCells(rows)).toEqual([[false, false, false, false, false, false, false]]);
   });

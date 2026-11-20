@@ -1,6 +1,6 @@
 import { TimeEntry, Week } from '../../core/models';
 import { addDays, dayNameLong, diffDays, parseIsoDate, weekStart } from '../../shared/dates';
-import { formatMinutes, parseDuration } from '../../shared/format';
+import { formatClock, formatMinutes, isDecimalHours, parseDuration } from '../../shared/format';
 
 /** What a row is about. Also the shape of a row that is kept while it has no time yet. */
 export interface RowRef {
@@ -131,7 +131,8 @@ export const MAX_CELL_MINUTES = 1440;
 
 /**
  * Reads a cell: "1:30", "1.5", "1,5", "90m" and "1h 30m" are all an hour and a half, and a
- * number on its own is hours. Anything else is refused rather than guessed at.
+ * number on its own is hours. Anything else is refused rather than guessed at, and so are
+ * decimal hours that are not a whole number of minutes ("1.555"): nothing is rounded.
  */
 export function parseCell(text: string): Typed {
   const trimmed = text.trim();
@@ -140,16 +141,21 @@ export function parseCell(text: string): Typed {
   }
   const minutes = parseDuration(trimmed);
   if (minutes === null) {
-    return { kind: 'invalid', message: 'Enter time as 1:30, 1.5 or 90m' };
+    return isDecimalHours(trimmed)
+      ? { kind: 'invalid', message: 'That is not a whole number of minutes. Type it as hours and minutes, like 1:33' }
+      : { kind: 'invalid', message: 'Enter time as 1:30, 1.5 or 90m' };
   }
   if (minutes > MAX_CELL_MINUTES) {
     return { kind: 'invalid', message: "A day can't take more than 24 hours" };
   }
-  if (minutes === 0) {
-    // "0" clears the cell. "0.001" is not zero, it is too little to book.
-    return /[1-9]/.test(trimmed) ? { kind: 'invalid', message: 'Enter at least one minute' } : { kind: 'empty' };
-  }
-  return { kind: 'minutes', minutes };
+  // A plain zero clears the cell.
+  return minutes === 0 ? { kind: 'empty' } : { kind: 'minutes', minutes };
+}
+
+/** What a cell shows for a time that was read: "1:18" for 78 minutes, nothing for none. */
+export function cellText(typed: Typed | number): string {
+  const minutes = typeof typed === 'number' ? typed : typed.kind === 'minutes' ? typed.minutes : 0;
+  return minutes ? formatClock(minutes) : '';
 }
 
 export type CellAction =
@@ -282,7 +288,10 @@ export interface CellView {
   text: string;
   label: string;
   note: string | null;
+  /** Why what is in the cell can't be read. Nothing was sent, and the text is still there. */
   invalid: string | null;
+  /** Why the last change to the cell was not saved. The cell shows the saved time again. */
+  failed: string | null;
   saving: boolean;
 }
 
@@ -301,6 +310,8 @@ export interface GridState {
   drafts: Record<string, string>;
   /** Why the text of a cell can't be read, by cell key. */
   invalid: Record<string, string>;
+  /** Why the last change to a cell was not saved, by cell key. */
+  failed: Record<string, string>;
   /** The cells with a save on its way. */
   saving: Record<string, unknown>;
 }
@@ -323,10 +334,11 @@ export function viewRows(grid: Grid, state: GridState): RowView[] {
         day,
         control: state.locked ? 'text' : mode === 'several' || mode === 'running' ? mode : 'input',
         minutes,
-        text: state.drafts[key] ?? (minutes ? formatMinutes(minutes) : ''),
+        text: state.drafts[key] ?? cellText(minutes),
         label: mode === 'several' ? severalLabel(row, date, entries) : cellLabel(row, date) + (note ? ', has a note' : ''),
         note,
         invalid: state.invalid[key] ?? null,
+        failed: state.failed[key] ?? null,
         saving: key in state.saving,
       };
     }),

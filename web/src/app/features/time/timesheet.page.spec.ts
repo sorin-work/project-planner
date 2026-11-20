@@ -73,8 +73,13 @@ describe('TimesheetPage', () => {
     input.dispatchEvent(new Event('blur'));
   }
 
-  function press(target: HTMLElement, key: string): void {
-    target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  function press(target: HTMLElement, key: string, modifiers: KeyboardEventInit = {}): void {
+    target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...modifiers }));
+  }
+
+  /** Answers the request that reads the week again, which follows every save that failed. */
+  function answerReload(entries: TimeEntry[], status: TimesheetStatus = 'DRAFT'): void {
+    http.expectOne((r) => r.url === WEEK_URL).flush(week(MONDAY, entries, status));
   }
 
   function button(el: HTMLElement, label: string): HTMLButtonElement {
@@ -88,7 +93,7 @@ describe('TimesheetPage', () => {
   it('saves what is typed into an empty cell and shows it without loading the week again', async () => {
     const { harness, el } = await open([entry(1, MONDAY, 60)]);
     const tuesday = cell(el, 'WEB, Design, Tuesday');
-    expect(cell(el, 'WEB, Design, Monday').value).toBe('1h');
+    expect(cell(el, 'WEB, Design, Monday').value).toBe('1:00');
     expect(tuesday.value).toBe('');
 
     fill(tuesday, '1,5');
@@ -99,8 +104,8 @@ describe('TimesheetPage', () => {
     created.flush(entry(2, '2026-03-03', 90));
     await harness.fixture.whenStable();
 
-    expect(tuesday.value).toBe('1h 30m');
-    expect(el.querySelector('tbody tr td:last-child')?.textContent).toContain('2h 30m');
+    expect(tuesday.value).toBe('1:30');
+    expect(el.querySelector('tbody tr td:last-child')?.textContent).toContain('2:30');
     expect(el.querySelector('.timesheet-status')?.textContent).toContain('2h 30m total');
     expect(el.querySelectorAll('.entries li')).toHaveLength(2);
     http.verify();
@@ -117,7 +122,8 @@ describe('TimesheetPage', () => {
     fill(tuesday, '3');
     await harness.fixture.whenStable();
     http.expectNone(ENTRIES_URL);
-    expect(tuesday.value).toBe('3');
+    // What was read is in the cell at once, as hours and minutes.
+    expect(tuesday.value).toBe('3:00');
 
     created.flush(entry(2, '2026-03-03', 60));
     const updated = http.expectOne(`${ENTRIES_URL}/2`);
@@ -126,7 +132,7 @@ describe('TimesheetPage', () => {
     updated.flush(entry(2, '2026-03-03', 180));
     await harness.fixture.whenStable();
 
-    expect(tuesday.value).toBe('3h');
+    expect(tuesday.value).toBe('3:00');
     expect(el.querySelectorAll('.entries li')).toHaveLength(2);
     http.verify();
   });
@@ -141,9 +147,11 @@ describe('TimesheetPage', () => {
     const key = (lost.request.body as { clientKey: string }).clientKey;
     // The API stored the entry, but the browser only saw the connection drop.
     lost.error(new ProgressEvent('error'));
+    // The week is read again, and in this case too early to see the entry.
+    answerReload([entry(1, MONDAY, 60)]);
     await harness.fixture.whenStable();
     expect(tuesday.value).toBe('');
-    expect(el.querySelector('.card [role=alert]')?.textContent).toContain('Cannot reach the server');
+    expect(el.querySelector('.card [role=alert]')?.textContent).toContain('WEB, Design, Tuesday: Cannot reach the server');
 
     // Typed again, this time as two hours: the same key, so the API answers with the entry it made before.
     fill(tuesday, '2');
@@ -156,7 +164,7 @@ describe('TimesheetPage', () => {
     expect(updated.request.body).toMatchObject({ minutes: 120 });
     updated.flush(entry(2, '2026-03-03', 120));
     await harness.fixture.whenStable();
-    expect(tuesday.value).toBe('2h');
+    expect(tuesday.value).toBe('2:00');
     expect(el.querySelectorAll('.entries li')).toHaveLength(2);
 
     // Another cell is another entry and has a key of its own.
@@ -214,8 +222,51 @@ describe('TimesheetPage', () => {
       );
     await harness.fixture.whenStable();
 
-    expect(monday.value).toBe('1h');
-    expect(el.querySelector('.card [role=alert]')?.textContent).toContain('WEB, Design, Monday: The timesheet for the week of 2026-03-02 is submitted');
+    expect(monday.value).toBe('1:00');
+    expect(monday.getAttribute('aria-invalid')).toBe('true');
+    const reason = 'WEB, Design, Monday: The timesheet for the week of 2026-03-02 is submitted';
+    expect(el.querySelector('#grid-problems')?.textContent).toContain(reason);
+
+    // The week is read again after a save that failed. It was submitted in another tab: nothing
+    // can be typed any more, and the reason is still there to read.
+    answerReload([entry(1, MONDAY, 60)], 'SUBMITTED');
+    await harness.fixture.whenStable();
+    expect(el.querySelectorAll('.cell-input')).toHaveLength(0);
+    expect(el.querySelector('.timesheet-grid tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('1:00');
+    expect(el.querySelector('#grid-problems')?.textContent).toContain(reason);
+    http.verify();
+  });
+
+  it('reads the week again when an entry turns out to be gone', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60), entry(2, '2026-03-03', 30)]);
+
+    fill(cell(el, 'WEB, Design, Monday'), '2');
+    http.expectOne(`${ENTRIES_URL}/1`).flush({ status: 404, code: 'not_found', message: 'Time entry not found' }, { status: 404, statusText: 'Not Found' });
+    // Deleted in another tab. The old hour must not stay on screen as if it were still there.
+    answerReload([entry(2, '2026-03-03', 30)]);
+    await harness.fixture.whenStable();
+
+    expect(cell(el, 'WEB, Design, Monday').value).toBe('');
+    expect(el.querySelector('#grid-problems')?.textContent).toContain('WEB, Design, Monday: Time entry not found');
+    expect(el.querySelector('.timesheet-status')?.textContent).toContain('30m total');
+    http.verify();
+  });
+
+  it('reads the week again when the tab is looked at again', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60)]);
+    expect(cell(el, 'WEB, Design, Tuesday').value).toBe('');
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    // Tuesday was filled in from another tab. Typing into a cell that only looks empty would make a second entry.
+    answerReload([entry(1, MONDAY, 60), entry(2, '2026-03-03', 90)]);
+    await harness.fixture.whenStable();
+    expect(cell(el, 'WEB, Design, Tuesday').value).toBe('1:30');
+
+    fill(cell(el, 'WEB, Design, Tuesday'), '2');
+    const updated = http.expectOne(`${ENTRIES_URL}/2`);
+    expect(updated.request.method).toBe('PUT');
+    updated.flush(entry(2, '2026-03-03', 120));
+    await harness.fixture.whenStable();
     http.verify();
   });
 
@@ -229,12 +280,12 @@ describe('TimesheetPage', () => {
     expect(updated.request.body).toEqual({ projectId: 1, taskId: 5, date: MONDAY, minutes: 45, description: 'Call with Ruth', billable: false });
     updated.flush(entry(1, MONDAY, 45, { description: 'Call with Ruth', billable: false }));
     await harness.fixture.whenStable();
-    expect(monday.value).toBe('45m');
+    expect(monday.value).toBe('0:45');
 
     fill(monday, '');
     await harness.fixture.whenStable();
-    expect(monday.value).toBe('45m');
-    expect(el.querySelector('.card [role=alert]')?.textContent).toContain('This entry has a note. Delete it in the list below.');
+    expect(monday.value).toBe('0:45');
+    expect(el.querySelector('#grid-problems')?.textContent).toContain('WEB, Design, Monday: This entry has a note. Delete it in the list below.');
     http.verify();
   });
 
@@ -274,6 +325,28 @@ describe('TimesheetPage', () => {
     expect(tuesday.value).toBe('');
     expect(tuesday.getAttribute('aria-invalid')).toBeNull();
     expect(button(el, 'Submit week').disabled).toBe(false);
+
+    // Decimal hours are not rounded to minutes nobody typed.
+    fill(tuesday, '1.555');
+    await harness.fixture.whenStable();
+    expect(tuesday.value).toBe('1.555');
+    expect(el.querySelector('#grid-problems')?.textContent).toContain('WEB, Design, Tuesday: That is not a whole number of minutes');
+    http.verify();
+  });
+
+  it('shows what it read as hours and minutes at once, before the save has answered', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60)]);
+    const tuesday = cell(el, 'WEB, Design, Tuesday');
+
+    // An hour and eighteen minutes. Whoever meant half past one sees it before leaving the row.
+    fill(tuesday, '1.30');
+    await harness.fixture.whenStable();
+    expect(tuesday.value).toBe('1:18');
+    const created = http.expectOne(ENTRIES_URL);
+    expect(created.request.body).toMatchObject({ minutes: 78 });
+    created.flush(entry(2, '2026-03-03', 78));
+    await harness.fixture.whenStable();
+    expect(tuesday.value).toBe('1:18');
     http.verify();
   });
 
@@ -296,7 +369,7 @@ describe('TimesheetPage', () => {
     await harness.fixture.whenStable();
     expect(el.querySelectorAll('.cell-input, .cell-several')).toHaveLength(0);
     expect(el.querySelector('.grid-tools')).toBeNull();
-    expect(el.querySelector('.timesheet-grid tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('1h 30m');
+    expect(el.querySelector('.timesheet-grid tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('1:30');
     http.verify();
   });
 
@@ -317,6 +390,77 @@ describe('TimesheetPage', () => {
     http.verify();
   });
 
+  it('does not submit the week when a cell that was still being saved is refused', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60)]);
+    const friday = cell(el, 'WEB, Design, Friday');
+
+    fill(friday, '4');
+    button(el, 'Submit week').click();
+    http
+      .expectOne(ENTRIES_URL)
+      .flush({ status: 400, code: 'project_done', message: 'Website is finished; reopen it to log more time' }, { status: 400, statusText: 'Bad Request' });
+    // The week would have gone in without Friday. It stays open, and says why.
+    http.expectNone('/api/orgs/7/timesheets/submit');
+    answerReload([entry(1, MONDAY, 60)]);
+    await harness.fixture.whenStable();
+
+    expect(el.querySelector('.timesheet-status')?.textContent).toContain('Draft');
+    expect(friday.value).toBe('');
+    expect(friday.getAttribute('aria-invalid')).toBe('true');
+    expect(el.querySelector('#grid-problems')?.textContent).toContain('WEB, Design, Friday: Website is finished; reopen it to log more time');
+    expect(el.textContent).toContain('The week was not submitted, because not everything in it could be saved.');
+
+    // Having read that, the week can be submitted as it is. What was not saved is still listed afterwards.
+    button(el, 'Submit week').click();
+    http.expectOne('/api/orgs/7/timesheets/submit').flush(week(MONDAY, [entry(1, MONDAY, 60)], 'SUBMITTED'));
+    await harness.fixture.whenStable();
+    expect(el.querySelector('.timesheet-status')?.textContent).toContain('Submitted');
+    expect(el.querySelector('#grid-problems')?.textContent).toContain('WEB, Design, Friday: Website is finished');
+    expect(el.textContent).not.toContain('The week was not submitted');
+    http.verify();
+  });
+
+  it('does not submit either when the change was refused before anything was sent', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60, { description: 'Call with Ruth' })]);
+
+    // Clearing an entry with a note is not done from the grid, so this is a change that was not saved.
+    // It is refused in the same moment in which the click on the button leaves the cell.
+    fill(cell(el, 'WEB, Design, Monday, has a note'), '');
+    button(el, 'Submit week').click();
+    await harness.fixture.whenStable();
+    http.expectNone('/api/orgs/7/timesheets/submit');
+    expect(el.querySelector('#grid-problems')?.textContent).toContain('This entry has a note');
+    expect(el.textContent).toContain('The week was not submitted');
+
+    // Now that it has been said, pressing again submits the week as it stands.
+    button(el, 'Submit week').click();
+    http.expectOne('/api/orgs/7/timesheets/submit').flush(week(MONDAY, [entry(1, MONDAY, 60, { description: 'Call with Ruth' })], 'SUBMITTED'));
+    await harness.fixture.whenStable();
+    http.verify();
+  });
+
+  it('submits without being asked twice once a refused cell has been put right', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60)]);
+    const friday = cell(el, 'WEB, Design, Friday');
+
+    fill(friday, '4');
+    http.expectOne(ENTRIES_URL).flush({ status: 500, code: 'internal_error', message: 'Something went wrong on our side' }, { status: 500, statusText: 'Server Error' });
+    answerReload([entry(1, MONDAY, 60)]);
+    await harness.fixture.whenStable();
+    expect(friday.getAttribute('aria-invalid')).toBe('true');
+
+    fill(friday, '4');
+    http.expectOne(ENTRIES_URL).flush(entry(2, '2026-03-06', 240));
+    await harness.fixture.whenStable();
+    expect(friday.getAttribute('aria-invalid')).toBeNull();
+    expect(el.querySelector('#grid-problems')).toBeNull();
+
+    button(el, 'Submit week').click();
+    http.expectOne('/api/orgs/7/timesheets/submit').flush(week(MONDAY, [entry(1, MONDAY, 60), entry(2, '2026-03-06', 240)], 'SUBMITTED'));
+    await harness.fixture.whenStable();
+    http.verify();
+  });
+
   it('moves between cells with Enter and the arrow keys', async () => {
     const admin = { projectId: 2, projectCode: 'ADM', projectName: 'Admin', taskId: undefined, taskTitle: undefined };
     const { harness, el } = await open([entry(1, MONDAY, 60, admin), entry(2, MONDAY, 60)]);
@@ -332,7 +476,7 @@ describe('TimesheetPage', () => {
     adminMonday.setSelectionRange(0, 0);
     press(adminMonday, 'ArrowRight');
     expect(document.activeElement).toBe(adminMonday);
-    adminMonday.setSelectionRange(2, 2);
+    adminMonday.setSelectionRange(adminMonday.value.length, adminMonday.value.length);
     press(adminMonday, 'ArrowRight');
     expect(document.activeElement).toBe(cell(el, 'ADM, Admin, Tuesday'));
 
@@ -347,7 +491,7 @@ describe('TimesheetPage', () => {
     expect(created.request.body).toMatchObject({ projectId: 2, taskId: null, date: '2026-03-03', minutes: 90 });
     created.flush(entry(3, '2026-03-03', 90, admin));
     await harness.fixture.whenStable();
-    expect(adminTuesday.value).toBe('1h 30m');
+    expect(adminTuesday.value).toBe('1:30');
     http.verify();
   });
 
