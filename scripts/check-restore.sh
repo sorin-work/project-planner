@@ -96,10 +96,11 @@ for own in "$(sed -n 's/^name: *//p' docker-compose.yml)" "$(basename "$PWD")"; 
   fi
 done
 
+leftover="If an earlier run of this check left it behind, this removes it, the database volume included: $remove"
 containers=$(compose ps -aq) || fail "docker compose ps did not work, so there is no telling whether the compose project $project is in use. Nothing was started."
-[ -z "$containers" ] || fail "the compose project $project already has containers, and the check wants a project of its own (CHECK_PROJECT)."
+[ -z "$containers" ] || fail "the compose project $project already has containers, and the check wants a project of its own (CHECK_PROJECT). $leftover"
 found=$(docker volume ls -q --filter "name=^${volume}\$") || fail "docker volume ls did not work, so there is no telling whether the volume $volume exists. Nothing was started."
-[ -z "$found" ] || fail "the volume $volume already exists, and the check wants one of its own (CHECK_PROJECT)."
+[ -z "$found" ] || fail "the volume $volume already exists, and the check wants one of its own (CHECK_PROJECT). $leftover"
 
 BACKUP_DIR=$(mktemp -d)
 export BACKUP_DIR SEED_DEMO=true BACKUP_KEEP=7 BACKUP_INTERVAL_SECONDS=86400
@@ -109,6 +110,8 @@ mine=false
 
 finish() {
   status=$?
+  trap - EXIT
+  trap '' INT TERM
   if [ "$status" -ne 0 ]; then
     echo "--- last lines of the service logs" >&2
     compose logs --no-color --tail 60 db api >&2 || true
@@ -127,7 +130,10 @@ finish() {
   fi
   exit "$status"
 }
+# dash does not run the EXIT trap when it is killed by a signal.
 trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "== create db and api, look where the database will live, start them with the demo data"
 compose up --no-start db api
