@@ -1,6 +1,6 @@
 import { Phase, Task } from '../../core/models';
 import { linkKey } from '../project/schedule-issues';
-import { DAY_WIDTH, HEADER_HEIGHT, ROW_HEIGHT, barSpan, dateRange, dragDays, layoutGantt, linkPath, xOf } from './gantt-layout';
+import { DAY_WIDTH, HEADER_HEIGHT, ROW_HEIGHT, barSpan, dateRange, dragDays, layoutGantt, linkEnds, linkPath, xOf } from './gantt-layout';
 
 function task(id: number, startDate?: string, dueDate?: string, extra: Partial<Task> = {}): Task {
   return {
@@ -30,6 +30,12 @@ describe('gantt layout', () => {
     expect(linkPath(100, 10, 90, 42)).toBe(`M 100 10 H 108 V ${10 + ROW_HEIGHT / 2} H 82 V 42 H 90`);
   });
 
+  it('runs an arrow from the middle of one bar end to the middle of the next bar start', () => {
+    expect(linkEnds({ x: 100, y: 51, width: 56, height: 18 }, { x: 196, y: 83, width: 28, height: 18 })).toEqual({
+      fromX: 156, fromY: 60, toX: 196, toY: 92,
+    });
+  });
+
   it('converts drag distance to whole days', () => {
     expect(dragDays(41, 28)).toBe(1);
     expect(dragDays(-15, 28)).toBe(-1);
@@ -53,7 +59,7 @@ describe('gantt layout', () => {
     expect(barB.width).toBe(3 * DAY_WIDTH.day);
     expect(barB.critical).toBe(true);
     expect(layout.bars.find((x) => x.task.id === 3)!.milestone).toBe(true);
-    expect(layout.links).toEqual([expect.objectContaining({ id: 50, critical: true })]);
+    expect(layout.links).toEqual([expect.objectContaining({ id: 50, successorId: 2, predecessorId: 1, critical: true })]);
     expect(layout.todayX).not.toBeNull();
     expect(layout.weekends.length).toBeGreaterThan(0);
   });
