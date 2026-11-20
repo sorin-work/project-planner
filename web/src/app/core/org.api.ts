@@ -54,6 +54,11 @@ export class OrgApi {
     return this.http.post<{ member?: Member; invitation?: Invitation }>(`/api/orgs/${orgId}/invitations`, body);
   }
 
+  /** Mails the invitation again with a new link. The link sent before stops working. */
+  resendInvitation(orgId: number, id: number): Observable<Invitation> {
+    return this.http.post<Invitation>(`/api/orgs/${orgId}/invitations/${id}/resend`, {});
+  }
+
   cancelInvitation(orgId: number, id: number): Observable<void> {
     return this.http.delete<void>(`/api/orgs/${orgId}/invitations/${id}`);
   }

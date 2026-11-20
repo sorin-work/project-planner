@@ -67,6 +67,22 @@ export interface Invitation {
   role: Role;
   clientId?: number;
   createdAt: string;
+  /** When the link in the last invitation mail stops working. Missing when no mail was sent. */
+  linkExpiresAt?: string;
+}
+
+/** What the server offers before signing in. */
+export interface AuthOptions {
+  mail: boolean;
+  inviteLinkRequired: boolean;
+}
+
+/** What an invitation link is for. */
+export interface InvitationLink {
+  email: string;
+  organisationName: string;
+  role: Role;
+  hasAccount: boolean;
 }
 
 export interface RoleRate {
