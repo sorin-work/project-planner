@@ -10,11 +10,16 @@ the point is knowing whether a project will land on time and on budget.
 
 ## Features
 
+- **Forgotten passwords**: with mail set up, "Forgot your password?" on the sign-in
+  page mails a link that works for one hour. Setting a new password, there or in the
+  settings, signs you out everywhere else.
 - **Organisations and roles**: owners, managers, members and client viewers. Invite
   people by email; anyone who already has an account is added straight away, others
-  join automatically when they sign up with the invited address. Client viewers are
-  tied to one client and only see that client's projects (read-only, but they can
-  comment).
+  join automatically when they sign up with the invited address. When the server
+  sends mail (see [Mail](#mail)), the invitation is mailed with a link that works for
+  seven days and can be sent again, and someone who was added is told by mail. Client
+  viewers are tied to one client and only see that client's projects (read-only, but
+  they can comment).
 - **Clients and projects**: projects have a client (or are internal), a code like
   `ACME-WEB`, status (planned, active, on hold, done), start and end dates, an hours
   budget, a money budget and an optional fixed hourly rate.
@@ -137,7 +142,8 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 (projects and phases), `task` (tasks, dependencies, critical path and schedule
 issue endpoints), `time`
 (entries, timers, timesheets, CSV export), `workload`, `report` (project health),
-`comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
+`comment`, `notification`, `mail` (settings, the mails and the thread that sends
+them), `activity`, `dashboard`, `search` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
 The scheduling and reporting rules are plain Java classes without any framework
@@ -205,6 +211,7 @@ the client's deadline.
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
 | api     | 4411      | http://localhost:4411/q/health                      | Quarkus; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
+| mail    | 5192      | http://localhost:5192                               | optional mail catcher (Mailpit), only on 127.0.0.1 |
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
 Ports can be changed with `WEB_PORT`, `API_PORT` and `DB_PORT` (in `.env` or inline,
@@ -234,6 +241,66 @@ All demo accounts use the password `demo-password`.
 | `samir@example.com`        | Samir Haddad  | Member                            |
 | `jordan@northwind.example` | Jordan Reyes  | Client viewer for Northwind Traders |
 
+## Mail
+
+The app mails two things: invitations and links to reset a password. It sends them
+by plain SMTP, to the server in `MAIL_HOST`. Without `MAIL_HOST` it sends nothing and
+works as it did before it had mail: there is no "Forgot your password?" link,
+invitations are not mailed and there is no "resend" beside them, and the reset
+endpoints answer 404 with the code `mail_off`.
+
+With `MAIL_HOST` set, `MAIL_FROM` and `APP_URL` have to be set too, or the API does not
+start. `APP_URL` is the address of the web app, such as `https://planner.example.com`.
+The links in mails are built from it and never from the address a request came in on.
+The connection to the mail server has to be encrypted: STARTTLS on port 587 by
+default, or TLS from the start with `MAIL_TLS=true` on port 465. `MAIL_STARTTLS=DISABLED`
+lifts that, which is only meant for the mail catcher. `MAIL_USERNAME` and
+`MAIL_PASSWORD` are used when the server asks for them.
+
+For development, `.env.example` starts the `mail` service, a mail catcher
+([Mailpit](https://mailpit.axllent.org)), and points the API at it. Every mail the
+app sends ends up at http://localhost:5192 and nowhere else. The page is only bound to
+127.0.0.1 and the catcher's SMTP port is not published. Without `.env`, Compose starts
+neither and mail is off.
+
+What the mails hold, and what they do not:
+
+- Only fixed wording, the link and how long it works. No names and no organisation
+  names, because those are typed by users and a mail in the app's name should not carry
+  somebody else's words.
+- The token travels after the `#` of the link (`/reset#token=...`), which browsers do
+  not send to a server, so it stays out of access logs. The page takes it out of the
+  address bar once it has read it.
+- A token is 32 random bytes. Only its SHA-256 is stored. It works once: using it is a
+  single update that only matches while it still works, so of two requests with the
+  same link only one gets through.
+
+A reset request answers 204 whether or not the address has an account. The lookup,
+the link and the mail happen on a thread of their own after the answer is ready, so the
+time it takes does not tell either. One client may ask ten times in a quarter of an
+hour (by the address nginx saw, `BEHIND_PROXY` in Compose). An account gets at most
+three links that work at the same time, and at most one a minute. Asking again never
+cancels a link that was already sent, so nobody can keep the link in somebody else's
+inbox dead. Using a link ends every session of the account that was started before,
+and its other links stop working. A password change in the settings does the same and
+gives the session it was made in a new token.
+
+An invitation link fixes the organisation and the role. The page at `/invite` shows
+which address it is for. With an account for that address you sign in and accept;
+without one you sign up there, with that address. Signed in with another account, it
+says so and does not let you accept. Sending an invitation again gives it a new link
+and the old one stops working, and cancelling it stops its link at once.
+
+Signing up with an invited address, without the link, still joins that organisation,
+as it did before there was mail. `INVITE_LINK_REQUIRED=true` changes that: joining then
+needs the link, which proves that the person reads mail at that address. It only has an
+effect with mail on, so that a fresh install without mail can still be joined, and it
+is off by default because it changes how people join.
+
+A mail that cannot be sent is logged at WARN with the kind of mail and the type of the
+error, without the address or the link. The whole error, which can name the address,
+is at DEBUG. The API tests send to a mock mailbox and never to a server.
+
 ## Backup and restore
 
 Everything is in the `db-data` volume, and the timesheet CSV is the only export. For a
@@ -245,7 +312,7 @@ docker compose --profile backup up -d
 ```
 
 To have it start with every `docker compose up`, put `COMPOSE_PROFILES=backup` in
-`.env`.
+`.env` (`COMPOSE_PROFILES=mail,backup` to keep the mail catcher as well).
 
 Dumps land in `./backups` as `planner-<UTC date and time>.dump`, in `pg_dump`'s custom
 format. When the service starts it makes one, unless the newest dump is less than a day
@@ -366,6 +433,16 @@ npm start
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
+| `MAIL_HOST`            | none: mail is off (`mail` in `.env.example`)  | api     |
+| `MAIL_PORT`            | `587`                                         | api     |
+| `MAIL_FROM`            | none, required with `MAIL_HOST`               | api     |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | none                                | api     |
+| `MAIL_STARTTLS`        | `REQUIRED` (`DISABLED` for the mail catcher)  | api     |
+| `MAIL_TLS`             | `false` (`true` for TLS from the start, 465)  | api     |
+| `APP_URL`              | none, required with `MAIL_HOST`               | api     |
+| `INVITE_LINK_REQUIRED` | `false`                                       | api     |
+| `BEHIND_PROXY`         | `false` (`true` in compose)                   | api     |
+| `MAIL_UI_PORT`         | `5192`                                        | compose |
 | `BACKUP_DIR`           | `./backups`                                   | backup  |
 | `BACKUP_KEEP`          | `7`                                           | backup  |
 | `BACKUP_INTERVAL_SECONDS` | `86400` (one day)                          | backup  |
@@ -485,7 +562,9 @@ that the source does not, and it only describes `/api`.
 
 The rules that hold for every endpoint:
 
-- Apart from sign-up and login, a request needs a token: `Authorization: Bearer <token>`.
+- Apart from sign-up, login and the forgotten password and invitation link endpoints
+  under `/api/auth`, a request needs a token: `Authorization: Bearer <token>`. A token
+  stops working when the password is changed or reset after it was issued.
 - Errors are JSON: `{ "status", "code", "message", "errors"? }`. The `code` is stable.
   The reference lists the codes of each endpoint and the ones that any endpoint can
   answer with.
