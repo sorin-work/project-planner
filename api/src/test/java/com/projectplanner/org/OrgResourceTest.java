@@ -3,13 +3,11 @@ package com.projectplanner.org;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
 import io.quarkus.test.junit.QuarkusTest;
-import io.restassured.http.ContentType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
-import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
@@ -35,7 +33,7 @@ class OrgResourceTest {
     }
 
     @Test
-    void aMailedInvitationCannotBeTakenBySigningUpWithTheAddress() {
+    void aMailedInvitationIsNotTakenBySigningUpWithTheAddress() {
         Account owner = Api.signup("Quinn");
         String email = Api.uniqueEmail("rita");
         owner.as().body(Map.of("email", email, "role", "MANAGER"))
@@ -45,10 +43,9 @@ class OrgResourceTest {
         owner.as().get("/api/orgs/" + owner.orgId() + "/invitations").then().body("email", hasItem(email));
 
         // Mail is on in the tests, so the invitation went out with a link, and only the link
-        // lets somebody in with that address. See InvitationMailTest and MailOffTest.
-        given().contentType(ContentType.JSON)
-                .body(Map.of("name", "Not Rita", "email", email, "password", "correct-horse"))
-                .post("/api/auth/signup").then().statusCode(409).body("code", equalTo("invitation_link_required"));
+        // joins. See InvitationMailTest and MailOffTest.
+        Account rita = Api.signup("Rita", email, null);
+        rita.as().get("/api/me").then().body("organisations", hasSize(1)).body("organisations[0].role", equalTo("OWNER"));
         owner.as().get("/api/orgs/" + owner.orgId() + "/invitations").then().body("email", hasItem(email));
     }
 

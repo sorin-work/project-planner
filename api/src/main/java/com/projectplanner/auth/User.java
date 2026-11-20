@@ -36,9 +36,6 @@ public class User extends PanacheEntityBase {
     @Column(name = "token_version", nullable = false)
     public int tokenVersion;
 
-    @Column(name = "password_changed_at")
-    public Instant passwordChangedAt;
-
     public static String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
     }
@@ -50,11 +47,17 @@ public class User extends PanacheEntityBase {
     /**
      * Sets a new password and ends every session that was started before, along with
      * every reset link that still works.
+     * <p>
+     * The version is counted up by the database, not read and written back here: the update
+     * holds the row until the transaction ends, so a reset and a change at the same moment
+     * end two versions further on, and neither leaves a session alive that the other ended.
+     * The entity is then read again, so that the token for this session carries the new
+     * version.
      */
     public void changePassword(String newHash, Instant now) {
+        update("tokenVersion = tokenVersion + 1 where id = ?1", id);
+        getEntityManager().refresh(this);
         passwordHash = newHash;
-        passwordChangedAt = now;
-        tokenVersion++;
         PasswordReset.revokeAll(id, now);
     }
 

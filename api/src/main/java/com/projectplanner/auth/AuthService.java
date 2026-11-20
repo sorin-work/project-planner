@@ -43,11 +43,11 @@ public class AuthService {
     /**
      * Creates the account. With an invitation link, the organisation of that invitation is
      * joined with its role, and the email has to be the invited address. Other invitations
-     * waiting for the address are accepted too. Without a link, an address with a mailed
-     * invitation cannot sign up, and with {@link MailSettings#inviteLinkRequired()} nobody
-     * can. Invitations that were never mailed (mail was off) are still accepted by the
-     * address alone. Without any invitation, the user gets a new organisation of their own
-     * as owner.
+     * waiting for the address are accepted too. Without a link, only invitations that were
+     * never mailed (mail was off) are accepted; mailed ones wait for their link, which the
+     * account can use after signing in. With {@link MailSettings#inviteLinkRequired()} nobody
+     * signs up without a link. Without any invitation accepted, the user gets a new
+     * organisation of their own as owner.
      */
     @Transactional
     public AuthResponse signup(SignupRequest request) {
@@ -58,19 +58,15 @@ public class AuthService {
         Instant now = clock.instant();
         String token = request.invitationToken();
         Invitation linked = token == null || token.isBlank() ? null : invitations.open(token, now, email);
-        List<Invitation> pending = Invitation.pendingFor(email);
-        if (linked == null) {
-            if (mail.inviteLinkRequired()) {
-                throw ApiException.conflict("invitation_link_required",
-                        "Signing up needs an invitation. Open the link in the invitation mail.");
-            }
-            // An invitation that was mailed proves nothing until its link is used: without
-            // this, whoever knows the invited address could sign up first and take the role.
-            if (pending.stream().anyMatch(invitation -> invitation.tokenHash != null)) {
-                throw ApiException.conflict("invitation_link_required",
-                        "There is an invitation for this address. Open the link in the invitation mail to sign up.");
-            }
+        if (linked == null && mail.inviteLinkRequired()) {
+            throw ApiException.conflict("invitation_required", "Signing up needs an invitation. Open the link in the invitation mail.");
         }
+        // Invitations that were mailed are only ever accepted with their link: by the address
+        // alone, whoever knows it could sign up first and take the role. Without the link the
+        // account is made all the same, and those invitations stay waiting for it.
+        List<Invitation> pending = Invitation.pendingFor(email).stream()
+                .filter(invitation -> linked != null || invitation.tokenHash == null)
+                .toList();
         User user = new User();
         user.email = email;
         user.name = request.name().trim();

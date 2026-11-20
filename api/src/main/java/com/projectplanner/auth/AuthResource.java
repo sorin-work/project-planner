@@ -76,10 +76,10 @@ public class AuthResource {
     @Path("/signup")
     @ResponseStatus(201)
     @Operation(summary = "Create an account",
-            description = "With invitationToken, the organisation of that invitation is joined with its role, and other invitations waiting for the email are accepted on the spot too. An email with an invitation that was mailed needs its link to sign up, and a server that requires invitations (GET /api/auth/options) needs one for everybody. Without any invitation, or when organisationName is given, a new organisation is created with you as its owner.")
+            description = "With invitationToken, the organisation of that invitation is joined with its role, and other invitations waiting for the email are accepted on the spot too. Without it, invitations that were mailed are not accepted: they wait for their link, which the account can use after signing in. A server that requires invitations (GET /api/auth/options) needs a link for every sign-up. Without any invitation, or when organisationName is given, a new organisation is created with you as its owner.")
     @Fails(status = 409, code = "email_taken", when = "there is already an account with this email")
     @Fails(status = 400, code = "invalid_link", when = "invitationToken is not a link that works for this email: it expired, was cancelled, was already used or is for another address")
-    @Fails(status = 409, code = "invitation_link_required", when = "there is no invitationToken, but the email has an invitation that was mailed, or the server only lets people in with an invitation")
+    @Fails(status = 409, code = "invitation_required", when = "there is no invitationToken and the server only lets people in with an invitation")
     public AuthResponse signup(@Valid @NotNull SignupRequest request) {
         return auth.signup(request);
     }

@@ -31,7 +31,7 @@ public final class AuthDtos {
 
     public record AuthOptions(
             @Schema(description = "Whether the server sends mail. Without it there are no reset links and invitations are not mailed.") boolean mail,
-            @Schema(description = "Whether signing up needs the link from an invitation mail, for everybody. Without it, anyone can sign up, apart from an address with a mailed invitation, which needs that invitation's link.") boolean inviteLinkRequired) {
+            @Schema(description = "Whether signing up needs the link from an invitation mail. Without it, anyone can sign up, and a mailed invitation is only accepted with its link.") boolean inviteLinkRequired) {
     }
 
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
