@@ -196,6 +196,88 @@ class TaskResourceTest {
     }
 
     @Test
+    void aTaskMovedBeforeItsPredecessorIsDueIsReportedWithTheDatesThatFixIt() {
+        Account owner = Api.signup("Abe");
+        long projectId = Api.createProject(owner, "BROKEN");
+        long design = Api.createTask(owner, projectId, Map.of("title", "Design", "startDate", "2026-03-02", "dueDate", "2026-03-06"));
+        long build = Api.createTask(owner, projectId, Map.of("title", "Build", "startDate", "2026-03-09", "dueDate", "2026-03-11"));
+        owner.as().body(Map.of("predecessorId", design)).post("/api/tasks/" + build + "/dependencies").then().statusCode(201);
+        owner.as().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(200).body("$", hasSize(0));
+
+        // Build is dragged into the week Design is still running. Nothing stops that.
+        owner.as().body(Map.of("startDate", "2026-03-04", "dueDate", "2026-03-06")).patch("/api/tasks/" + build)
+                .then().statusCode(200).body("rescheduled", hasSize(0));
+        owner.as().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(200)
+                .body("$", hasSize(1))
+                .body("[0].type", equalTo("STARTS_TOO_EARLY"))
+                .body("[0].taskId", equalTo((int) build))
+                .body("[0].relatedTaskId", equalTo((int) design))
+                .body("[0].days", equalTo(3))
+                .body("[0].suggestedStart", equalTo("2026-03-09"))
+                .body("[0].suggestedDue", equalTo("2026-03-11"));
+        // The critical path counts Build from the day it can start, so it ends after the latest due date.
+        owner.as().get("/api/projects/" + projectId + "/critical-path").then().body("finish", equalTo("2026-03-11"));
+        owner.as().get("/api/projects/" + projectId + "/health").then().body("forecastEnd", equalTo("2026-03-06"));
+
+        // "Move to" sends the two suggested dates back as they are.
+        owner.as().body(Map.of("startDate", "2026-03-09", "dueDate", "2026-03-11")).patch("/api/tasks/" + build)
+                .then().statusCode(200);
+        owner.as().get("/api/projects/" + projectId + "/schedule-issues").then().body("$", hasSize(0));
+        owner.as().get("/api/projects/" + projectId + "/critical-path").then().body("finish", equalTo("2026-03-11"));
+        owner.as().get("/api/projects/" + projectId + "/health").then().body("forecastEnd", equalTo("2026-03-11"));
+    }
+
+    @Test
+    void scheduleIssuesCoverUndatedPredecessorsTheProjectEndAndSubtasks() {
+        Account owner = Api.signup("Bea");
+        Number id = owner.as().body(Map.of("name", "Launch", "code", "ENDS", "status", "ACTIVE",
+                        "startDate", "2026-03-02", "endDate", "2026-03-13"))
+                .post("/api/orgs/" + owner.orgId() + "/projects").then().statusCode(201).extract().path("id");
+        long projectId = id.longValue();
+        long research = Api.createTask(owner, projectId, Map.of("title", "Research"));
+        long build = Api.createTask(owner, projectId, Map.of("title", "Build", "startDate", "2026-03-09", "dueDate", "2026-03-17"));
+        owner.as().body(Map.of("predecessorId", research)).post("/api/tasks/" + build + "/dependencies").then().statusCode(201);
+        long endpoints = Api.createTask(owner, projectId, Map.of("title", "Endpoints", "parentId", build,
+                "startDate", "2026-03-05", "dueDate", "2026-03-10"));
+        // Finished work is history, however late it was.
+        Api.createTask(owner, projectId, Map.of("title", "Kick-off", "status", "DONE", "startDate", "2026-03-16", "dueDate", "2026-03-20"));
+
+        owner.as().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(200)
+                .body("type", equalTo(java.util.List.of("OUTSIDE_PARENT", "WAITS_FOR_UNSCHEDULED", "AFTER_PROJECT_END")))
+                .body("taskId", equalTo(java.util.List.of((int) endpoints, (int) build, (int) build)))
+                .body("[0].relatedTaskId", equalTo((int) build))
+                .body("[0].days", equalTo(2))
+                .body("[1].relatedTaskId", equalTo((int) research))
+                .body("[1].days", nullValue())
+                .body("[2].relatedTaskId", nullValue())
+                .body("[2].days", equalTo(2))
+                .body("[2].suggestedStart", nullValue());
+
+        // A finished task without dates holds nobody up.
+        owner.as().body(Map.of("status", "DONE")).patch("/api/tasks/" + research).then().statusCode(200);
+        owner.as().get("/api/projects/" + projectId + "/schedule-issues").then()
+                .body("type", equalTo(java.util.List.of("OUTSIDE_PARENT", "AFTER_PROJECT_END")));
+    }
+
+    @Test
+    void scheduleIssuesAreForPeopleWhoCanSeeTheProject() {
+        Account owner = Api.signup("Cy");
+        long acme = Api.createClient(owner, "Acme");
+        long globex = Api.createClient(owner, "Globex");
+        long projectId = Api.createProject(owner, "SEE", acme);
+        Account viewer = Api.signup("Dee");
+        Api.addMember(owner, viewer, "CLIENT", acme);
+        Account otherClient = Api.signup("Eli");
+        Api.addMember(owner, otherClient, "CLIENT", globex);
+        Account stranger = Api.signup("Fay");
+
+        viewer.as().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(200).body("$", hasSize(0));
+        otherClient.as().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(404);
+        stranger.as().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(404);
+        io.restassured.RestAssured.given().get("/api/projects/" + projectId + "/schedule-issues").then().statusCode(401);
+    }
+
+    @Test
     void deletingATaskRemovesItsLinks() {
         Account owner = Api.signup("Zed");
         long projectId = Api.createProject(owner, "DEL");
