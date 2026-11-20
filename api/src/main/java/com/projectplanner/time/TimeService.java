@@ -94,14 +94,17 @@ public class TimeService {
         checkOwner(me, entry);
         checkUnlocked(entry.organisationId, entry.userId, entry.entryDate);
         Target target = target(entry.organisationId, request.projectId(), request.taskId());
-        checkDate(entry.organisationId, request.date());
-        checkUnlocked(entry.organisationId, entry.userId, request.date());
-        entry.projectId = target.project().id;
-        entry.taskId = target.task() == null ? null : target.task().id;
-        entry.entryDate = request.date();
         if (!entry.isRunning()) {
+            // Both the week the entry leaves and the one it moves into have to be open.
+            checkDate(entry.organisationId, request.date());
+            checkUnlocked(entry.organisationId, entry.userId, request.date());
+            entry.entryDate = request.date();
             entry.minutes = request.minutes();
         }
+        // A running timer keeps its day and has no length yet: both are set when it stops,
+        // so neither can be moved here.
+        entry.projectId = target.project().id;
+        entry.taskId = target.task() == null ? null : target.task().id;
         entry.description = blankToNull(request.description());
         if (request.billable() != null) {
             entry.billable = request.billable();
@@ -153,10 +156,20 @@ public class TimeService {
      */
     void finish(TimeEntry entry) {
         Instant now = Instant.now(clock);
+        LocalDate day = dayOf(entry);
+        // Stopping books time like any other entry does, so that week has to be open.
+        checkUnlocked(entry.organisationId, entry.userId, day);
         long minutes = Math.round(Duration.between(entry.startedAt, now).toSeconds() / 60.0);
         entry.endedAt = now;
         entry.minutes = (int) Math.max(1, Math.min(1440, minutes));
-        entry.entryDate = LocalDate.ofInstant(entry.startedAt, organisation(entry.organisationId).zone());
+        entry.entryDate = day;
+    }
+
+    /** The day an entry counts for. For a running timer that is the day it was started, whatever its date says. */
+    public LocalDate dayOf(TimeEntry entry) {
+        return entry.isRunning()
+                ? LocalDate.ofInstant(entry.startedAt, organisation(entry.organisationId).zone())
+                : entry.entryDate;
     }
 
     public List<TimeEntryResponse> toResponses(Collection<TimeEntry> entries) {

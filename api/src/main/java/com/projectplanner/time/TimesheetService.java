@@ -96,7 +96,7 @@ public class TimesheetService {
     public Timesheet submit(Membership me, LocalDate anyDay) {
         LocalDate weekStart = WorkCalendar.weekStart(anyDay);
         if (TimeEntry.runningFor(me.organisationId, me.userId)
-                .filter(e -> WorkCalendar.weekStart(e.entryDate).equals(weekStart))
+                .filter(e -> WorkCalendar.weekStart(time.dayOf(e)).equals(weekStart))
                 .isPresent()) {
             throw ApiException.conflict("timer_running", "Stop the running timer before submitting this week");
         }

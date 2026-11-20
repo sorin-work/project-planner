@@ -4,11 +4,13 @@ import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
 import com.projectplanner.support.TestClock;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.containsString;
@@ -150,6 +152,43 @@ class TimeResourceTest {
 
         owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
                 .then().body("entries", hasSize(1)).body("totalMinutes", equalTo(30));
+    }
+
+    @Test
+    void aRunningTimerCannotEndUpInALockedWeek() {
+        Account owner = Api.signup("Tia");
+        long projectId = Api.createProject(owner, "LOCKTIMER");
+        String org = "/api/orgs/" + owner.orgId();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate thisWeek = WorkCalendar.weekStart(today);
+        owner.as().body(entry(projectId, today, 60)).post(org + "/time-entries").then().statusCode(201);
+        Number timerId = owner.as().body(Map.of("projectId", projectId)).post(org + "/timer/start")
+                .then().statusCode(201).extract().path("id");
+
+        // A running timer keeps its day: moving it out of the week would let the week be submitted under it.
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 30, "description", "Moved"))
+                .put(org + "/time-entries/" + timerId).then().statusCode(200)
+                .body("date", equalTo(today.toString())).body("running", equalTo(true)).body("description", equalTo("Moved"));
+        owner.as().body(Map.of("weekStart", thisWeek.toString())).post(org + "/timesheets/submit")
+                .then().statusCode(409).body("code", equalTo("timer_running"));
+
+        // And if the week is locked all the same, the timer can't be stopped into it.
+        QuarkusTransaction.requiringNew().run(() -> {
+            Timesheet sheet = new Timesheet();
+            sheet.organisationId = owner.orgId();
+            sheet.userId = owner.userId();
+            sheet.weekStart = thisWeek;
+            sheet.status = TimesheetStatus.SUBMITTED;
+            sheet.persist();
+        });
+        owner.as().post(org + "/timer/stop").then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        owner.as().body(Map.of("projectId", projectId)).post(org + "/timer/start")
+                .then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        owner.as().get(org + "/timer").then().statusCode(200).body("id", equalTo(timerId)).body("running", equalTo(true));
+        owner.as().queryParam("date", today.toString()).get(org + "/timesheets/week").then().body("totalMinutes", equalTo(60));
+
+        QuarkusTransaction.requiringNew().run(() -> Timesheet.delete("organisationId = ?1 and userId = ?2", owner.orgId(), owner.userId()));
+        owner.as().post(org + "/timer/stop").then().statusCode(200).body("running", equalTo(false)).body("date", equalTo(today.toString()));
     }
 
     @Test
