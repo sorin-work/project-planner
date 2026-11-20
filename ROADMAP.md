@@ -103,7 +103,8 @@ and a one-click fix.
   the same inputs (`ScheduledTask`, `Link`, a `WorkCalendar`) and a list of
   issues out: type, task, related task, days, earliest allowed start. Reuse
   `Rescheduler.earliestStart` (package-private today) for the rule, so the two
-  cannot disagree.
+  cannot disagree. The calendar is `WorkCalendar.DEFAULT` like everywhere
+  else today, or the organisation's if item 15 has landed.
 - Issue types to start with: the task starts before a predecessor's due date
   plus lag allows; the task waits for a task without dates (such a link is
   silently ignored by both `Rescheduler` and `CriticalPath`); the task is due
@@ -791,6 +792,9 @@ its capacity view on leave and public holidays.
   (`progressCalculator`, plus three direct calls) and `WorkloadResource`
   (`calculator`). Add a request-scoped loader so that one request reads the
   holidays once. The static `WorkCalendar.weekStart` is not affected.
+- Item 1's `ScheduleCheck` takes a calendar as well. If item 1 is already in,
+  the place that builds it is a fifth one to switch. If this item lands first,
+  item 1 gets its calendar from the loader from the start.
 - Time off does not move the schedule. It only lowers capacity.
   `WorkloadCalculator.Person` has one `capacityHours` for all weeks. Make it
   per week (`WeekLoad` already reports capacity per week). A day off takes a
@@ -810,9 +814,11 @@ its capacity view on leave and public holidays.
   break.
 - Tricky: `TimeService` lets people log time on any day and should keep doing
   so. People do work on holidays.
-- Tricky: other items do new arithmetic with `WorkCalendar.DEFAULT` (capacity
-  in item 9, the date shift in item 13, the slip in item 16). Whichever lands
-  second switches to the organisation's calendar.
+- Tricky: other items do new arithmetic with `WorkCalendar.DEFAULT`: the check
+  in item 1, the working-day shift in item 8, capacity in item 9, the date
+  shift in item 13 and the slip in item 16. Whichever lands second switches to
+  the organisation's calendar. The timeline's own count of working days for a
+  drag (item 8) needs the holiday dates too.
 - Undecided, with my leaning in brackets: approval for time off (no, this is a
   planner and not an HR tool), half days (no), importing public holidays (a
   typed list of dates is enough), and one calendar per country for spread-out
