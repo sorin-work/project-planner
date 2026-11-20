@@ -38,7 +38,7 @@ couple of weekends, **L** several weeks of spare time.
 | 15  | Public holidays and time off               | Later | both     | L    | -          |
 | 16  | Baselines                                  | Shipped | both     | M    | -          |
 | 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
-| 18  | Attachments on tasks                       | Maybe | both     | L    | -          |
+| 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
 
 ## Before starting on one
 
@@ -421,52 +421,7 @@ its capacity view on leave and public holidays.
 
 ## Maybe
 
-### 18. Attachments on tasks
-
-A task has a description and plain-text comments, nothing else. The brief, the
-mock-up and the signed-off PDF live in email or on a shared drive, with a link
-pasted into a comment. Every comparable tool has attachments. The question is
-whether file storage is worth it for a planner.
-
-- Data (`V24__create_attachments.sql`): `attachments` (task, uploader, file
-  name, content type, size, storage key, created at), deleted with the task.
-- Storage: files on disk under `ATTACHMENTS_DIR`, on a new named volume in
-  `docker-compose.yml`, saved under a random key and never under the uploaded
-  name. S3-compatible storage can wait.
-- API in a new `attachment` package: list and upload (multipart) at
-  `/api/tasks/{taskId}/attachments`, `GET /api/attachments/{id}` for the
-  bytes, and `DELETE /api/attachments/{id}`. Reading needs `viewProject`.
-  Uploading needs `editProject`, or `viewProject` like commenting if client
-  viewers may upload (see below). Deleting is for the uploader and for
-  managers.
-- Web: a section in `task-panel.html` between the subtasks and the comments,
-  with the list, an upload button and a drop target. A download has to send
-  the bearer token, which a plain link cannot do. `TimeApi.exportCsv` and
-  `downloadBlob` in `reports.page.ts` already solve that for the CSV: fetch a
-  blob and save it. Image previews work the same way with object URLs.
-- Limits per file (say 20 MB) and per organisation. Two places cap the request
-  size: Quarkus (`quarkus.http.limits.max-body-size`, 10 MB by default) and
-  nginx, which has no `client_max_body_size` in `web/nginx.conf` and so stops
-  at its default of 1 MB.
-- Tricky: clean-up. Deleting a task or a project removes rows through foreign
-  key cascades (`ProjectResource.delete` is a single `project.delete()`),
-  which would leave the files on disk. Delete the files explicitly in
-  `TaskService.delete` and before a project delete, and add a sweep for files
-  without a row. Probably both.
-- Tricky: serving other people's files. Always send
-  `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. An
-  uploaded SVG or HTML file shown inline would run script on the app's origin,
-  where the login token sits in `localStorage`.
-- Tricky: client viewers can read tasks and comment. Should they upload? I
-  lean towards yes, with deleting limited to their own files. Sending the
-  brief is what a client does.
-- Tricky: backups. Item 6 dumps the database only. With attachments the volume
-  has to be in the backup as well.
-- Tests: a multipart upload with REST Assured against a temporary directory,
-  then download, the size limit, permissions and clean-up.
-- Undecided: whether this is worth it at all, when a link to the shared drive
-  in the description works. Attachments on comments and pasted images are what
-  people would ask for next, so it does not stay small.
+Nothing is left in this group: items 16 to 18 have shipped.
 
 ## Shipped
 
@@ -810,3 +765,28 @@ keep dates, not links, so the comparison is untouched by types. Still open: a ty
 for links drawn on the timeline (they are finish-to-start and can be changed in the
 panel afterwards), and the organisation's calendar from item 15, which replaces
 `WorkCalendar` behind `LinkRule` without changing the rule.
+
+### 18. Attachments on tasks
+
+Files on tasks, in the `attachment` package and `V24`, on an `attachments`
+volume under random keys. Whoever can see the project sees and attaches files,
+client viewers of its client included; whoever attached a file, an owner or a
+manager removes it. What a file is is read from its first bytes and checked
+against its name and a fixed list (raster images, PDF, plain text, office
+documents); SVG, HTML and plain text that starts like markup are refused. The
+bytes come through a link that works for two minutes, an HMAC over the
+attachment, the user, the expiry and the preview flag, with access checked
+when the link is made; every answer has `Content-Disposition`, `nosniff` and a
+sandboxing CSP, and only raster images are ever shown inline. 20 MB a file and
+2 GB an organisation; Quarkus and nginx let 25 MB through so the API can say
+why. Deleting an attachment, a task or a project removes the files after the
+commit, a failed upload removes its file, and a sweep every six hours removes
+files without a row. A copied project takes the files only when asked. The
+backup service archives the volume next to every dump and restores it with
+the dump, and the restore drill in CI checks it. Differences from the design:
+the bytes are behind a signed link instead of the bearer token, which lets a
+plain download and an `<img>` preview work; the organisation limit can be
+passed by uploads that arrive at the same moment in different projects, by at
+most a file each; and a file removed in the minute between a dump and its
+archive is missing from that backup. Still open: attachments on comments,
+pasted images, and storage other than the volume.

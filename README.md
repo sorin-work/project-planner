@@ -35,6 +35,12 @@ the point is knowing whether a project will land on time and on budget.
   A project keeps up to ten, and one of them is the reference the timeline starts on.
   Everybody who can see the project sees the comparison, client viewers of its client
   included; only owners and managers save, rename, mark and delete baselines.
+- **Files on tasks**: attach the brief, the mock-up or the signed-off PDF to a task, by
+  button or by dropping files on the task panel. Images show a small preview. Whoever can
+  see the project can see and attach files, client viewers of its client included, and a
+  file is removed by whoever attached it or by an owner or a manager. Images (PNG, JPEG,
+  GIF, WebP), PDF, plain text and office documents are taken, up to 20 MB each and 2 GB
+  per organisation. Nothing a browser would run is taken: no SVG, no HTML.
 - **Rates**: hourly rates per member, defaults per role and an organisation default.
   The most specific one wins (project → member → role → organisation). Money is only
   shown to owners and managers.
@@ -166,7 +172,7 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 issue endpoints), `time`
 (entries, timers, timesheets, CSV export), `workload`, `report` (project health,
 time and utilisation reports),
-`baseline`, `comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
+`attachment`, `baseline`, `comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
 The scheduling and reporting rules are plain Java classes without any framework
@@ -246,8 +252,9 @@ has grey bars to compare with and its Overview a launch that is late.
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
 Ports can be changed with `WEB_PORT`, `API_PORT` and `DB_PORT` (in `.env` or inline,
-e.g. `WEB_PORT=8081 docker compose up`). Data lives in the `db-data` volume;
-`docker compose down -v` removes it. The dumps of the backup service are files in
+e.g. `WEB_PORT=8081 docker compose up`). Data lives in the `db-data` volume and the
+files attached to tasks in the `attachments` volume; `docker compose down -v` removes
+both. The dumps of the backup service are files in
 `./backups` and stay.
 
 Quick check from the command line:
@@ -274,8 +281,10 @@ All demo accounts use the password `demo-password`.
 
 ## Backup and restore
 
-Everything is in the `db-data` volume, and the timesheet CSV is the only export. For a
-full copy there is a `backup` service that dumps the whole database with `pg_dump`. It
+Everything is in two volumes: `db-data` for the database and `attachments` for the files
+attached to tasks. The timesheet CSV is the only export. For a full copy there is a
+`backup` service that dumps the whole database with `pg_dump` and archives the files
+with it. It
 is behind a Compose profile, so it only runs when asked for:
 
 ```bash
@@ -286,7 +295,11 @@ To have it start with every `docker compose up`, put `COMPOSE_PROFILES=backup` i
 `.env`.
 
 Dumps land in `./backups` as `planner-<UTC date and time>.dump`, in `pg_dump`'s custom
-format. When the service starts it makes one, unless the newest dump is less than a day
+format, each with `planner-<the same time>.files.tar` next to it: the attachments as they
+were right after the dump. A dump only counts once its archive is written, and the two
+are pruned together. Files are only ever added or removed, so the minute between the two
+can at worst leave an extra file in the archive, which the API's sweep removes, or a file
+missing that was removed in that minute, which then answers 404. When the service starts it makes one, unless the newest dump is less than a day
 old, so restarting the stack does not add dumps. On a new stack it first waits for the
 API to create the tables. After that it makes one dump a day. It looks at the clock once
 a minute instead of sleeping for a whole day, so a machine that was suspended or
@@ -316,7 +329,11 @@ docker compose start api
 ```
 
 `restore` without a file name lists the dumps. The restore replaces the whole database,
-so everything written after the dump is gone. The dump is loaded into a new database
+and the attachments with what the archive next to the dump holds, so everything written
+after the dump is gone. The archive is unpacked first, next to the files in use, so one
+that cannot be read stops the restore before anything changed. The restored files are
+given to the API's user (`ATTACHMENTS_OWNER`, `1000:1000`). A dump without an archive,
+from before attachments, leaves the files as they are. The dump is loaded into a new database
 first, and that one takes the place of the old one only when the load worked: a damaged
 file, or an API that is still running, leaves the data as it was. The two swap names in
 one transaction and the old database is dropped after that, so a restore that is killed
@@ -359,7 +376,7 @@ Good to know:
   else. Copying them to another machine is up to you.
 - Nothing warns you when a dump fails. `docker compose logs backup` shows every dump and
   every failure, and a failed dump is tried again a minute later.
-- `docker compose down -v` removes the database volume, not the dumps.
+- `docker compose down -v` removes the database and attachments volumes, not the dumps.
 
 ## Running without Docker
 
@@ -402,9 +419,16 @@ npm start
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
+| `ATTACHMENTS_DIR`      | `data/attachments` (`/data/attachments` in compose) | api |
+| `ATTACHMENTS_MAX_FILE_BYTES` | `20971520` (20 MB)                      | api     |
+| `ATTACHMENTS_MAX_ORGANISATION_BYTES` | `2147483648` (2 GB)             | api     |
 | `BACKUP_DIR`           | `./backups`                                   | backup  |
 | `BACKUP_KEEP`          | `7`                                           | backup  |
 | `BACKUP_INTERVAL_SECONDS` | `86400` (one day)                          | backup  |
+
+`ATTACHMENTS_DIR` is where the API keeps the files attached to tasks; in compose it is
+the `attachments` volume. Requests can be up to 25 MB, in Quarkus and in nginx, so that a
+file somewhat over the limit gets the API's own answer.
 
 `BACKUP_DIR` is the folder on the host the dumps go to, `BACKUP_KEEP` how many of them
 are kept and `BACKUP_INTERVAL_SECONDS` the time from one dump to the next. See
@@ -432,9 +456,11 @@ the stack on PostgreSQL. On a Compose project of its own, with its own volume, i
 2. runs `scripts/check-backup.sh` in the backup service: three dumps while keeping two,
    a restore of the newest into a scratch database, and the row count of every table
    compared between the two (`users`, `tasks`, `time_entries` and `timesheets` must not
-   be empty);
-3. takes one migration back by hand, dumps, removes the volume and restores the dump
-   with the commands from above. The row counts have to be back before the API has run.
+   be empty). Each dump has to have its archive of attachments, and the restore has to
+   put back exactly the archived files in a folder that held other ones;
+3. puts a file on the attachments volume, takes one migration back by hand, dumps,
+   removes the volumes and restores the dump with the commands from above. The row
+   counts and the file, owned by the API's user, have to be back before the API has run.
    Then the API is started without the demo seed and has to apply the missing migration;
 4. checks that the API refuses to start on a database from a newer version.
 
@@ -625,6 +651,31 @@ keeps its length. A lead longer than the predecessor puts the successor before i
 which is allowed. Changing a link pushes the successor later when it now comes too
 early, and never pulls anything earlier. Links that existed before were all
 finish-to-start, and are that still.
+
+Attachments: `GET` and `POST /tasks/{id}/attachments` list a task's files and take one
+as the multipart form field `file`; `DELETE /attachments/{id}` removes one. What a file
+is is worked out from its first bytes, which have to match its name, against a fixed
+list; the type the browser sends is ignored. A file that is not on the list, or is not
+what its name says, is `415 unsupported_file_type`. Above 20 MB it is
+`413 file_too_large`, and past the organisation's 2 GB `413 storage_full`. Files are
+stored under a random key, never under their name.
+
+The bytes are not behind the bearer token, since a plain link or an `<img>` cannot send
+it. `POST /attachments/{id}/link` checks that the caller may see the project and answers
+with a path that works for two minutes without a token: it carries the attachment, the
+user, the expiry and whether to show the file in the page, with an HMAC over them (the
+key is derived from `JWT_SECRET`). `GET /attachments/{id}/content` checks that HMAC and
+the expiry, `403 link_invalid` otherwise. Every answer has `Content-Disposition`
+(`attachment`, or `inline` for the four raster image types when a preview was asked
+for), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none';
+sandbox` and `Cache-Control: private, no-store`.
+
+Deleting an attachment, a task or a project deletes the files once the deletion is
+committed; a failed request keeps them. A file written for an upload that is not
+committed goes again. Every six hours a sweep removes files that no row knows and that
+are older than an hour. `POST /projects/{id}/duplicate` copies the files only with
+`copyAttachments: true`, each under a key of its own; `GET` on the same path says how
+many there are (`attachments`, `attachmentBytes`).
 
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
 returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses?, linkType? }`,
