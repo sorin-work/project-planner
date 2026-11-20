@@ -65,6 +65,9 @@ class DemoSeederTest {
             // Timesheet notifications say which week they are about, the reminder included.
             assertThat(Notification.count("organisationId = ?1 and type = ?2 and weekStart is not null",
                     membership.organisationId, NotificationType.TIMESHEET_REMINDER)).isEqualTo(1);
+            // Nothing seeded is left for the notification mail job, though some is unread.
+            assertThat(Notification.count("organisationId = ?1 and emailedAt is null", membership.organisationId)).isZero();
+            assertThat(Notification.count("organisationId = ?1 and readAt is null", membership.organisationId)).isPositive();
             assertThat(Notification.count("organisationId = ?1 and type in ?2 and weekStart is null",
                     membership.organisationId, List.of(NotificationType.TIMESHEET_SUBMITTED, NotificationType.TIMESHEET_APPROVED,
                             NotificationType.TIMESHEET_REJECTED, NotificationType.TIMESHEET_REMINDER))).isZero();

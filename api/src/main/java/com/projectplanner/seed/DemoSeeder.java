@@ -112,6 +112,8 @@ public class DemoSeeder {
         createBaseline();
         createTimesheets();
         createConversation();
+        // Whatever else the seeding notified people of (budget alerts, timesheets) is made up too.
+        Notification.update("emailedAt = createdAt where organisationId = ?1 and emailedAt is null", org.id);
         LOG.infof("Seeded demo data in %d ms (%d tasks, %d time entries)", System.currentTimeMillis() - started,
                 Task.count(), TimeEntry.count());
     }
@@ -901,6 +903,9 @@ public class DemoSeeder {
         Notification n = Notification.<Notification>find("order by id desc").firstResult();
         n.createdAt = now.minusSeconds(daysAgo * 86400L + 3600);
         n.readAt = read ? n.createdAt.plusSeconds(1800) : null;
+        // Made up, so never mailed: otherwise the first run of the mail job on a fresh
+        // install would mail every unread demo notification.
+        n.emailedAt = n.createdAt;
         return n;
     }
 
