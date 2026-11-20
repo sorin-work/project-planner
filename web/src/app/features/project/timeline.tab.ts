@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Observable } from 'rxjs';
+import { Announcer } from '../../core/announcer';
 import { messageOf } from '../../core/errors';
 import { TaskChange } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { TaskPatch } from '../../core/task.api';
-import { formatDate } from '../../shared/dates';
+import { formatDate, formatRange } from '../../shared/dates';
 import { Gantt } from '../gantt/gantt';
 import { resizeDates } from '../gantt/gantt-edit';
 import { Zoom } from '../gantt/gantt-layout';
@@ -118,7 +119,8 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
       </p>
     }
     @if (message()) {
-      <p class="alert info" role="status">{{ message() }}</p>
+      <!-- Shown here and read out once through the shell's live region, not as a region of its own. -->
+      <p class="alert info">{{ message() }}</p>
     }
     @if (error()) {
       <p class="alert error" role="alert">{{ error() }}</p>
@@ -134,6 +136,7 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
 })
 export class TimelineTab {
   protected readonly store = inject(ProjectStore);
+  private readonly announcer = inject(Announcer);
   protected readonly org = inject(OrgContext);
   protected readonly openTask = injectOpenTask();
 
@@ -159,9 +162,27 @@ export class TimelineTab {
   /** Resizes on their way, by task: what to send next, and the due date the keys last asked for. */
   private readonly resizes = new Map<number, { next: TaskPatch | null; dueDate?: string }>();
 
-  /** A bar was dragged or moved with the arrow keys, by working days. */
+  /** Moves asked for and not sent yet, by task: the working days so far and the timer that sends them. */
+  private readonly moves = new Map<number, { days: number; timer: ReturnType<typeof setTimeout> }>();
+
+  /**
+   * A bar was dragged or moved with the arrow keys, by working days. Presses that follow
+   * each other within {@link MOVE_PAUSE_MS}, a held key included, are added up and sent
+   * as one move, which is saved and read out once.
+   */
   move(taskId: number, days: number): void {
-    this.apply(this.store.shiftTask(taskId, days), (change) => pushedBack(change, `${change.task.title} moved`));
+    const waiting = this.moves.get(taskId);
+    if (waiting) {
+      clearTimeout(waiting.timer);
+    }
+    const total = (waiting?.days ?? 0) + days;
+    const timer = setTimeout(() => {
+      this.moves.delete(taskId);
+      if (total !== 0) {
+        this.apply(this.store.shiftTask(taskId, total), (change) => pushedBack(change, `${change.task.title} moved`));
+      }
+    }, MOVE_PAUSE_MS);
+    this.moves.set(taskId, { days: total, timer });
   }
 
   /**
@@ -251,9 +272,12 @@ export class TimelineTab {
     request.subscribe({
       next: (result) => {
         this.message.set(describe(result));
+        // A screen reader hears every edit, a move with the arrow keys included, and where the task now is.
+        this.announcer.announce(this.message() ?? landed(result));
         after?.();
       },
       error: (err: unknown) => {
+        // The error paragraph is an alert, which is read out as it appears.
         this.error.set(messageOf(err));
         after?.();
       },
@@ -263,6 +287,15 @@ export class TimelineTab {
   private title(taskId: number): string {
     return this.store.byId().get(taskId)?.title ?? `#${taskId}`;
   }
+}
+
+/** How long the arrow keys may pause between presses that still count as one move. */
+export const MOVE_PAUSE_MS = 300;
+
+/** "Design: 3 Mar – 7 Mar." for an answer about a task, or "Saved." for one that is not. */
+function landed(result: unknown): string {
+  const task = (result as Partial<TaskChange> | null)?.task;
+  return task ? `${task.title}: ${formatRange(task.startDate, task.dueDate)}.` : 'Saved.';
 }
 
 /** "X moved; 2 dependent tasks were pushed back.", or null when nothing else had to move. */

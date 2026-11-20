@@ -69,7 +69,7 @@ import { ProjectForm } from './project-form';
     </div>
 
     @if (error()) {
-      <p class="alert error">{{ error() }}</p>
+      <p class="alert error" role="alert">{{ error() }}</p>
     }
 
     <div class="table-wrap card">

@@ -1,3 +1,4 @@
+import { Announce } from '../../shared/announce';
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -24,7 +25,7 @@ export function inviteNotice(res: { member?: Member; invitation?: Invitation }, 
 
 @Component({
   selector: 'app-team-page',
-  imports: [FormsModule, Avatar, TimeOffCard],
+  imports: [FormsModule, Avatar, TimeOffCard, Announce],
   templateUrl: './team.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

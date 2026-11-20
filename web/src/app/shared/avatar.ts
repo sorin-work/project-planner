@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { initials } from './format';
 
-const COLORS = ['#4f6bed', '#2f9e72', '#c2410c', '#7c3aed', '#0e7490', '#d97706', '#be185d', '#4d7c0f'];
+/** Backgrounds for white initials, each at 4.5:1 or more against them (contrast.spec.ts). */
+export const AVATAR_COLORS = ['#3d52b6', '#1f7a56', '#c2410c', '#7c3aed', '#0e7490', '#9a5205', '#be185d', '#4d7c0f'];
 
 @Component({
   selector: 'app-avatar',
@@ -18,6 +19,6 @@ export class Avatar {
     for (const ch of this.name()) {
       hash = (hash * 31 + ch.charCodeAt(0)) | 0;
     }
-    return COLORS[Math.abs(hash) % COLORS.length];
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
   });
 }

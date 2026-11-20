@@ -1,4 +1,4 @@
-<aside class="task-panel card" aria-label="Task details">
+<aside #panel class="task-panel card" aria-label="Task details" tabindex="-1" (keydown.escape)="onEscape($event)">
   @if (task(); as t) {
     <header class="panel-header">
       @if (parent(); as p) {
@@ -26,7 +26,7 @@
       <p class="alert error" role="alert">{{ error() }}</p>
     }
     @if (notice()) {
-      <p class="alert info" role="status">{{ notice() }}</p>
+      <p class="alert info" role="status" [appAnnounce]="notice()">{{ notice() }}</p>
     }
 
     <div class="panel-fields">

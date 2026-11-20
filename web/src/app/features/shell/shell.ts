@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, viewChild } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
+import { Announcer } from '../../core/announcer';
 import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
 import { InboxApi } from '../../core/inbox.api';
@@ -23,6 +24,7 @@ export class Shell {
   protected readonly auth = inject(AuthService);
   protected readonly org = inject(OrgContext);
   protected readonly timer = inject(TimerService);
+  protected readonly announcer = inject(Announcer);
   private readonly inbox = inject(InboxApi);
   private readonly router = inject(Router);
 
@@ -66,6 +68,12 @@ export class Shell {
     if (event.repeat) {
       event.preventDefault();
     }
+  }
+
+  /** Moves the focus to the page itself, past the navigation. */
+  protected skipToContent(event: Event): void {
+    event.preventDefault();
+    document.getElementById('content')?.focus();
   }
 
   switchOrg(event: Event): void {

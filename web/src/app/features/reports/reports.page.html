@@ -138,7 +138,7 @@
             <tfoot>
               <tr>
                 <th>Total</th>
-                <th></th>
+                <td></td>
                 <th class="num">{{ formatMinutes(report.total.minutes) }}</th>
                 <th class="num">{{ formatMinutes(report.total.billableMinutes) }}</th>
                 @if (org.canManage()) {
@@ -187,7 +187,7 @@
               <th class="num">{{ formatMinutes(report.total.minutes) }}</th>
               <th class="num">{{ formatMinutes(report.total.billableMinutes) }}</th>
               <th class="num">{{ formatMinutes(report.total.capacityMinutes) }}</th>
-              <th></th>
+              <td></td>
               <th class="num">{{ formatShare(report.total.utilisationPct) }}</th>
             </tr>
           </tfoot>

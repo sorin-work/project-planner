@@ -1,12 +1,15 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
+import { Announcer } from '../../core/announcer';
 import { TimeEntry } from '../../core/models';
 import { TimeApi } from '../../core/time.api';
+import { formatMinutes } from '../../shared/format';
 
 /** The signed-in user's running timer, shared by the top bar and task panels. */
 @Injectable({ providedIn: 'root' })
 export class TimerService {
   private readonly api = inject(TimeApi);
+  private readonly announcer = inject(Announcer);
 
   readonly running = signal<TimeEntry | null>(null);
   private readonly now = signal(Date.now());
@@ -30,11 +33,21 @@ export class TimerService {
   }
 
   start(orgId: number, projectId: number, taskId?: number | null, description?: string): Observable<TimeEntry> {
-    return this.api.startTimer(orgId, { projectId, taskId, description }).pipe(tap((entry) => this.set(entry)));
+    return this.api.startTimer(orgId, { projectId, taskId, description }).pipe(
+      tap((entry) => {
+        this.set(entry);
+        this.announcer.announce(`Timer started on ${entry.taskTitle || entry.projectName}.`);
+      }),
+    );
   }
 
   stop(orgId: number): Observable<TimeEntry> {
-    return this.api.stopTimer(orgId).pipe(tap(() => this.set(null)));
+    return this.api.stopTimer(orgId).pipe(
+      tap((entry) => {
+        this.set(null);
+        this.announcer.announce(`Timer stopped: ${formatMinutes(entry.minutes)} on ${entry.taskTitle || entry.projectName}.`);
+      }),
+    );
   }
 
   private set(entry: TimeEntry | null): void {

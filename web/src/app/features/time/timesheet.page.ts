@@ -1,3 +1,5 @@
+import { Announce } from '../../shared/announce';
+import { Announcer } from '../../core/announcer';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -22,7 +24,7 @@ import { OrgContext } from '../../core/org-context.service';
 import { ProjectApi } from '../../core/project.api';
 import { TaskApi } from '../../core/task.api';
 import { TimeApi } from '../../core/time.api';
-import { addDays, dayName, diffDays, formatDate, today, weekStart } from '../../shared/dates';
+import { addDays, dayName, dayNameLong, diffDays, formatDate, today, weekStart } from '../../shared/dates';
 import { TIMESHEET_LABELS, formatClock, formatMinutes, parseDuration } from '../../shared/format';
 import { SaveQueue, newClientKey } from './save-queue';
 import {
@@ -71,13 +73,14 @@ function without<V>(record: Record<string, V>, key: string): Record<string, V> {
 
 @Component({
   selector: 'app-timesheet-page',
-  imports: [FormsModule],
+  imports: [FormsModule, Announce],
   templateUrl: './timesheet.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:visibilitychange)': 'cameBack()' },
 })
 export class TimesheetPage {
   private readonly api = inject(TimeApi);
+  private readonly announcer = inject(Announcer);
   private readonly projectApi = inject(ProjectApi);
   private readonly taskApi = inject(TaskApi);
   protected readonly org = inject(OrgContext);
@@ -362,6 +365,7 @@ export class TimesheetPage {
         tap({
           next: () => {
             this.clearFailed(key);
+            this.announcer.announce(`Cleared ${dayNameLong(date)}.`);
             this.removeEntry(orgId, action.entry.id);
             if (this.onScreen(orgId, date) && !this.week()!.entries.some((e) => rowKey({ projectId: e.projectId, taskId: e.taskId ?? null }) === rowKey(row))) {
               // The row has just lost its last entry. Keep it, or it would vanish under the cursor.
@@ -406,6 +410,7 @@ export class TimesheetPage {
       tap({
         next: (entry) => {
           this.clearFailed(key);
+          this.announcer.announce(`Saved ${formatClock(entry.minutes)} on ${dayNameLong(date)}.`);
           this.putEntry(orgId, entry);
           settle();
         },
@@ -417,6 +422,7 @@ export class TimesheetPage {
 
   private markFailed(key: string, reason: string): void {
     this.failed.update((f) => ({ ...f, [key]: reason }));
+    this.announcer.alert(`Not saved: ${reason}`);
     this.unseen.add(key);
   }
 

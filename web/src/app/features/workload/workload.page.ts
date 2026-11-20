@@ -29,7 +29,7 @@ import { loadLevel } from './workload-cell';
     </div>
     <p class="muted small">Open tasks in planned and active projects, each estimate spread evenly over its working days.</p>
     @if (error()) {
-      <p class="alert error">{{ error() }}</p>
+      <p class="alert error" role="alert">{{ error() }}</p>
     }
     @if (data(); as d) {
       <div class="card table-wrap">

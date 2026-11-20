@@ -1,3 +1,4 @@
+import { Announce } from '../../shared/announce';
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -14,12 +15,12 @@ import { ProjectStore } from './project.store';
 
 @Component({
   selector: 'app-settings-tab',
-  imports: [FormsModule, ProjectForm, DuplicateForm],
+  imports: [FormsModule, ProjectForm, DuplicateForm, Announce],
   template: `
     <section class="card">
       <h2>Project details</h2>
       @if (saved()) {
-        <p class="alert success">Saved.</p>
+        <p class="alert success" role="status" appAnnounce="Project details saved.">Saved.</p>
       }
       <app-project-form [project]="store.project()" [clients]="clients()" [busy]="busy()" [error]="error()"
         (saved)="save($event)" (cancelled)="reset()" />

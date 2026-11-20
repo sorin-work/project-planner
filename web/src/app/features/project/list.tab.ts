@@ -57,7 +57,7 @@ import { groupTasks } from './task-groups';
       </span>
     </div>
     @if (error()) {
-      <p class="alert error">{{ error() }}</p>
+      <p class="alert error" role="alert">{{ error() }}</p>
     }
     @for (group of groups(); track group.phase?.id ?? 0) {
       <section class="card task-group">
@@ -73,7 +73,7 @@ import { groupTasks } from './task-groups';
               <tr [class.subtask]="row.depth > 0" [class.critical]="store.criticalIds().has(row.task.id)" [class.context-row]="row.context"
                 [attr.title]="row.context ? 'Shown because a subtask matches the filter' : null">
                 <td>
-                  <button type="button" class="link task-title" (click)="openTask(row.task.id)">
+                  <button type="button" class="link task-title" [attr.data-task]="row.task.id" (click)="openTask(row.task.id)">
                     @if (row.task.milestone) { <span class="diamond">◆</span> }
                     {{ row.task.title }}
                   </button>
