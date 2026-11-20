@@ -1,6 +1,7 @@
 package com.projectplanner.task;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.schedule.ScheduleCheck;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
@@ -77,5 +78,18 @@ public final class TaskDtos {
 
     /** A change to one task plus every dependant that had to move because of it. */
     public record TaskChange(TaskResponse task, List<TaskResponse> rescheduled) {
+    }
+
+    /**
+     * One problem in the plan, see {@link ScheduleCheck}. The suggested dates are only
+     * there when moving the task fixes the issue; send both back in a task update.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ScheduleIssueResponse(ScheduleCheck.IssueType type, long taskId, Long relatedTaskId, Integer days,
+                                        LocalDate suggestedStart, LocalDate suggestedDue) {
+        public static ScheduleIssueResponse of(ScheduleCheck.Issue issue) {
+            return new ScheduleIssueResponse(issue.type(), issue.taskId(), issue.relatedTaskId(), issue.days(),
+                    issue.suggestedStart(), issue.suggestedDue());
+        }
     }
 }
