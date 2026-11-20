@@ -170,13 +170,38 @@ class TaskResourceTest {
         owner.as().body(Map.of("predecessorId", a)).post("/api/tasks/" + b + "/dependencies").then().statusCode(201);
         owner.as().body(Map.of("predecessorId", b)).post("/api/tasks/" + c + "/dependencies").then().statusCode(201);
 
-        // A slips by a week.
-        owner.as().body(Map.of("days", 7)).post("/api/tasks/" + a + "/shift")
+        // A slips by a week, which is five working days.
+        owner.as().body(Map.of("days", 5)).post("/api/tasks/" + a + "/shift")
                 .then().statusCode(200)
                 .body("task.startDate", equalTo("2026-03-09"))
                 .body("rescheduled.id", hasItems((int) b, (int) c));
         owner.as().get("/api/tasks/" + c).then().body("startDate", equalTo("2026-03-13"));
         owner.as().get("/api/tasks/" + b).then().body("startDate", equalTo("2026-03-11")).body("dueDate", equalTo("2026-03-12"));
+    }
+
+    @Test
+    void shiftingCountsWorkingDaysInEitherDirection() {
+        Account owner = Api.signup("Gus");
+        long projectId = Api.createProject(owner, "SHIFT");
+        long task = Api.createTask(owner, projectId, Map.of("title", "Build", "startDate", "2026-03-05", "dueDate", "2026-03-06"));
+        long launch = Api.createTask(owner, projectId, Map.of("title", "Launch", "milestone", true, "dueDate", "2026-03-06"));
+        long someday = Api.createTask(owner, projectId, Map.of("title", "Someday"));
+
+        // Thursday to Friday, one column to the right: Friday to Monday, not Friday to Saturday.
+        owner.as().body(Map.of("days", 1)).post("/api/tasks/" + task + "/shift").then().statusCode(200)
+                .body("task.startDate", equalTo("2026-03-06")).body("task.dueDate", equalTo("2026-03-09"));
+        owner.as().body(Map.of("days", 1)).post("/api/tasks/" + task + "/shift").then().statusCode(200)
+                .body("task.startDate", equalTo("2026-03-09")).body("task.dueDate", equalTo("2026-03-10"));
+        // A Monday bar moved left lands on Friday and stays there.
+        owner.as().body(Map.of("days", -1)).post("/api/tasks/" + task + "/shift").then().statusCode(200)
+                .body("task.startDate", equalTo("2026-03-06")).body("task.dueDate", equalTo("2026-03-09"));
+        owner.as().body(Map.of("days", 0)).post("/api/tasks/" + task + "/shift").then().statusCode(200)
+                .body("task.startDate", equalTo("2026-03-06")).body("task.dueDate", equalTo("2026-03-09"));
+
+        owner.as().body(Map.of("days", 1)).post("/api/tasks/" + launch + "/shift").then().statusCode(200)
+                .body("task.startDate", equalTo("2026-03-09")).body("task.dueDate", equalTo("2026-03-09"));
+        owner.as().body(Map.of("days", 1)).post("/api/tasks/" + someday + "/shift").then().statusCode(400)
+                .body("code", equalTo("unscheduled"));
     }
 
     @Test

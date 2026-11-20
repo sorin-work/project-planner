@@ -4,6 +4,7 @@ import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
+import com.projectplanner.org.Organisation;
 import com.projectplanner.time.TimeDtos.MissingResponse;
 import com.projectplanner.time.TimeDtos.RemindRequest;
 import com.projectplanner.time.TimeDtos.RemindResponse;
@@ -45,7 +46,10 @@ public class TimesheetResource {
         this.clock = clock;
     }
 
-    /** One week of time for a person: the signed-in user unless a manager asks for someone else. */
+    /**
+     * One week of time for a person: the signed-in user unless a manager asks for someone else.
+     * Without a date it is the current week by the organisation's date.
+     */
     @GET
     @Path("/week")
     @Operation(summary = "One week of time for a person",
@@ -61,7 +65,7 @@ public class TimesheetResource {
         if (Membership.find(orgId, user).isEmpty()) {
             throw ApiException.notFound("Member");
         }
-        return timesheets.week(orgId, user, date != null ? date : LocalDate.now(clock));
+        return timesheets.week(orgId, user, date != null ? date : Organisation.<Organisation>findById(orgId).today(clock));
     }
 
     @POST

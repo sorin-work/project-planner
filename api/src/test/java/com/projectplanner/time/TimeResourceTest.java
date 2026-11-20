@@ -3,10 +3,14 @@ package com.projectplanner.time;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
+import com.projectplanner.support.TestClock;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.containsString;
@@ -14,6 +18,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 
 @QuarkusTest
@@ -93,6 +98,17 @@ class TimeResourceTest {
                 .post("/api/orgs/" + owner.orgId() + "/time-entries")
                 .then().statusCode(409).body("code", equalTo("timesheet_locked"));
         member.as().delete("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId).then().statusCode(409);
+        // Changing an entry is refused as well, whether it is in the locked week or would move into it.
+        member.as().body(entry(projectId, WEEK, 30))
+                .put("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId)
+                .then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        Number later = member.as().body(entry(projectId, WEEK.plusDays(7), 45))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201).extract().path("id");
+        member.as().body(entry(projectId, WEEK.plusDays(2), 45))
+                .put("/api/orgs/" + owner.orgId() + "/time-entries/" + later)
+                .then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        member.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("totalMinutes", equalTo(120)).body("entries[0].locked", equalTo(true));
 
         owner.as().get("/api/orgs/" + owner.orgId() + "/timesheets")
                 .then().statusCode(200).body("id", hasItem(sheetId.intValue()));
@@ -105,6 +121,130 @@ class TimeResourceTest {
         member.as().get("/api/notifications").then().body("[0].type", equalTo("TIMESHEET_REJECTED"))
                 .body("[0].weekStart", equalTo(WEEK.toString()));
         member.as().delete("/api/orgs/" + owner.orgId() + "/time-entries/" + entryId).then().statusCode(204);
+    }
+
+    @Test
+    void changingAnEntryReplacesItAsAWhole() {
+        Account owner = Api.signup("Odo");
+        Account other = Api.signup("Pim");
+        Api.addMember(owner, other, "MEMBER");
+        long projectId = Api.createProject(owner, "EDIT");
+        long taskId = Api.createTask(owner, projectId, Map.of("title", "Build"));
+        String entries = "/api/orgs/" + owner.orgId() + "/time-entries";
+        // An internal project: time on it is not billable unless the entry says so.
+        Number entryId = owner.as().body(Map.of("projectId", projectId, "taskId", taskId, "date", WEEK.toString(), "minutes", 60,
+                        "description", "Pairing"))
+                .post(entries).then().statusCode(201).body("billable", equalTo(false)).extract().path("id");
+
+        // What the weekly grid sends for a new time: everything else as it was.
+        owner.as().body(Map.of("projectId", projectId, "taskId", taskId, "date", WEEK.toString(), "minutes", 95,
+                        "description", "Pairing", "billable", false))
+                .put(entries + "/" + entryId).then().statusCode(200)
+                .body("id", equalTo(entryId)).body("minutes", equalTo(95))
+                .body("description", equalTo("Pairing")).body("billable", equalTo(false)).body("taskTitle", equalTo("Build"));
+        // A note that is not sent back is gone, and a missing flag stays as it was.
+        owner.as().body(Map.of("projectId", projectId, "taskId", taskId, "date", WEEK.toString(), "minutes", 30))
+                .put(entries + "/" + entryId).then().statusCode(200)
+                .body("minutes", equalTo(30)).body("description", nullValue()).body("billable", equalTo(false));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 0))
+                .put(entries + "/" + entryId).then().statusCode(400).body("errors.field", hasItem("minutes"));
+        other.as().body(entry(projectId, WEEK, 15)).put(entries + "/" + entryId).then().statusCode(403);
+
+        owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("entries", hasSize(1)).body("totalMinutes", equalTo(30));
+    }
+
+    @Test
+    void aRunningTimerCannotEndUpInALockedWeek() {
+        Account owner = Api.signup("Tia");
+        long projectId = Api.createProject(owner, "LOCKTIMER");
+        String org = "/api/orgs/" + owner.orgId();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate thisWeek = WorkCalendar.weekStart(today);
+        owner.as().body(entry(projectId, today, 60)).post(org + "/time-entries").then().statusCode(201);
+        Number timerId = owner.as().body(Map.of("projectId", projectId)).post(org + "/timer/start")
+                .then().statusCode(201).extract().path("id");
+
+        // A running timer keeps its day: moving it out of the week would let the week be submitted under it.
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 30, "description", "Moved"))
+                .put(org + "/time-entries/" + timerId).then().statusCode(200)
+                .body("date", equalTo(today.toString())).body("running", equalTo(true)).body("description", equalTo("Moved"));
+        owner.as().body(Map.of("weekStart", thisWeek.toString())).post(org + "/timesheets/submit")
+                .then().statusCode(409).body("code", equalTo("timer_running"));
+
+        // And if the week is locked all the same, the timer can't be stopped into it.
+        QuarkusTransaction.requiringNew().run(() -> {
+            Timesheet sheet = new Timesheet();
+            sheet.organisationId = owner.orgId();
+            sheet.userId = owner.userId();
+            sheet.weekStart = thisWeek;
+            sheet.status = TimesheetStatus.SUBMITTED;
+            sheet.persist();
+        });
+        owner.as().post(org + "/timer/stop").then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        owner.as().body(Map.of("projectId", projectId)).post(org + "/timer/start")
+                .then().statusCode(409).body("code", equalTo("timesheet_locked"));
+        owner.as().get(org + "/timer").then().statusCode(200).body("id", equalTo(timerId)).body("running", equalTo(true));
+        owner.as().queryParam("date", today.toString()).get(org + "/timesheets/week").then().body("totalMinutes", equalTo(60));
+
+        QuarkusTransaction.requiringNew().run(() -> Timesheet.delete("organisationId = ?1 and userId = ?2", owner.orgId(), owner.userId()));
+        owner.as().post(org + "/timer/stop").then().statusCode(200).body("running", equalTo(false)).body("date", equalTo(today.toString()));
+    }
+
+    @Test
+    void aCreateThatIsSentAgainMakesOneEntry() {
+        Account owner = Api.signup("Rex");
+        Account member = Api.signup("Sam");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = Api.createProject(owner, "TWICE");
+        String entries = "/api/orgs/" + owner.orgId() + "/time-entries";
+        Map<String, Object> create = Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 90,
+                "clientKey", "0f2c4e6a8b1d3f57");
+
+        Number first = owner.as().body(create).post(entries).then().statusCode(201).body("minutes", equalTo(90)).extract().path("id");
+        // The answer got lost and the same create is sent again, the second time with another time typed.
+        owner.as().body(create).post(entries).then().statusCode(201).body("id", equalTo(first));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 120, "clientKey", "0f2c4e6a8b1d3f57"))
+                .post(entries).then().statusCode(201).body("id", equalTo(first)).body("minutes", equalTo(90));
+        owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("entries", hasSize(1)).body("totalMinutes", equalTo(90));
+
+        // Another key is another entry, and so is the same key from somebody else or without a key at all.
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 30, "clientKey", "another-key-1"))
+                .post(entries).then().statusCode(201).body("id", not(equalTo(first)));
+        member.as().body(create).post(entries).then().statusCode(201).body("id", not(equalTo(first))).body("userId", equalTo((int) member.userId()));
+        owner.as().body(entry(projectId, WEEK, 15)).post(entries).then().statusCode(201);
+        owner.as().body(entry(projectId, WEEK, 15)).post(entries).then().statusCode(201);
+        owner.as().queryParam("date", WEEK.toString()).get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                .then().body("entries", hasSize(4)).body("totalMinutes", equalTo(150));
+
+        // A key stands for one cell: it is not taken for another day, and it has a sensible length.
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.plusDays(1).toString(), "minutes", 90, "clientKey", "0f2c4e6a8b1d3f57"))
+                .post(entries).then().statusCode(409).body("code", equalTo("client_key_reused"));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 90, "clientKey", "short"))
+                .post(entries).then().statusCode(400).body("errors.field", hasItem("clientKey"));
+
+        // A repeat still gets its entry back once the week is submitted. It changes nothing.
+        owner.as().body(Map.of("weekStart", WEEK.toString())).post("/api/orgs/" + owner.orgId() + "/timesheets/submit").then().statusCode(200);
+        owner.as().body(create).post(entries).then().statusCode(201).body("id", equalTo(first)).body("locked", equalTo(true));
+        owner.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 90, "clientKey", "a-brand-new-key"))
+                .post(entries).then().statusCode(409).body("code", equalTo("timesheet_locked"));
+    }
+
+    @Test
+    void thisWeekIsTheOrganisationsWeek() {
+        Account owner = Api.signup("Quy");
+        owner.as().body(Map.of("timezone", "Pacific/Kiritimati")).patch("/api/orgs/" + owner.orgId()).then().statusCode(200);
+        try {
+            // 2026-03-08 is a Sunday. At eight in the evening UTC it is already Monday on the island.
+            TestClock.fix(Instant.parse("2026-03-08T20:00:00Z"));
+            owner.as().get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                    .then().statusCode(200).body("weekStart", equalTo("2026-03-09")).body("days[0].date", equalTo("2026-03-09"));
+            owner.as().queryParam("date", "2026-03-08").get("/api/orgs/" + owner.orgId() + "/timesheets/week")
+                    .then().statusCode(200).body("weekStart", equalTo("2026-03-02"));
+        } finally {
+            TestClock.reset();
+        }
     }
 
     @Test

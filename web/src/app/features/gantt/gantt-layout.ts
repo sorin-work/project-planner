@@ -9,6 +9,8 @@ export const DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 12, month: 4 };
 export const ROW_HEIGHT = 32;
 export const HEADER_HEIGHT = 44;
 const BAR_HEIGHT = 18;
+/** Half the width of a milestone's diamond. */
+export const MILESTONE_RADIUS = 8;
 
 export interface GanttRow {
   kind: 'phase' | 'task';
@@ -34,6 +36,9 @@ export interface GanttBar {
 
 export interface GanttLink {
   id: number;
+  /** The task that waits, and the task it waits for. */
+  successorId: number;
+  predecessorId: number;
   path: string;
   critical: boolean;
   /** The API reported this dependency: it does not hold, or it is not enforced. */
@@ -80,6 +85,14 @@ export function barSpan(startDate: string, dueDate: string, rangeStart: string, 
   const x = xOf(startDate, rangeStart, dayWidth);
   const width = (diffDays(startDate, dueDate) + 1) * dayWidth;
   return { x, width };
+}
+
+/** The part of a bar that the arithmetic around it needs. */
+export type BarBox = Pick<GanttBar, 'x' | 'y' | 'width' | 'height'>;
+
+/** An arrow leaves the middle of a bar's right end and arrives at the middle of the other bar's left end. */
+export function linkEnds(from: BarBox, to: BarBox): { fromX: number; fromY: number; toX: number; toY: number } {
+  return { fromX: from.x + from.width, fromY: from.y + from.height / 2, toX: to.x, toY: to.y + to.height / 2 };
 }
 
 /**
@@ -168,9 +181,12 @@ export function layoutGantt(
       if (!from || !to) {
         continue;
       }
+      const ends = linkEnds(from, to);
       links.push({
         id: dep.id,
-        path: linkPath(from.x + from.width, from.y + from.height / 2, to.x, to.y + to.height / 2),
+        successorId: task.id,
+        predecessorId: dep.predecessorId,
+        path: linkPath(ends.fromX, ends.fromY, ends.toX, ends.toY),
         critical: from.critical && to.critical,
         // Taken from the issue list, so the timeline never decides this with its own date maths.
         broken: options.broken?.has(linkKey(dep.predecessorId, task.id)) ?? false,

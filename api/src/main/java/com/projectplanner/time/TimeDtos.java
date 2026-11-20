@@ -16,13 +16,18 @@ public final class TimeDtos {
     private TimeDtos() {
     }
 
+    /**
+     * {@code clientKey} is optional and only read on a create: a key the client makes up, so
+     * that the same create sent twice (after an answer that got lost) makes one entry.
+     */
     public record TimeEntryRequest(
             @NotNull Long projectId,
             Long taskId,
             @NotNull LocalDate date,
             @NotNull @Min(value = 1, message = "must be at least one minute") @Max(value = 1440, message = "can't be more than 24 hours") Integer minutes,
             @Size(max = 1000) String description,
-            Boolean billable) {
+            Boolean billable,
+            @Size(min = 8, max = 64) String clientKey) {
     }
 
     public record StartTimerRequest(@NotNull Long projectId, Long taskId, @Size(max = 1000) String description, Boolean billable) {
