@@ -69,8 +69,9 @@ A few things hold for every item:
   another item's.
 - Tests go where the existing ones are: plain JUnit for the rule classes
   (`schedule`, `report`, `workload`), `@QuarkusTest` with REST Assured and the
-  `support/Api` helper for endpoints, and Vitest specs next to the file on the
-  web side, with the logic pulled into a plain function first (as in
+  `support/Api` helper for endpoints (`support/TestClock` fixes the clock for a
+  test that depends on the hour or the day), and Vitest specs next to the file
+  on the web side, with the logic pulled into a plain function first (as in
   `gantt-layout.ts` and `timesheet-grid.ts`). There are no browser tests, only
   jsdom, so layout, real drag and drop and colours cannot be asserted.
 - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify`, `npm run lint`
