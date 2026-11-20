@@ -44,6 +44,18 @@ class WorkCalendarTest {
     }
 
     @Test
+    void slipIsSignedAndCountsWorkingDaysOnly() {
+        assertThat(cal.slip(MONDAY, MONDAY)).isZero();
+        assertThat(cal.slip(MONDAY, FRIDAY)).isEqualTo(4);
+        assertThat(cal.slip(FRIDAY, MONDAY)).isEqualTo(-4);
+        assertThat(cal.slip(FRIDAY, MONDAY.plusWeeks(1))).isEqualTo(1);
+        assertThat(cal.slip(MONDAY.plusWeeks(1), FRIDAY)).isEqualTo(-1);
+        // Friday to Saturday: a day later on the calendar, no working day later.
+        assertThat(cal.slip(FRIDAY, SATURDAY)).isZero();
+        assertThat(cal.slip(SATURDAY, FRIDAY)).isZero();
+    }
+
+    @Test
     void addWorkingDaysCountsOnlyWeekdays() {
         assertThat(cal.addWorkingDays(MONDAY, 0)).isEqualTo(MONDAY);
         assertThat(cal.addWorkingDays(MONDAY, 4)).isEqualTo(FRIDAY);
