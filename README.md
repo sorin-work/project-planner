@@ -28,11 +28,19 @@ the point is knowing whether a project will land on time and on budget.
   would create a loop are rejected with the chain that causes it. When a task moves,
   every task downstream of it that would now start too early is pushed back,
   keeping its length in working days.
+- **Schedule issues**: moving a task in front of a task it waits for is allowed,
+  because planners overlap work on purpose, but the plan says so. Each project has a
+  list of what does not fit: tasks that start too early for a dependency, links to
+  tasks without a due date (those are not enforced), tasks due after the project's
+  end date and subtasks outside their parent's dates. Finished tasks are left out.
+  A task that starts too early comes with the dates that would fix it, and "Move to"
+  applies them in one click.
 - **Critical path** (CPM forward/backward pass over working days) with float per task.
 - **Views**: list grouped by phase, kanban board with drag and drop, and an SVG
   timeline (Gantt) with dependency arrows, the critical path, today line, collapsible
   phases, day/week/month zoom, and bars you can drag (or move with the arrow keys)
-  to reschedule.
+  to reschedule. Dependencies with a schedule issue are drawn red and dashed, and the
+  toolbar counts the issues and lists them.
 - **Time tracking**: start/stop timers from a task or the top bar, manual entries,
   billable and non-billable time. Timers stopped after midnight book the time on the
   day they started.
@@ -74,7 +82,8 @@ proxying (`web/proxy.conf.json`).
 
 The API is organised by feature under `api/src/main/java/com/projectplanner`:
 `auth`, `org` (organisations, members, invitations, rates), `client`, `project`
-(projects and phases), `task` (tasks, dependencies, critical path endpoint), `time`
+(projects and phases), `task` (tasks, dependencies, critical path and schedule
+issue endpoints), `time`
 (entries, timers, timesheets, CSV export), `workload`, `report` (project health),
 `comment`, `notification`, `activity`, `dashboard` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
@@ -87,6 +96,7 @@ dependencies, so they are tested in isolation:
 | `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
 | `Rescheduler`         | Pushes dependants later when a task moves, keeping durations         |
+| `ScheduleCheck`       | Lists what does not fit in a plan, with the rescheduler's link rule  |
 | `CriticalPath`        | Early/late start and finish, float and the critical tasks            |
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
 | `BudgetCalculator`    | Hours and money burn against the budgets                             |
@@ -123,6 +133,11 @@ time entries for five people, timesheets
 (older weeks approved, last week waiting for review, one sent back), comments with
 mentions and some notifications. All dates are relative to the day it runs. Set
 `SEED_DEMO=false` for an empty database.
+
+Two of the demo projects have schedule issues to look at on their timeline: in the
+Acme booking app "Push notifications" was pulled in front of "Booking and payments",
+which it waits for, and the last tasks of the Globex patient portal are due after
+the client's deadline.
 
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
@@ -205,8 +220,8 @@ cd web && npm test           # Vitest in jsdom, no browser needed
 cd web && npm run lint       # ESLint with angular-eslint
 ```
 
-The scheduling, critical path, cycle detection, budget, progress and workload tests
-are plain JUnit tests and need no database. The `@QuarkusTest` API tests start the
+The scheduling, schedule check, critical path, cycle detection, budget, progress and
+workload tests are plain JUnit tests and need no database. The `@QuarkusTest` API tests start the
 application against H2 in PostgreSQL mode and run the same Flyway migrations as
 production.
 
@@ -223,7 +238,7 @@ token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
 | Projects      | `GET/POST /orgs/{org}/projects`, `GET/PUT/DELETE /projects/{id}`, `/projects/{id}/phases`, `/phases/{id}` |
 | Tasks         | `GET/POST /projects/{id}/tasks`, `GET/PATCH/DELETE /tasks/{id}`, `POST /tasks/{id}/shift`, `GET /tasks/{id}/subtasks` |
 | Dependencies  | `GET /projects/{id}/dependencies`, `POST /tasks/{id}/dependencies`, `DELETE /dependencies/{id}`   |
-| Planning      | `GET /projects/{id}/critical-path`, `GET /projects/{id}/health`, `GET /orgs/{org}/workload`       |
+| Planning      | `GET /projects/{id}/critical-path`, `GET /projects/{id}/schedule-issues`, `GET /projects/{id}/health`, `GET /orgs/{org}/workload` |
 | Time          | `/orgs/{org}/time-entries`, `GET /orgs/{org}/timer`, `POST /orgs/{org}/timer/start\|stop`         |
 | Timesheets    | `GET /orgs/{org}/timesheets/week`, `POST .../submit\|withdraw`, `GET /orgs/{org}/timesheets`, `POST .../{id}/approve\|reject` |
 | Export        | `GET /orgs/{org}/exports/timesheets.csv?from&to&userId&projectId&billable`                        |
@@ -232,6 +247,23 @@ token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
+
+`GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
+returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue? }`,
+ordered by the date of the task:
+
+| Type                    | Meaning                                                                  | `relatedTaskId` | `days` (working days)   |
+| ----------------------- | ------------------------------------------------------------------------ | --------------- | ----------------------- |
+| `STARTS_TOO_EARLY`      | The task starts before a task it waits for is due, plus the lag          | the predecessor | how many days too early |
+| `WAITS_FOR_UNSCHEDULED` | The task waits for a task without a due date, so the link is not enforced | the predecessor | -                       |
+| `AFTER_PROJECT_END`     | The task is due after the project's end date                             | -               | how many days late      |
+| `OUTSIDE_PARENT`        | The subtask has days before its parent starts or after it is due         | the parent      | how many days outside   |
+
+Only `STARTS_TOO_EARLY` has `suggestedStart` and `suggestedDue`: the first day all of
+the task's predecessors allow, and the due date that keeps its length in working days.
+They are the dates the rescheduler would give the task, so a client fixes the issue by
+sending both back in `PATCH /tasks/{id}` and does no calendar arithmetic of its own.
+A task with several broken links gets one issue per link, all with the same dates.
 
 ## License
 

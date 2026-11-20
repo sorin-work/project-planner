@@ -11,6 +11,8 @@ What the app does today is in the [README](README.md).
 - **Next**: small or well understood. I would start with these.
 - **Later**: worth doing, but bigger or waiting on a decision.
 - **Maybe**: not sure yet that they are worth the extra complexity.
+- **Shipped**: built. What was done, and how it differs from the plan, is at the
+  end.
 
 Sizes are rough: **S** is an evening or two, **M** a few evenings up to a
 couple of weekends, **L** several weeks of spare time.
@@ -19,7 +21,7 @@ couple of weekends, **L** several weeks of spare time.
 
 | #   | Item                                       | Group | Area     | Size | Depends on |
 | --- | ------------------------------------------ | ----- | -------- | ---- | ---------- |
-| 1   | Warnings for broken dependencies           | Next  | both     | S    | -          |
+| 1   | Warnings for broken dependencies           | Shipped | both     | S    | -          |
 | 2   | Type hours into the weekly grid            | Next  | both     | M    | -          |
 | 3   | Missing timesheets and reminders           | Next  | both     | S    | -          |
 | 4   | Search and quick switcher                  | Next  | both     | M    | -          |
@@ -85,61 +87,6 @@ A few things hold for every item:
   icon and a target in `notifications.page.ts`.
 
 ## Next
-
-### 1. Warnings for broken dependencies
-
-A dependency is only enforced in one direction. When a task moves, the tasks
-that wait for it are pushed later, but the task that moved is never checked
-against the tasks it waits for itself. Drag "Build" to the week before
-"Design" ends and the API accepts it. The arrow on the timeline just doubles
-back. I want the plan to say so: a list of problems per project, a red arrow,
-and a one-click fix.
-
-- Why it happens: `TaskService.update` calls
-  `reschedule(me, project, Set.of(task.id))`, and `Rescheduler.propagate` only
-  looks at `graph.reachable(id)`, the tasks downstream. Nobody asks
-  `earliestStart` about the task that moved.
-- New plain class `ScheduleCheck` in `schedule/`, next to `Rescheduler`, with
-  the same inputs (`ScheduledTask`, `Link`, a `WorkCalendar`) and a list of
-  issues out: type, task, related task and days. Reuse
-  `Rescheduler.earliestStart` (package-private today) for the rule, so the two
-  cannot disagree. The calendar is `WorkCalendar.DEFAULT` like everywhere
-  else today, or the organisation's if item 15 has landed.
-- An issue that moving the task would fix also carries the dates to move it
-  to: a suggested start (the earliest allowed one) and a suggested due date
-  that keeps the task's length in working days. The server works both out.
-  The web app can count working days (`shared/dates.ts`) but cannot add them,
-  and should not start doing calendar arithmetic for this.
-- Issue types to start with: the task starts before a predecessor's due date
-  plus lag allows; the task waits for a task without dates (such a link is
-  silently ignored by both `Rescheduler` and `CriticalPath`); the task is due
-  after `Project.endDate`; a subtask lies outside its parent's dates.
-- API: `GET /api/projects/{projectId}/schedule-issues`, with read access like
-  the critical path. `ScheduleResource` has its whole path on the class
-  (`/api/projects/{projectId}/critical-path`), so either move the path down to
-  the methods or add a second small resource.
-- Web: `ProjectStore` loads the issues in `load()` and again in `changed()`,
-  where it already refetches the critical path. `GanttLink` gets a `broken`
-  flag from the issue list (do not redo working-day arithmetic in
-  `gantt-layout.ts`), the task panel shows the issue under "Waits for" with a
-  "Move to" button, and the timeline toolbar shows a count.
-- The "Move to" button shows the suggested start and sends
-  `PATCH /api/tasks/{id}` with exactly the two suggested dates. Not
-  `POST /api/tasks/{id}/shift`: that one takes a number of days (calendar
-  days today, working days once item 8 is in), not dates.
-- Tricky: `CriticalPath` already treats the planned start as "no earlier
-  than", and pushes a successor that starts too early in its own forward pass.
-  So with a broken link the "Plan ends" date on the timeline toolbar
-  (`CriticalPath.Result.finish`) is later than the "End date" on the overview
-  (`forecastEnd`, the latest due date). Both are right about different things.
-  Once issues are shown, the toolbar should say why the two differ.
-- Undecided: reject the move with a `409` instead of warning. I lean towards
-  warning only. Planners overlap tasks on purpose, and on the timeline the
-  drag has already happened by the time the server could say no.
-- Undecided: phases have `startDate` and `endDate` columns that no screen sets
-  and nothing reads (the overview works out a phase's range from its tasks). A
-  "task outside its phase" warning would give them a purpose. I would leave
-  them alone in this item.
 
 ### 2. Type hours into the weekly grid
 
@@ -836,9 +783,9 @@ its capacity view on leave and public holidays.
   (`progressCalculator`, plus three direct calls) and `WorkloadResource`
   (`calculator`). Add a request-scoped loader so that one request reads the
   holidays once. The static `WorkCalendar.weekStart` is not affected.
-- Item 1's `ScheduleCheck` takes a calendar as well. If item 1 is already in,
-  the place that builds it is a fifth one to switch. If this item lands first,
-  item 1 gets its calendar from the loader from the start.
+- Item 1's `ScheduleCheck` takes a calendar as well. It is built in
+  `ScheduleResource` next to `criticalPath` (the `scheduleCheck` field), so
+  that class has two helpers to switch.
 - Time off does not move the schedule. It only lowers capacity.
   `WorkloadCalculator.Person` has one `capacityHours` for all weeks. Make it
   per week (`WeekLoad` already reports capacity per week). A day off takes a
@@ -1006,3 +953,26 @@ whether file storage is worth it for a planner.
 - Undecided: whether this is worth it at all, when a link to the shared drive
   in the description works. Attachments on comments and pasted images are what
   people would ask for next, so it does not stay small.
+
+## Shipped
+
+### 1. Warnings for broken dependencies
+
+`ScheduleCheck` in `schedule/` reports four kinds of issue through
+`GET /api/projects/{projectId}/schedule-issues`: a task that starts before a
+task it waits for allows, a link to a task without a due date, a task due
+after the project's end date and a subtask outside its parent's dates. The
+timeline draws the reported links red and dashed, counts the issues in the
+toolbar, lists them, and says why "Plan ends" is later than the latest due
+date. The task panel shows each issue on the link or the dates it is about,
+with a "Move to" button that sends back the two dates the API suggested.
+Different from the design: finished tasks are not reported, everything is
+counted in working days (a start on the Saturday before the allowed Monday is
+fine, as it is on the critical path, although the `Rescheduler` would still
+snap such a task to Monday when its predecessor moves), and only the
+too-early issue carries suggested dates. The check shares the link rule
+(`Rescheduler.earliestStart` for one link) and the move
+(`Rescheduler.startingOn`), which is where item 17 has to change them. A move
+is still never rejected, and the phase dates were left alone. Still open: the
+list is only on the timeline tab, so the overview and the project list do not
+show that a plan has issues.
