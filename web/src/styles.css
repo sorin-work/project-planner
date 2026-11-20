@@ -1408,9 +1408,10 @@ select.compact {
   cursor: pointer;
 }
 
-.gantt-svg .link-group.selected .link,
-.gantt-svg .link-group:focus-visible .link {
-  stroke-width: 2.6;
+/* A selected or focused arrow gets a band along it. A thicker line would also blow up its arrowhead. */
+.gantt-svg .link-group.selected .link-hit,
+.gantt-svg .link-group:focus-visible .link-hit {
+  stroke: color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
 .gantt-svg .link-group:focus {
@@ -1432,6 +1433,11 @@ select.compact {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+/* The toast is dark with light text, which its buttons would inherit on their light background. */
+.gantt-selection button {
+  color: var(--text);
 }
 
 /* Time */
