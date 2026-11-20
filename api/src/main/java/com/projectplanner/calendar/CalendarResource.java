@@ -58,11 +58,12 @@ public class CalendarResource {
     @GET
     @Path("/orgs/{orgId}/holidays")
     @Operation(summary = "List the holidays",
-            description = "For the team. All of them by date, or those from and to the dates given, both included.")
+            description = "For every member, client viewers included, since their timeline shades them too. "
+                    + "All of them by date, or those from and to the dates given, both included.")
     @Fails(status = 400, code = "invalid_range", when = "to is before from, or the range is longer than 800 days")
     public List<HolidayResponse> holidays(@PathParam("orgId") long orgId,
                                           @QueryParam("from") LocalDate from, @QueryParam("to") LocalDate to) {
-        access.team(orgId);
+        access.member(orgId);
         checkRange(from, to);
         Parameters params = Parameters.with("org", orgId);
         String query = "organisationId = :org" + bound("date >= :from", "from", from, params) + bound("date <= :to", "to", to, params);

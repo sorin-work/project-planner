@@ -31,7 +31,7 @@ class CalendarResourceTest {
     }
 
     @Test
-    void theTeamReadsHolidaysAndManagersWriteThem() {
+    void everyMemberReadsHolidaysAndManagersWriteThem() {
         Account owner = Api.signup("Hilde");
         Account member = Api.signup("Ivo");
         Account viewer = Api.signup("Jade");
@@ -49,7 +49,9 @@ class CalendarResourceTest {
                 .body("code", equalTo("invalid_range"));
 
         member.as().body(Map.of("date", MONDAY.plusDays(3).toString(), "name", "Mine")).post(org(owner) + "/holidays").then().statusCode(403);
-        viewer.as().get(org(owner) + "/holidays").then().statusCode(403);
+        // A client viewer sees the timeline, shaded like everybody's.
+        viewer.as().get(org(owner) + "/holidays").then().statusCode(200).body("$", hasSize(2));
+        viewer.as().get(org(owner) + "/time-off").then().statusCode(403);
         stranger.as().get(org(owner) + "/holidays").then().statusCode(404);
         owner.as().body(Map.of("date", MONDAY.toString(), "name", "Again")).post(org(owner) + "/holidays").then().statusCode(409)
                 .body("code", equalTo("holiday_taken"));
