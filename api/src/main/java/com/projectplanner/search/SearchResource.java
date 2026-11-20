@@ -2,17 +2,24 @@ package com.projectplanner.search;
 
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
+import com.projectplanner.search.SearchDtos.RecentRequest;
+import com.projectplanner.search.SearchDtos.SearchHit;
 import com.projectplanner.search.SearchDtos.SearchResponse;
 import io.quarkus.security.Authenticated;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+
+import java.util.List;
 
 @Path("/api/orgs/{orgId}/search")
 @Authenticated
@@ -39,5 +46,15 @@ public class SearchResource {
                                  @QueryParam("limit") @DefaultValue("8") int limit) {
         Membership me = access.member(orgId);
         return search.search(me, q, limit);
+    }
+
+    @POST
+    @Path("/recent")
+    @Operation(summary = "The hits picked before, as they are now",
+            description = "The web app keeps only the kind and the id of what was picked. This gives back the current name or title "
+                    + "of each, in the order sent, and leaves out what is gone or what you can no longer open.")
+    public List<SearchHit> recent(@PathParam("orgId") long orgId, @Valid @NotNull RecentRequest request) {
+        Membership me = access.member(orgId);
+        return search.recent(me, request.picks());
     }
 }

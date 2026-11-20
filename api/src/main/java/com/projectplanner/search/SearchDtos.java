@@ -1,6 +1,9 @@
 package com.projectplanner.search;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 import java.util.List;
@@ -26,6 +29,13 @@ public final class SearchDtos {
             @Schema(description = "The task to open: the task itself, or the task a comment is on. Left out for a project.") Long taskId,
             @Schema(description = "The name of the project, or the title of the task. For a comment, the title of its task.") String title,
             @Schema(description = "For a project its client. For a task or a comment the text around the match, when the match is not in the title.") String snippet) {
+    }
+
+    @Schema(description = "A hit that was picked before, by its kind and id.")
+    public record RecentPick(@NotNull SearchHitType type, long id) {
+    }
+
+    public record RecentRequest(@NotNull @Size(max = 20) List<@NotNull @Valid RecentPick> picks) {
     }
 
     public record SearchResponse(
