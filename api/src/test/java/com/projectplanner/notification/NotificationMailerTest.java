@@ -20,6 +20,11 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -298,32 +303,90 @@ class NotificationMailerTest {
     }
 
     @Test
-    void twoRunsAtTheSameMomentSendOneMail() throws Exception {
+    void aSecondRunPassesOverWhatTheFirstHoldsLocked() throws Exception {
         Team team = team();
         assign(team);
-        AtomicInteger delivered = new AtomicInteger();
-        QuarkusMock.installMockForType(new MailOutbox(null) {
-            @Override
-            public boolean deliver(String kind, MailTemplateInstance mail) {
-                delivered.incrementAndGet();
+        CountDownLatch picked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean first = new AtomicBoolean(true);
+        // The first run stops inside its claim transaction, with the rows picked and locked.
+        mailer.afterPick(() -> {
+            if (first.getAndSet(false)) {
+                picked.countDown();
                 try {
-                    Thread.sleep(300);
+                    release.await(20, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
+            }
+        });
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Integer> firstRun = pool.submit(mailer::run);
+            assertThat(picked.await(20, TimeUnit.SECONDS)).isTrue();
+
+            // Meanwhile a second run, as on another instance: the rows are locked, so it skips them.
+            assertThat(mailer.run()).isZero();
+
+            release.countDown();
+            assertThat(firstRun.get(20, TimeUnit.SECONDS)).isEqualTo(1);
+        } finally {
+            release.countDown();
+            mailer.afterPick(() -> {
+            });
+            pool.shutdown();
+        }
+        assertThat(mails(team.member().email())).hasSize(1);
+    }
+
+    @Test
+    void oneBacklogDoesNotHoldUpEverybodyElse() {
+        Team team = team();
+        Account other = Api.signup("Ola Other");
+        Api.addMember(team.owner(), other, "MEMBER");
+        // More waiting for the member than one mail holds, all older than the other person's.
+        QuarkusTransaction.requiringNew().run(() -> {
+            for (int i = 0; i < NotificationMailer.PER_MAIL + 10; i++) {
+                Notification n = new Notification();
+                n.userId = team.member().userId();
+                n.organisationId = team.owner().orgId();
+                n.type = NotificationType.ASSIGNED;
+                n.message = "Backlog";
+                n.projectId = team.projectId();
+                n.taskId = team.taskId();
+                n.createdAt = Instant.now();
+                n.persist();
+            }
+        });
+        team.owner().as().body(Map.of("assigneeId", other.userId())).patch("/api/tasks/" + team.taskId())
+                .then().statusCode(200);
+
+        // One round: one mail each, the member's with the first fifty; the rest waits.
+        assertThat(mailer.run()).isEqualTo(2);
+        assertThat(mails(other.email())).hasSize(1);
+        assertThat(mails(team.member().email())).hasSize(1);
+        assertThat(mailer.run()).isEqualTo(1);
+        assertThat(mails(team.member().email())).hasSize(2);
+    }
+
+    @Test
+    void aRunOnlyStampsTheRowsThatStillHoldItsClaim() {
+        Team team = team();
+        assign(team);
+        QuarkusMock.installMockForType(new MailOutbox(null) {
+            @Override
+            public boolean deliver(String kind, MailTemplateInstance mail) {
+                // The claim ran out while the mail server took its time, and another run took the rows on.
+                QuarkusTransaction.requiringNew().run(() -> Notification.update(
+                        "emailClaimToken = 'another-run' where userId = ?1", team.member().userId()));
                 return true;
             }
         }, MailOutbox.class);
 
-        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
-        try {
-            var first = pool.submit(mailer::run);
-            var second = pool.submit(mailer::run);
-            assertThat(first.get() + second.get()).isEqualTo(1);
-        } finally {
-            pool.shutdown();
-        }
-        assertThat(delivered).hasValue(1);
+        assertThat(mailer.run()).isEqualTo(1);
+        long waiting = QuarkusTransaction.requiringNew().call(() ->
+                Notification.count("userId = ?1 and emailedAt is null", team.member().userId()));
+        assertThat(waiting).as("left for the run that holds the claim now").isEqualTo(1);
     }
 
     @Test
