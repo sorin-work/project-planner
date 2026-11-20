@@ -119,7 +119,7 @@
             <tr>
               <th>Total</th>
               @for (m of g.dayTotals; track $index) {
-                <th class="num" [class.weekend]="$index >= 5">{{ m ? formatClock(m) : '' }}</th>
+                <td class="num" [class.weekend]="$index >= 5">{{ m ? formatClock(m) : '' }}</td>
               }
               <th class="num">{{ formatClock(g.total) }}</th>
             </tr>

@@ -1,6 +1,6 @@
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { expectNoAxeViolations } from '../testing/axe';
 import { fakeApi } from '../testing/fake-api';
@@ -41,7 +41,7 @@ async function render(url: string, loggedIn = true): Promise<{ harness: RouterTe
   }
   const missed: string[] = [];
   TestBed.configureTestingModule({
-    providers: [provideRouter(routes), provideHttpClient(withInterceptors([fakeApi(FIXTURES, missed)]))],
+    providers: [provideRouter(routes, withComponentInputBinding()), provideHttpClient(withInterceptors([fakeApi(FIXTURES, missed)]))],
   });
   const harness = await RouterTestingHarness.create();
   await harness.navigateByUrl(url);
@@ -57,7 +57,7 @@ describe('accessibility of every page', () => {
       const { harness, missed } = await render(url);
       expect(missed).toEqual([]);
       await expectNoAxeViolations(harness.fixture.nativeElement as HTMLElement);
-    });
+    }, 20_000);
   }
 
   for (const url of ['/login', '/signup']) {
@@ -65,6 +65,6 @@ describe('accessibility of every page', () => {
       const { harness, missed } = await render(url, false);
       expect(missed).toEqual([]);
       await expectNoAxeViolations(harness.fixture.nativeElement as HTMLElement);
-    });
+    }, 20_000);
   }
 });

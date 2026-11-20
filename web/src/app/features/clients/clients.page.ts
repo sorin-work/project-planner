@@ -19,7 +19,7 @@ import { OrgContext } from '../../core/org-context.service';
     <div class="grid-2 wide-left">
       <section class="card table-wrap">
         <table class="table">
-          <thead><tr><th>Name</th><th>Contact</th><th class="num">Projects</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Contact</th><th class="num">Projects</th><th><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             @for (c of clients(); track c.id) {
               <tr [class.muted]="c.archived">
