@@ -80,4 +80,25 @@ class WorkCalendarTest {
         assertThat(WorkCalendar.weekStart(SATURDAY.plusDays(1))).isEqualTo(MONDAY);
         assertThat(WorkCalendar.weekStart(MONDAY.minusDays(1))).isEqualTo(MONDAY.minusWeeks(1));
     }
+
+    @Test
+    void holidaysAreLeftOutOfEveryCount() {
+        // Wednesday is a holiday, and so is the Saturday, which changes nothing.
+        WorkCalendar holidays = new WorkCalendar(java.util.List.of(MONDAY.plusDays(2), SATURDAY));
+        assertThat(holidays.isWorkingDay(MONDAY.plusDays(2))).isFalse();
+        assertThat(holidays.isHoliday(MONDAY.plusDays(2))).isTrue();
+        assertThat(holidays.isHoliday(SATURDAY)).isFalse();
+        assertThat(holidays.workingDaysBetween(MONDAY, FRIDAY)).isEqualTo(4);
+        assertThat(holidays.workingDaysBetween(MONDAY, SATURDAY.plusDays(1))).isEqualTo(4);
+        // The fast path for whole weeks takes the holidays off as well.
+        assertThat(holidays.workingDaysBetween(MONDAY.minusWeeks(3), FRIDAY.plusWeeks(3))).isEqualTo(34);
+        assertThat(holidays.workingDaysBetween(MONDAY.plusDays(3), FRIDAY.plusWeeks(1))).isEqualTo(7);
+        // Two working days from Tuesday land on Friday, and a task that ends on the holiday moves past it.
+        assertThat(holidays.addWorkingDays(MONDAY.plusDays(1), 2)).isEqualTo(FRIDAY);
+        assertThat(holidays.addWorkingDays(FRIDAY, -2)).isEqualTo(MONDAY.plusDays(1));
+        assertThat(holidays.onOrAfter(MONDAY.plusDays(2))).isEqualTo(MONDAY.plusDays(3));
+        assertThat(holidays.duration(MONDAY, MONDAY.plusDays(2))).isEqualTo(2);
+        // Without holidays nothing changes.
+        assertThat(cal.workingDaysBetween(MONDAY, FRIDAY)).isEqualTo(5);
+    }
 }
