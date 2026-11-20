@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.projectplanner.schedule.BaselineComparison;
 import com.projectplanner.schedule.BaselineComparison.Change;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
@@ -23,7 +24,8 @@ public final class BaselineDtos {
     }
 
     /** Rename a baseline, make it the reference, or both. Its dates cannot be changed. */
-    public record UpdateBaselineRequest(@Size(min = 1, max = 120) String name, Boolean reference) {
+    public record UpdateBaselineRequest(
+            @Size(max = 120) @Pattern(regexp = "(?s).*\\S.*", message = "must not be blank") String name, Boolean reference) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
