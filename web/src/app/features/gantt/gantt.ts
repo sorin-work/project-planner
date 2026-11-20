@@ -8,15 +8,22 @@ interface Drag {
   mode: DragMode;
   taskId: number;
   startX: number;
+  startY: number;
   dx: number;
+  /** False until the pointer has gone far enough to mean it, see DRAG_THRESHOLD. */
+  active: boolean;
   pointerId: number;
   /** Where the pointer is on the chart. A link being drawn ends there. */
   x: number;
   y: number;
 }
 
-/** A click that moved less than this is a click, not a drag. */
-const CLICK_SLOP = 3;
+/**
+ * How many pixels the pointer has to travel before a press becomes a drag. Below
+ * that it is a click that wobbled, and a click opens the task. Without it two
+ * pixels were a whole day at the narrower zooms.
+ */
+export const DRAG_THRESHOLD = 4;
 
 /**
  * SVG timeline: phases and tasks as bars, milestones as diamonds, dependencies as arrows.
@@ -27,6 +34,7 @@ const CLICK_SLOP = 3;
   selector: 'app-gantt',
   templateUrl: './gantt.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(document:keydown.escape)': 'cancelDrag()' },
 })
 export class Gantt {
   readonly tasks = input.required<Task[]>();
@@ -42,6 +50,12 @@ export class Gantt {
   readonly moved = output<{ taskId: number; days: number }>();
   /** One end of a bar was dragged: the new start or the new due date. */
   readonly resized = output<{ taskId: number; startDate?: string; dueDate?: string }>();
+  /**
+   * Shift with an arrow key: the due date of a bar should move by this many working
+   * days. It is a step and not a date, because the keys repeat faster than the API
+   * answers and every press has to count.
+   */
+  readonly extended = output<{ taskId: number; days: number }>();
   /** A link was drawn from the end of one bar onto another, which now waits for it. */
   readonly linked = output<{ predecessorId: number; successorId: number }>();
   /** An arrow was removed. */
@@ -65,8 +79,8 @@ export class Gantt {
     }),
   );
 
-  /** At month zoom a day is four pixels wide: no room for handles. Bars still move, and the keys still work. */
-  protected readonly handles = computed(() => this.editable() && this.zoom() !== 'month');
+  /** The timeline is edited at day and week zoom. At month zoom a day is four pixels wide, so there it is read-only. */
+  protected readonly canEdit = computed(() => this.editable() && this.zoom() !== 'month');
 
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   private readonly svg = viewChild<ElementRef<SVGSVGElement>>('svg');
@@ -74,14 +88,14 @@ export class Gantt {
 
   private readonly dragColumns = computed(() => {
     const d = this.drag();
-    return d ? dragDays(d.dx, this.layout().dayWidth) : 0;
+    return d?.active ? dragDays(d.dx, this.layout().dayWidth) : 0;
   });
 
   /** The bars as drawn: the one being moved or resized is shown where it would land. */
   protected readonly bars = computed<GanttBar[]>(() => {
     const layout = this.layout();
     const d = this.drag();
-    if (!d || d.mode === 'link') {
+    if (!d?.active || d.mode === 'link') {
       return layout.bars;
     }
     const mode = d.mode;
@@ -99,7 +113,7 @@ export class Gantt {
   /** The line that follows the pointer while a link is drawn, and the bar it would be dropped on. */
   protected readonly linkDraft = computed(() => {
     const d = this.drag();
-    const from = d?.mode === 'link' ? this.layout().bars.find((b) => b.task.id === d.taskId) : undefined;
+    const from = d?.active && d.mode === 'link' ? this.layout().bars.find((b) => b.task.id === d.taskId) : undefined;
     if (!d || !from) {
       return null;
     }
@@ -114,7 +128,7 @@ export class Gantt {
 
   protected readonly hint = computed(() => {
     const d = this.drag();
-    if (!d) {
+    if (!d?.active) {
       return null;
     }
     if (d.mode === 'link') {
@@ -131,6 +145,14 @@ export class Gantt {
   });
 
   protected readonly selectedLink = computed(() => this.layout().links.find((l) => l.id === this.selectedLinkId()) ?? null);
+  /** The arrows that leave each bar. They follow their bar in the tab order. */
+  protected readonly outgoing = computed(() => {
+    const byTask = new Map<number, GanttLink[]>();
+    for (const link of this.layout().links) {
+      byTask.set(link.predecessorId, [...(byTask.get(link.predecessorId) ?? []), link]);
+    }
+    return byTask;
+  });
   private readonly titles = computed(() => new Map(this.tasks().map((t) => [t.id, t.title])));
 
   constructor() {
@@ -176,22 +198,37 @@ export class Gantt {
     return `${title(link.successorId)} waits for ${title(link.predecessorId)}`;
   }
 
-  /** Starts a drag on a bar, or on one of its handles when a mode is given. */
+  /**
+   * A press on a bar, or on one of its handles when a mode is given. It becomes a
+   * drag once the pointer has moved far enough, and only where the timeline can be
+   * edited. A press that stays put is a click and opens the task.
+   */
   onPointerDown(event: PointerEvent, bar: GanttBar, mode: DragMode = 'move'): void {
-    if (!this.editable() || event.button !== 0) {
+    if (event.button !== 0) {
       return;
     }
     // A handle sits inside its bar: without this the bar would start a move as well.
     event.stopPropagation();
-    (event.target as Element).setPointerCapture?.(event.pointerId);
+    if (this.canEdit()) {
+      (event.target as Element).setPointerCapture?.(event.pointerId);
+    }
     this.selectedLinkId.set(null);
-    this.drag.set({ mode, taskId: bar.task.id, startX: event.clientX, dx: 0, pointerId: event.pointerId, ...this.pointOf(event) });
+    this.drag.set({
+      mode,
+      taskId: bar.task.id,
+      startX: event.clientX,
+      startY: event.clientY,
+      dx: 0,
+      active: false,
+      pointerId: event.pointerId,
+      ...this.pointOf(event),
+    });
   }
 
   onPointerMove(event: PointerEvent): void {
     const d = this.drag();
     if (d && d.pointerId === event.pointerId) {
-      this.drag.set({ ...d, dx: event.clientX - d.startX, ...this.pointOf(event) });
+      this.drag.set({ ...d, dx: event.clientX - d.startX, active: this.isDrag(d, event), ...this.pointOf(event) });
     }
   }
 
@@ -206,33 +243,38 @@ export class Gantt {
     if (!bar) {
       return;
     }
-    const dx = event.clientX - d.startX;
-    const columns = dragDays(dx, layout.dayWidth);
     const taskId = bar.task.id;
+    if (!this.isDrag(d, event)) {
+      if (d.mode !== 'link') {
+        this.opened.emit(taskId);
+      }
+      return;
+    }
+    const columns = dragDays(event.clientX - d.startX, layout.dayWidth);
     if (d.mode === 'link') {
       const point = this.pointOf(event);
       const target = barAt(layout.bars, point.x, point.y);
       if (target && target.task.id !== taskId) {
         this.linked.emit({ predecessorId: taskId, successorId: target.task.id });
       }
-      return;
-    }
-    if (d.mode === 'move') {
+    } else if (d.mode === 'move') {
       const from = barDates(bar.task)?.from;
       const days = from ? moveWorkingDays(from, columns) : 0;
       if (days !== 0) {
         this.moved.emit({ taskId, days });
-        return;
       }
     } else {
       const dates = resizeDates(bar.task, d.mode, columns);
       if (dates) {
         this.resized.emit({ taskId, ...dates });
-        return;
       }
     }
-    if (Math.abs(dx) < CLICK_SLOP) {
-      this.opened.emit(taskId);
+  }
+
+  /** Escape gives up whatever is being dragged: nothing is sent and the bar is drawn where it was. */
+  cancelDrag(): void {
+    if (this.drag()) {
+      this.drag.set(null);
     }
   }
 
@@ -241,31 +283,39 @@ export class Gantt {
       this.opened.emit(bar.task.id);
       return;
     }
-    if (!this.editable() || (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft')) {
+    if (!this.canEdit() || (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft')) {
       return;
     }
     event.preventDefault();
-    const step = event.key === 'ArrowRight' ? 1 : -1;
+    const days = event.key === 'ArrowRight' ? 1 : -1;
     if (!event.shiftKey) {
       // One press is one working day.
-      this.moved.emit({ taskId: bar.task.id, days: step });
+      this.moved.emit({ taskId: bar.task.id, days });
     } else if (!bar.milestone) {
-      // Shift moves the due date: one column, and on past a weekend.
-      const dates = resizeDates(bar.task, 'end', step);
-      if (dates) {
-        this.resized.emit({ taskId: bar.task.id, ...dates });
-      }
+      this.extended.emit({ taskId: bar.task.id, days });
     }
   }
 
   selectLink(link: GanttLink): void {
-    if (this.editable()) {
+    if (this.canEdit()) {
       this.selectedLinkId.set(link.id);
     }
   }
 
+  /**
+   * A click on an arrow. What is clicked lies under the bars and cannot take the
+   * focus in the right place, so the focus goes to the arrow's stand-in after its
+   * bar, which selects it.
+   */
+  pickLink(link: GanttLink): void {
+    if (this.canEdit()) {
+      this.selectedLinkId.set(link.id);
+      this.svg()?.nativeElement.querySelector<SVGElement>(`.link-focus[data-link="${link.id}"]`)?.focus();
+    }
+  }
+
   onLinkKey(event: KeyboardEvent, link: GanttLink): void {
-    if (!this.editable()) {
+    if (!this.canEdit()) {
       return;
     }
     if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -275,13 +325,34 @@ export class Gantt {
       event.preventDefault();
       this.selectedLinkId.set(link.id);
     } else if (event.key === 'Escape') {
-      this.selectedLinkId.set(null);
+      this.keepLink(link);
     }
   }
 
   removeLink(link: GanttLink): void {
-    this.selectedLinkId.set(null);
+    this.keepLink(link);
     this.unlinked.emit({ successorId: link.successorId, dependencyId: link.id });
+  }
+
+  /**
+   * Drops the selection and hands the focus to the bar the arrow leaves from. The
+   * arrow, or the button that was pressed, is about to go, and the focus would
+   * fall back to the page with it.
+   */
+  keepLink(link: GanttLink): void {
+    this.selectedLinkId.set(null);
+    this.svg()?.nativeElement.querySelector<SVGElement>(`g.bar[data-task="${link.predecessorId}"]`)?.focus();
+  }
+
+  /** Has this press travelled far enough to be a drag? Once it has, it stays one. */
+  private isDrag(d: Drag, event: PointerEvent): boolean {
+    if (d.active || !this.canEdit()) {
+      return d.active;
+    }
+    const dx = event.clientX - d.startX;
+    // A bar only goes sideways. A link goes anywhere.
+    const distance = d.mode === 'link' ? Math.hypot(dx, event.clientY - d.startY) : Math.abs(dx);
+    return distance >= DRAG_THRESHOLD;
   }
 
   /** The pointer in the chart's own coordinates, whatever the scroll position. */
