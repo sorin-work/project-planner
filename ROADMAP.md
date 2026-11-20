@@ -864,7 +864,8 @@ begins a week before its first task still does; and the rows are not made one
 entity at a time but by one `insert ... select` per table
 (`ProjectDuplicator`), because the ids are identity columns and Hibernate
 cannot batch those. A plan of 3,000 tasks takes the same twenty statements as
-one of twenty. The copy has the schedule issues of the source's dates and no
+one of twenty, and a table only needs a second statement above 5,000 rows.
+The copy has the schedule issues of the source's dates and no
 others, with two things to know: tasks finished in the source are open again,
 so an overlap the source had stopped reporting is reported, and a task that
 lies on a weekend entirely becomes a one-day task on the next working day and

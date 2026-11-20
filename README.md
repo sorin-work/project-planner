@@ -451,8 +451,9 @@ in use answers `409 code_taken`. `GET /projects/{id}/duplicate` proposes
 `{ name, code, startDate }` (the code is free at that moment) and says how many phases,
 tasks and links there are to copy.
 
-The copy is made in one transaction, so it is there as a whole or not at all, and in a
-fixed number of statements however many tasks the plan has. The first day of the plan
+The copy is made in one transaction, so it is there as a whole or not at all. It takes
+the same number of statements for twenty tasks as for a few thousand (each table is
+filled by one statement, and by one more for every further 5,000 rows). The first day of the plan
 (the earliest task date or the project's own start) lands on `startDate`, or on the next
 working day, and everything else keeps its distance from it in working days. So the
 schedule issues of the copy are those of the source's dates, no more and no fewer.
