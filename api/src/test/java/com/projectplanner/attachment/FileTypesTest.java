@@ -37,6 +37,10 @@ class FileTypesTest {
         assertThat(FileTypes.detect("photo.png", text("<html><script>alert(1)</script></html>"), true)).isNull();
         assertThat(FileTypes.detect("readme.txt", text("  \n<script>alert(1)</script>"), true)).isNull();
         assertThat(FileTypes.detect("readme.txt", text("﻿<svg onload=alert(1)>"), true)).isNull();
+        // Whatever a browser skips before markup does not hide it.
+        assertThat(FileTypes.detect("readme.txt", text("\uFEFF\uFEFF<svg onload=alert(1)>"), true)).isNull();
+        assertThat(FileTypes.detect("readme.txt", text("\u00A0\u200B <html>"), true)).isNull();
+        assertThat(FileTypes.detect("readme.txt", text("\u00A0Plain words."), true)).isNotNull();
         assertThat(FileTypes.detect("tool.exe", text("MZ"), true)).isNull();
         assertThat(FileTypes.detect("no-extension", PNG, true)).isNull();
     }
