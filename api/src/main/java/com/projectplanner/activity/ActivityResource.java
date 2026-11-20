@@ -1,5 +1,6 @@
 package com.projectplanner.activity;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.projectplanner.auth.User;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -49,7 +51,7 @@ public class ActivityResource {
         }
         List<ActivityEntry> entries = ActivityEntry.find("organisationId", Sort.descending("createdAt", "id"), orgId)
                 .page(Page.ofSize(clamp(limit))).list();
-        return toResponses(entries);
+        return toResponses(entries, me);
     }
 
     @GET
@@ -60,26 +62,40 @@ public class ActivityResource {
         Project project = access.project(projectId);
         List<ActivityEntry> entries = ActivityEntry.find("projectId", Sort.descending("createdAt", "id"), project.id)
                 .page(Page.ofSize(clamp(limit))).list();
-        return toResponses(entries);
+        return toResponses(entries, access.member(project.organisationId));
     }
 
     private static int clamp(int limit) {
         return Math.max(1, Math.min(MAX_LIMIT, limit));
     }
 
-    static List<ActivityResponse> toResponses(List<ActivityEntry> entries) {
-        Set<Long> actorIds = entries.stream().map(e -> e.actorId).filter(java.util.Objects::nonNull).collect(Collectors.toSet());
+    private List<ActivityResponse> toResponses(List<ActivityEntry> entries, Membership reader) {
+        Set<Long> actorIds = entries.stream().map(e -> e.actorId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<Long, String> names = new HashMap<>();
         if (!actorIds.isEmpty()) {
             User.<User>list("id in ?1", actorIds).forEach(u -> names.put(u.id, u.name));
         }
+        // An entry can be about a second project. Its name is only for a reader who may see that project.
+        Set<Long> relatedIds = entries.stream().map(e -> e.relatedProjectId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> related = new HashMap<>();
+        if (!relatedIds.isEmpty()) {
+            Project.<Project>list("id in ?1", relatedIds).stream().filter(p -> access.sees(reader, p)).forEach(p -> related.put(p.id, p.name));
+        }
         return entries.stream()
                 .map(e -> new ActivityResponse(e.id, e.projectId, e.taskId, e.actorId,
-                        e.actorId == null ? null : names.get(e.actorId), e.action, e.summary, e.createdAt))
+                        e.actorId == null ? null : names.get(e.actorId), e.action, e.summary, e.createdAt,
+                        related.containsKey(e.relatedProjectId) ? e.relatedProjectId : null, related.get(e.relatedProjectId)))
                 .toList();
     }
 
+    /**
+     * @param relatedProjectId   another project the entry is about, such as the one a plan was copied
+     *                           from. Only there for a reader who may see that project.
+     * @param relatedProjectName its name, under the same condition
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ActivityResponse(long id, Long projectId, Long taskId, Long actorId, String actorName,
-                                   String action, String summary, Instant createdAt) {
+                                   String action, String summary, Instant createdAt,
+                                   Long relatedProjectId, String relatedProjectName) {
     }
 }
