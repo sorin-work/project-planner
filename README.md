@@ -248,7 +248,9 @@ After each dump only the newest seven are kept. Files with any other name are le
 alone: rename a dump to keep it for good. How old a dump is, and which ones are the
 oldest, is read from the time in the file name and never from the file's modification
 time. A dump dated in the future, which is what a clock that was set back leaves behind,
-counts as made now and not as overdue.
+counts as made now and not as overdue. A file that is named like a dump but with a date
+that does not exist, 31 February for one, is left alone: it does not count as a backup,
+it is never removed, and the log names it after every dump.
 
 The folder, the number of dumps and the time between two of them are `BACKUP_DIR`,
 `BACKUP_KEEP` and `BACKUP_INTERVAL_SECONDS` (see [Configuration](#configuration)).

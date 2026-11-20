@@ -50,16 +50,39 @@ check_settings() {
   fi
 }
 
-# File names of the finished dumps, newest first, going by the time in the
-# name.
-dumps() {
+# Every file that is named like a dump, newest first, going by the time in
+# the name.
+named_like_dumps() {
   ls -1 "$dir" | grep -E '^planner-[0-9]{8}T[0-9]{6}Z\.dump$' | sort -r
 }
 
 # The time in a dump's name as seconds since 1970. Prints nothing when the
-# name does not hold a real date.
+# name does not hold a real date. The date in this image does not refuse 31
+# February, it makes 3 March of it. So the time is written out again and has
+# to come back as the name it was read from.
 dump_time() {
-  date -u -d "$(echo "$1" | sed -E 's/^planner-(....)(..)(..)T(..)(..)(..)Z\.dump$/\1-\2-\3 \4:\5:\6/')" +%s 2>/dev/null || true
+  stamp=${1#planner-}
+  stamp=${stamp%.dump}
+  seconds=$(date -u -d "$(echo "$stamp" | sed -E 's/^(....)(..)(..)T(..)(..)(..)Z$/\1-\2-\3 \4:\5:\6/')" +%s 2>/dev/null) || return 0
+  if [ "$(date -u -d "@$seconds" +%Y%m%dT%H%M%SZ 2>/dev/null)" = "$stamp" ]; then
+    echo "$seconds"
+  fi
+}
+
+# File names of the finished dumps, newest first. A file with a date that
+# does not exist is not one of them: nothing says how old it is, so it is
+# neither counted nor removed.
+dumps() {
+  named_like_dumps | while read -r name; do
+    [ -z "$(dump_time "$name")" ] || echo "$name"
+  done
+}
+
+# Says which files look like dumps and are left alone because of their date.
+warn_about_impossible_dates() {
+  named_like_dumps | while read -r name; do
+    [ -n "$(dump_time "$name")" ] || log "$name has a date that does not exist. It is left alone: not counted as a dump and never removed."
+  done
 }
 
 # Removes the oldest dumps until $keep are left. The dump that was just
@@ -70,6 +93,7 @@ prune() {
     rm -f "$dir/$old"
     log "removed $old"
   done
+  warn_about_impossible_dates
 }
 
 # pg_dump writes to a hidden .partial file that is renamed when it is
@@ -140,6 +164,7 @@ run() {
   # Left behind if the last run was killed in the middle of a dump.
   rm -f "$dir"/.planner-*.partial
   log "dumping $PGDATABASE to $dir every ${interval}s, keeping the newest $keep"
+  warn_about_impossible_dates
 
   now=$(date +%s)
   last=$(newest_dump_time "$now")
