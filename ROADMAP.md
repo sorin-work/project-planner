@@ -812,7 +812,9 @@ hours (no amounts) and one for money. The numbers come from
 the entries in the database by person, billable flag and length with a count,
 so money is still rounded per entry and the overview reads the same way.
 Changes to a project's time lock its row first (two projects lowest id
-first), so two entries saved at the same moment give one alert. A replayed
+first, each checked to be in the organisation before it is locked), so two
+entries saved at the same moment give one alert. Rows are always taken
+memberships first, then projects, which a rate change follows too. A replayed
 create with a client key returns before anything is saved and does not
 alert. A project without a budget and nothing to take back costs no query.
 The demo projects start at the level of their burn, and only the patient
@@ -820,8 +822,9 @@ portal, which is over its hours budget, has told the managers.
 Different from the design: the thresholds are not next to
 `HealthStatus.BURN_AHEAD_TOLERANCE` but in a class of their own with the
 rule for when an alert goes out. A changed rate is looked at the moment it
-changes, for every project of the organisation with a money budget, instead
-of waiting for the next entry. Still open: every manager hears about every
+changes, for every project of the organisation with a money budget in one
+grouped query, instead of waiting for the next entry. Saving the same rate
+again changes nothing and looks at nothing. Still open: every manager hears about every
 project, since there is no project lead, and there are no alerts for the
 schedule. Email is item 12.
 
