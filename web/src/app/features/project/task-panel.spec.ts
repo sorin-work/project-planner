@@ -48,6 +48,7 @@ describe('TaskPanel schedule issues', () => {
     fixture.componentRef.setInput('taskId', 2);
     await fixture.whenStable();
     http.expectOne('/api/tasks/2/comments').flush([]);
+    http.expectOne('/api/tasks/2/attachments').flush([]);
     await fixture.whenStable();
     return { fixture, store, el: fixture.nativeElement as HTMLElement };
   }

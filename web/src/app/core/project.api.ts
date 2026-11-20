@@ -36,6 +36,8 @@ export interface DuplicateInput {
   clientId: number | null;
   startDate: string;
   keepAssignees: boolean;
+  /** Copy the files attached to the tasks as well. */
+  copyAttachments: boolean;
 }
 
 export interface PhaseInput {

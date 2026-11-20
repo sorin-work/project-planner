@@ -111,6 +111,32 @@ export interface DuplicateDefaults {
   phases: number;
   tasks: number;
   dependencies: number;
+  /** The files on the tasks, which are only copied when asked for. */
+  attachments: number;
+  attachmentBytes: number;
+}
+
+/** A file attached to a task. Its bytes are fetched through a short-lived link. */
+export interface Attachment {
+  id: number;
+  taskId: number;
+  fileName: string;
+  /** What the server found the file to be, not what the browser said. */
+  contentType: string;
+  sizeBytes: number;
+  uploaderId?: number;
+  uploaderName?: string;
+  createdAt: string;
+  /** An image that may be shown in the page. Everything else is a download. */
+  previewable: boolean;
+  /** Whoever attached it, owners and managers. */
+  canDelete: boolean;
+}
+
+/** A link to the bytes of an attachment. It needs no token and works until {@code expiresAt}. */
+export interface AttachmentLink {
+  url: string;
+  expiresAt: string;
 }
 
 /** A saved copy of a plan's dates. Only its name and whether it is the reference can change. */

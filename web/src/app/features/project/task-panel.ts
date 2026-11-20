@@ -11,13 +11,14 @@ import { segments } from '../../shared/mentions';
 import { TimerService } from '../time/timer.service';
 import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
+import { TaskAttachments } from './task-attachments';
 import { baselineLabel } from './baseline-text';
 import { DEPENDENCY_TYPES, dependencyPhrase } from './dependency-text';
 import { issueText, linkIssue, linkNote, moveCost, moveTo } from './schedule-issues';
 
 @Component({
   selector: 'app-task-panel',
-  imports: [FormsModule, CommentBox],
+  imports: [FormsModule, CommentBox, TaskAttachments],
   templateUrl: './task-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

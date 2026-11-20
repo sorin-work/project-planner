@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Comment, Dependency, DependencyType, Priority, Task, TaskChange, TaskStatus } from './models';
+import { Attachment, AttachmentLink, Comment, Dependency, DependencyType, Priority, Task, TaskChange, TaskStatus } from './models';
 
 export interface NewTask {
   title: string;
@@ -77,6 +77,26 @@ export class TaskApi {
 
   removeDependency(id: number): Observable<void> {
     return this.http.delete<void>(`/api/dependencies/${id}`);
+  }
+
+  attachments(taskId: number): Observable<Attachment[]> {
+    return this.http.get<Attachment[]>(`/api/tasks/${taskId}/attachments`);
+  }
+
+  /** Sends one file as the form field "file". The browser sets the multipart boundary. */
+  uploadAttachment(taskId: number, file: File): Observable<Attachment> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<Attachment>(`/api/tasks/${taskId}/attachments`, form);
+  }
+
+  /** A link that works for two minutes. With {@code preview} an image is shown in the page instead of downloaded. */
+  attachmentLink(id: number, preview = false): Observable<AttachmentLink> {
+    return this.http.post<AttachmentLink>(`/api/attachments/${id}/link`, null, { params: { preview } });
+  }
+
+  deleteAttachment(id: number): Observable<void> {
+    return this.http.delete<void>(`/api/attachments/${id}`);
   }
 
   comments(taskId: number): Observable<Comment[]> {
