@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -49,7 +50,8 @@ public final class TimeDtos {
     }
 
     public record TimesheetSummary(long id, long userId, String userName, LocalDate weekStart, TimesheetStatus status,
-                                   Instant submittedAt, int totalMinutes, int billableMinutes, BigDecimal billableAmount) {
+                                   Instant submittedAt, int totalMinutes, int billableMinutes,
+                                   @Schema(description = "The billable time at each person's rate.") BigDecimal billableAmount) {
     }
 
     /** {@code latestWeekStart} is the most recent week that is over, so the newest one that can be asked for. */

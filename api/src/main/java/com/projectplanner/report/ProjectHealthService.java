@@ -1,6 +1,7 @@
 package com.projectplanner.report;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.common.ApiDocs;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
 import com.projectplanner.org.RateBook;
@@ -14,6 +15,7 @@ import com.projectplanner.task.Task;
 import com.projectplanner.task.TaskStatus;
 import com.projectplanner.time.TimeEntry;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -96,10 +98,13 @@ public class ProjectHealthService {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Schema(description = "Hours and money against the budgets. A figure that needs a budget is left out when the project has none.")
     public record BudgetView(BigDecimal budgetHours, BigDecimal loggedHours, BigDecimal billableHours,
                              BigDecimal nonBillableHours, BigDecimal remainingHours, Double hoursBurnPct,
-                             BigDecimal budgetAmount, BigDecimal spentAmount, BigDecimal remainingAmount,
-                             Double amountBurnPct) {
+                             @Schema(description = ApiDocs.MANAGERS_ONLY) BigDecimal budgetAmount,
+                             @Schema(description = "Billable time at each person's rate. " + ApiDocs.MANAGERS_ONLY) BigDecimal spentAmount,
+                             @Schema(description = ApiDocs.MANAGERS_ONLY) BigDecimal remainingAmount,
+                             @Schema(description = ApiDocs.MANAGERS_ONLY) Double amountBurnPct) {
     }
 
     /**
@@ -112,7 +117,8 @@ public class ProjectHealthService {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record HealthSummary(HealthStatus status, double progressPct, Double hoursBurnPct, Double amountBurnPct,
+    public record HealthSummary(HealthStatus status, double progressPct, Double hoursBurnPct,
+                                @Schema(description = ApiDocs.MANAGERS_ONLY) Double amountBurnPct,
                                 int overdueTasks, int openTasks, double scheduleVarianceHours) {
     }
 }
