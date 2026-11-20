@@ -11,14 +11,14 @@ export type Save<T> = (left: T | undefined) => Observable<T> | null;
  * A save is a function that is called when its turn comes, with what the save before it
  * left behind (the value its request emitted). That is what keeps a slow first save from
  * being followed by a second "create": by then the entry exists, and the second save
- * updates it. A save that fails leaves things as they were.
+ * updates it. A save that fails (its request errors) leaves things as they were.
  */
 export class SaveQueue<T> {
   private readonly running = new Set<string>();
   private readonly waiting = new Map<string, Save<T>>();
   /** What the saves that ran for a key so far left behind; forgotten once the key is quiet. */
   private readonly left = new Map<string, T>();
-  private idle: (() => void)[] = [];
+  private idle: { then: (saved: boolean) => void; saved: boolean }[] = [];
 
   submit(key: string, save: Save<T>): void {
     if (this.running.has(key)) {
@@ -28,12 +28,16 @@ export class SaveQueue<T> {
     }
   }
 
-  /** Calls {@code then} once no save is running or waiting any more; straight away when none is. */
-  whenIdle(then: () => void): void {
+  /**
+   * Calls {@code then} once no save is running or waiting any more; straight away when none
+   * is. It is told whether every save that finished in the meantime went through, so that
+   * what depends on them (submitting the week) can be held back when one did not.
+   */
+  whenIdle(then: (saved: boolean) => void): void {
     if (this.running.size === 0) {
-      then();
+      then(true);
     } else {
-      this.idle.push(then);
+      this.idle.push({ then, saved: true });
     }
   }
 
@@ -46,12 +50,15 @@ export class SaveQueue<T> {
     this.running.add(key);
     request.subscribe({
       next: (value) => this.left.set(key, value),
-      error: () => this.finished(key),
-      complete: () => this.finished(key),
+      error: () => this.finished(key, false),
+      complete: () => this.finished(key, true),
     });
   }
 
-  private finished(key: string): void {
+  private finished(key: string, saved: boolean): void {
+    if (!saved) {
+      this.idle.forEach((waiter) => (waiter.saved = false));
+    }
     this.running.delete(key);
     const next = this.waiting.get(key);
     if (next) {
@@ -61,9 +68,9 @@ export class SaveQueue<T> {
       this.left.delete(key);
     }
     if (this.running.size === 0) {
-      const callbacks = this.idle;
+      const waiters = this.idle;
       this.idle = [];
-      callbacks.forEach((then) => then());
+      waiters.forEach((waiter) => waiter.then(waiter.saved));
     }
   }
 }

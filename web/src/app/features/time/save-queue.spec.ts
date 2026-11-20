@@ -96,17 +96,35 @@ describe('SaveQueue', () => {
     const second = slowSave('second', log);
     const other = slowSave('other', log);
 
-    queue.whenIdle(() => log.push('idle at once'));
+    queue.whenIdle((saved) => log.push(`idle at once, saved ${saved}`));
     queue.submit('cell', first.save);
     queue.submit('cell', second.save);
     queue.submit('other', other.save);
-    queue.whenIdle(() => log.push('idle'));
+    queue.whenIdle((saved) => log.push(`idle, saved ${saved}`));
 
     first.succeed('a');
     other.succeed('b');
-    expect(log).toEqual(['idle at once', 'first', 'other', 'second after a']);
+    expect(log).toEqual(['idle at once, saved true', 'first', 'other', 'second after a']);
     second.succeed('c');
-    expect(log).toEqual(['idle at once', 'first', 'other', 'second after a', 'idle']);
+    expect(log).toEqual(['idle at once, saved true', 'first', 'other', 'second after a', 'idle, saved true']);
+  });
+
+  it('says so when one of the saves it waited for failed', () => {
+    const queue = new SaveQueue<string>();
+    const log: string[] = [];
+    const friday = slowSave('friday', log);
+    const thursday = slowSave('thursday', log);
+
+    queue.submit('friday', friday.save);
+    queue.submit('thursday', thursday.save);
+    queue.whenIdle((saved) => log.push(`first wait, saved ${saved}`));
+    friday.fail();
+    thursday.succeed('entry 8');
+    expect(log).toEqual(['friday', 'thursday', 'first wait, saved false']);
+
+    // A failure is only held against those who were waiting when it happened.
+    queue.whenIdle((saved) => log.push(`afterwards, saved ${saved}`));
+    expect(log.at(-1)).toBe('afterwards, saved true');
   });
 });
 
