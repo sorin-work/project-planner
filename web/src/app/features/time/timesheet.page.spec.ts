@@ -472,6 +472,18 @@ describe('TimesheetPage', () => {
     press(cell(el, 'WEB, Design, Monday'), 'ArrowUp');
     expect(document.activeElement).toBe(adminMonday);
 
+    // With a modifier the keys are not the grid's: Shift+Down selects, Alt+Left goes back.
+    press(adminMonday, 'ArrowDown', { shiftKey: true });
+    press(adminMonday, 'ArrowDown', { altKey: true });
+    press(adminMonday, 'ArrowDown', { ctrlKey: true });
+    press(adminMonday, 'ArrowDown', { metaKey: true });
+    expect(document.activeElement).toBe(adminMonday);
+    const emptyTuesday = cell(el, 'ADM, Admin, Tuesday');
+    emptyTuesday.focus();
+    press(emptyTuesday, 'ArrowLeft', { altKey: true });
+    expect(document.activeElement).toBe(emptyTuesday);
+    adminMonday.focus();
+
     // Left and right belong to the text until the caret is at its end.
     adminMonday.setSelectionRange(0, 0);
     press(adminMonday, 'ArrowRight');

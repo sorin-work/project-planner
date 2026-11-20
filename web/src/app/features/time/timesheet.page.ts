@@ -426,6 +426,10 @@ export class TimesheetPage {
   }
 
   cellKeydown(event: KeyboardEvent, row: GridRow, cell: CellView, rowIndex: number): void {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+      // Alt+Left is "back", Shift+arrows select text: those keys are not ours with a modifier.
+      return;
+    }
     const target = event.target as HTMLElement;
     const input = target instanceof HTMLInputElement ? target : null;
     if (event.key === 'Enter' && input) {
