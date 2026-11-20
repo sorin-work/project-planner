@@ -11,32 +11,33 @@ What the app does today is in the [README](README.md).
 - **Next**: small or well understood. I would start with these.
 - **Later**: worth doing, but bigger or waiting on a decision.
 - **Maybe**: not sure yet that they are worth the extra complexity.
+- **Shipped**: built. The notes at the end say how each one turned out.
 
 Sizes are rough: **S** is an evening or two, **M** a few evenings up to a
 couple of weekends, **L** several weeks of spare time.
 
 ## Overview
 
-| #   | Item                                       | Group | Area     | Size | Depends on |
-| --- | ------------------------------------------ | ----- | -------- | ---- | ---------- |
-| 1   | Warnings for broken dependencies           | Next  | both     | S    | -          |
-| 2   | Type hours into the weekly grid            | Next  | both     | M    | -          |
-| 3   | Missing timesheets and reminders           | Next  | both     | S    | -          |
-| 4   | Search and quick switcher                  | Next  | both     | M    | -          |
-| 5   | Accessibility pass                         | Next  | frontend | M    | -          |
-| 6   | Scheduled backups and a tested restore     | Next  | infra    | S    | -          |
-| 7   | API reference built from the code          | Next  | backend  | S    | -          |
-| 8   | Resize bars and draw links on the timeline | Later | both     | M    | -          |
-| 9   | Time and utilisation reports               | Later | both     | M    | -          |
-| 10  | Budget alerts                              | Later | both     | S    | -          |
-| 11  | Invitation and password reset emails       | Later | both     | M    | -          |
-| 12  | Notification emails and preferences        | Later | both     | M    | 11         |
-| 13  | Duplicate a project as a template          | Later | both     | M    | -          |
-| 14  | Performance on large projects              | Later | both     | M    | -          |
-| 15  | Public holidays and time off               | Later | both     | L    | -          |
-| 16  | Baselines                                  | Maybe | both     | M    | -          |
-| 17  | Dependency types and lead time             | Maybe | both     | L    | 1          |
-| 18  | Attachments on tasks                       | Maybe | both     | L    | -          |
+| #   | Item                                       | Group   | Area     | Size | Depends on |
+| --- | ------------------------------------------ | ------- | -------- | ---- | ---------- |
+| 1   | Warnings for broken dependencies           | Next    | both     | S    | -          |
+| 2   | Type hours into the weekly grid            | Next    | both     | M    | -          |
+| 3   | Missing timesheets and reminders           | Next    | both     | S    | -          |
+| 4   | Search and quick switcher                  | Next    | both     | M    | -          |
+| 5   | Accessibility pass                         | Next    | frontend | M    | -          |
+| 6   | Scheduled backups and a tested restore     | Shipped | infra    | S    | -          |
+| 7   | API reference built from the code          | Next    | backend  | S    | -          |
+| 8   | Resize bars and draw links on the timeline | Later   | both     | M    | -          |
+| 9   | Time and utilisation reports               | Later   | both     | M    | -          |
+| 10  | Budget alerts                              | Later   | both     | S    | -          |
+| 11  | Invitation and password reset emails       | Later   | both     | M    | -          |
+| 12  | Notification emails and preferences        | Later   | both     | M    | 11         |
+| 13  | Duplicate a project as a template          | Later   | both     | M    | -          |
+| 14  | Performance on large projects              | Later   | both     | M    | -          |
+| 15  | Public holidays and time off               | Later   | both     | L    | -          |
+| 16  | Baselines                                  | Maybe   | both     | M    | -          |
+| 17  | Dependency types and lead time             | Maybe   | both     | L    | 1          |
+| 18  | Attachments on tasks                       | Maybe   | both     | L    | -          |
 
 ## Before starting on one
 
@@ -73,10 +74,13 @@ A few things hold for every item:
   jsdom, so layout, real drag and drop and colours cannot be asserted.
 - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify`, `npm run lint`
   (which includes the angular-eslint template accessibility rules),
-  `npm test`, `npm run build` and `docker compose build`. The production build
-  has bundle budgets in `angular.json` (a warning at 700 kB and an error at
-  1 MB for the initial bundle), which is a reason to think twice before adding
-  a library.
+  `npm test`, `npm run build`, `docker compose build` and
+  `scripts/check-restore.sh`. The last one is the only place where the stack
+  is started: `db` and `api` with the demo data. A migration that H2 accepts
+  and PostgreSQL does not, or a seed that no longer runs, shows up there. The
+  production build has bundle budgets in `angular.json` (a warning at 700 kB
+  and an error at 1 MB for the initial bundle), which is a reason to think
+  twice before adding a library.
 - On the web side `core/models.ts` mirrors the API's JSON by hand, the HTTP
   clients are the `core/*.api.ts` files, and everything inside a project page
   shares one `ProjectStore`.
@@ -336,49 +340,6 @@ only a keyboard or with a screen reader. Gaps I already know about:
 - Undecided: `@angular/cdk` has a live announcer, a focus trap and a drag and
   drop that works from the keyboard, at the price of a dependency. I lean
   towards a small live-region service of my own and plain key handlers.
-
-### 6. Scheduled backups and a tested restore
-
-Everything lives in the `db-data` volume and there is no backup of any kind.
-The only export is the timesheet CSV. For a tool that holds a year of billable
-hours, that is the first thing anyone hosting it should ask about.
-
-- A `backup` service in `docker-compose.yml` behind a compose profile, on the
-  same `postgres:17-alpine` image as `db` so that `pg_dump` matches the
-  server. It dumps once a day in custom format into a mounted folder and keeps
-  the last N files. The folder goes into `.gitignore`, the settings (how many
-  to keep, how often) into `.env.example` and the configuration table in the
-  README.
-- The same script should run once on demand
-  (`docker compose run --rm backup ...`), for a dump before an upgrade and for
-  the CI check below.
-- A "Backup and restore" section in the README with the restore steps: stop
-  `api`, `pg_restore --clean --if-exists`, start `api`.
-- Tricky: Flyway. The dump contains `flyway_schema_history`. An older dump
-  under a newer API is fine: the migrations it lacks run at start
-  (`quarkus.flyway.migrate-at-start=true`), and since out-of-order is on that
-  includes one with a lower number than the dump's latest. Cover that case in
-  the CI check if it is cheap. A newer dump under an older API is
-  the risky direction: as far as I know Flyway only warns about applied
-  versions it has no file for, and the old code then runs against a newer
-  schema. Try it, and have the README say to restore into the same version or
-  a newer one.
-- A restore that is never tested is not a backup. The `docker` job in CI only
-  runs `docker compose build`, so nothing ever starts the stack. Add a step
-  that starts `db` and `api` with `SEED_DEMO=true`, waits for the health
-  check, takes one backup, restores it into a scratch database and compares
-  row counts for `users`, `tasks`, `time_entries` and `timesheets`. That is
-  also the first check that the compose stack boots at all.
-- Tricky: who owns the dump files. The postgres image only drops to its own
-  user for the server itself, so a script run in it writes as root, and the
-  files in a mounted host folder end up owned by root. Set a user for the
-  service or say in the README what to expect.
-- The extra CI time should be small. The Maven build inside `api/Dockerfile`
-  is the slow part and `docker compose build` already pays for it.
-- Undecided: cron inside a container is clumsy. A shell loop with `sleep` is
-  probably enough for one dump a day.
-- Undecided: if item 18 exists, its files belong in the same backup, and a
-  restore of one without the other leaves dangling rows.
 
 ### 7. API reference built from the code
 
@@ -1006,3 +967,29 @@ whether file storage is worth it for a planner.
 - Undecided: whether this is worth it at all, when a link to the shared drive
   in the description works. Attachments on comments and pasted images are what
   people would ask for next, so it does not stay small.
+
+## Shipped
+
+### 6. Scheduled backups and a tested restore
+
+A `backup` service in `docker-compose.yml`, behind the `backup` profile, runs
+`scripts/backup.sh` in the `postgres:17-alpine` image: a `pg_dump` in custom
+format into `./backups` once a day, keeping the newest seven, and
+`backup once` for a dump on demand. It is a shell loop with `sleep`, not cron.
+It reads the age of the newest dump from the file names, never from
+modification times, and looks at the clock every minute. Different from the
+design: a restore is `backup restore <file>` and not `pg_restore --clean`. It
+loads the dump into a new database that replaces the old one only when the
+load worked. Cleaning the old one in place would keep the tables of
+migrations newer than the dump, and the API would fail on them at its next
+start. The script runs as root and gives each dump to the owner of the
+folder. CI runs `scripts/check-restore.sh`: the loop and the pruning against
+clocks that are wrong, row counts of a restored copy, and an older dump (with
+`V15` and without `V14`) restored onto a new volume and migrated by the API.
+The risky direction turned out safer than I thought: Flyway does not just
+warn, the API refuses to start on a database with a migration it has no file
+for, and the check pins that. Still open: the dumps are not encrypted, they
+stay on the same machine unless `BACKUP_DIR` points elsewhere, nothing warns
+when a dump fails apart from the service log, and the files of item 18 would
+not be in them. The check undoes `V14` by dropping `tasks.position`, so it
+needs another migration to undo if a later one builds on that column.
