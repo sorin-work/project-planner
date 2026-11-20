@@ -229,13 +229,17 @@ the client's deadline.
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
-| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
+| api     | 4411      | http://localhost:4411/q/health                      | Quarkus, on 127.0.0.1 only; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
 | mail    | 5192      | http://localhost:5192                               | optional mail catcher (Mailpit), only on 127.0.0.1 |
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
 Ports can be changed with `WEB_PORT`, `API_PORT` and `DB_PORT` (in `.env` or inline,
-e.g. `WEB_PORT=8081 docker compose up`). Data lives in the `db-data` volume;
+e.g. `WEB_PORT=8081 docker compose up`). The API port is only published on 127.0.0.1,
+for the checks below: the web container is the way in. Publishing it on other
+addresses lets clients reach the API without nginx, which is fine for the API itself
+(every request still needs its token), but such clients are counted by their own
+address for the reset limit, and the address is all the limit has to go on. Data lives in the `db-data` volume;
 `docker compose down -v` removes it. The dumps of the backup service are files in
 `./backups` and stay.
 
@@ -298,12 +302,17 @@ What the mails hold, and what they do not:
 A reset request answers 204 whether or not the address has an account. The lookup,
 the link and the mail happen on a thread of their own after the answer is ready, so the
 time it takes does not tell either. One client may ask ten times in a quarter of an
-hour (by the address nginx saw, `BEHIND_PROXY` in Compose). An account gets at most
+hour, by the address nginx saw: with `BEHIND_PROXY=true` the API takes the
+`X-Forwarded-For` that nginx writes, but only from the addresses in `TRUSTED_PROXIES`
+(`web` in Compose), so a client that reaches the API another way cannot pick an address
+for itself. An account gets at most
 three links that work at the same time, and at most one a minute. Asking again never
 cancels a link that was already sent, so nobody can keep the link in somebody else's
 inbox dead. Using a link ends every session of the account that was started before,
-and its other links stop working. A password change in the settings does the same and
-gives the session it was made in a new token.
+and its other links stop working, however close in time the session was started: every
+token carries a version of the account, which a reset or a change of password counts up.
+A password change in the settings does the same and gives the session it was made in a
+new token.
 
 An invitation link fixes the organisation and the role. The page at `/invite` shows
 which address it is for. With an account for that address you sign in and accept;
@@ -311,11 +320,15 @@ without one you sign up there, with that address. Signed in with another account
 says so and does not let you accept. Sending an invitation again gives it a new link
 and the old one stops working, and cancelling it stops its link at once.
 
-Signing up with an invited address, without the link, still joins that organisation,
-as it did before there was mail. `INVITE_LINK_REQUIRED=true` changes that: joining then
-needs the link, which proves that the person reads mail at that address. It only has an
-effect with mail on, so that a fresh install without mail can still be joined, and it
-is off by default because it changes how people join.
+With mail on, an address with a mailed invitation can only sign up with that
+invitation's link (`409 invitation_link_required` without it). Otherwise whoever knows
+the invited address could sign up first and get the invited role. When the link has
+expired, the invitation has to be sent again. Invitations made while mail was off were
+never mailed and are still accepted by signing up with the address, as before.
+`INVITE_LINK_REQUIRED=true` goes further: nobody can sign up without the link of an
+invitation, which closes the app to people nobody invited. It only has an effect with
+mail on, so that a fresh install without mail can still be joined, and it is off by
+default.
 
 A mail that cannot be sent is logged at WARN with the kind of mail and the type of the
 error, without the address or the link. The whole error, which can name the address,
@@ -462,6 +475,7 @@ npm start
 | `APP_URL`              | none, required with `MAIL_HOST`               | api     |
 | `INVITE_LINK_REQUIRED` | `false`                                       | api     |
 | `BEHIND_PROXY`         | `false` (`true` in compose)                   | api     |
+| `TRUSTED_PROXIES`      | `127.0.0.1` (`web` in compose)                | api     |
 | `MAIL_UI_PORT`         | `5192`                                        | compose |
 | `BACKUP_DIR`           | `./backups`                                   | backup  |
 | `BACKUP_KEEP`          | `7`                                           | backup  |

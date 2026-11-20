@@ -773,13 +773,16 @@ account (one a minute, three live links, never cancelling an earlier one), and
 `POST /api/auth/reset` uses a link with one conditional update. Invitations get a
 hashed, single-use link for seven days, a "resend" that replaces it and
 `POST /api/invitations/accept` for an existing account with the invited address.
-`V18` adds `password_resets`, `users.password_changed_at` (checked in
-`CurrentUser.id()`, in whole seconds) and the link columns on `invitations`. Different
-from the design: the mails carry no names, not "Maya invited you to Brightline
-Studio", the token travels after the `#` instead of `/signup?email=`, the links go to
-new `/invite` and `/reset` pages, and requiring the invitation link at sign-up is a
-setting, `INVITE_LINK_REQUIRED`, off by default. A password change now answers with a
-new token, since it ends the session it was made in too. Still open: verifying the
+`V18` adds `password_resets`, the link columns on `invitations`, and on `users`
+`password_changed_at` and a `token_version` that every token carries and
+`CurrentUser.id()` checks. Different from the design: a version instead of comparing
+the change with the token's issued-at time, since whole seconds would let a token from
+the same second survive a reset; the mails carry no names, not "Maya invited you to
+Brightline Studio"; the token travels after the `#` instead of `/signup?email=`, and
+the links go to new `/invite` and `/reset` pages. With mail on, an address with a
+mailed invitation needs its link to sign up, always; `INVITE_LINK_REQUIRED`, off by
+default, makes every sign-up need one. A password change now answers with a new token,
+since it ends the session it was made in too. Still open: verifying the
 address at sign-up (not done, as the roadmap leaned), and the per-client limit is kept
 in memory, so it resets on restart and is per API instance.
 
