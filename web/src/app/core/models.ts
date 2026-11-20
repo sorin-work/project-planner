@@ -457,3 +457,23 @@ export interface Dashboard {
   missingTimesheets: number;
   lastWeekTimesheet?: TimesheetStatus;
 }
+
+export type SearchHitType = 'PROJECT' | 'TASK' | 'COMMENT';
+
+/** One thing search found. `taskId` is the task to open, for a task and for a comment on one. */
+export interface SearchHit {
+  type: SearchHitType;
+  id: number;
+  projectId: number;
+  projectCode: string;
+  taskId?: number;
+  title: string;
+  snippet?: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  projects: SearchHit[];
+  tasks: SearchHit[];
+  comments: SearchHit[];
+}
