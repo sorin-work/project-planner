@@ -29,7 +29,7 @@ couple of weekends, **L** several weeks of spare time.
 | 6   | Scheduled backups and a tested restore     | Shipped | infra    | S    | -          |
 | 7   | API reference built from the code          | Next  | backend  | S    | -          |
 | 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
-| 9   | Time and utilisation reports               | Later | both     | M    | -          |
+| 9   | Time and utilisation reports               | Shipped | both     | M    | -          |
 | 10  | Budget alerts                              | Later | both     | S    | -          |
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
@@ -234,46 +234,6 @@ Quarkus can build an OpenAPI document from the resources.
   it adds a build step and a dependency. Not in this item.
 
 ## Later
-
-### 9. Time and utilisation reports
-
-The Reports page is a single form that downloads a CSV. To answer "how many
-hours went to Acme last month" or "how billable was the team in October" I
-open the CSV in a spreadsheet and build a pivot table. The data is all there.
-
-- API: `GET /api/orgs/{orgId}/reports/time` with `from`, `to`, a `groupBy` of
-  project, client, member or task, and the filters the export has (`userId`,
-  `projectId`, `billable`). Each row has a key, a label, total minutes,
-  billable minutes and, for managers, the billable amount. Plus a totals row.
-- Same rules as `ExportResource`: team only (`access.team`), members get their
-  own time and no money, the range is capped (the export allows two years),
-  and running timers are left out
-  (`startedAt is null or endedAt is not null`).
-- Put the grouping in a plain class in `report/`, like `BudgetCalculator`, fed
-  with rows of project, person, task, billable flag, minutes and rate, so it
-  is tested without a database.
-- Rates: one `RateBook.load(orgId)` per request, then
-  `rate(project.hourlyRate, userId)`.
-- Tricky: rounding. `Money.cost` rounds each entry to cents, and both
-  `BudgetCalculator` and the CSV add up rounded entries. Summing minutes in
-  SQL and multiplying once gives totals a few cents away from the CSV for the
-  same range, and somebody will notice. Price per entry in Java for now (a
-  year of the demo team is a few thousand rows) and leave the grouped query to
-  item 14.
-- Utilisation: `GET /api/orgs/{orgId}/reports/utilisation` for managers. Per
-  person and range: logged hours, billable hours, capacity, and billable hours
-  as a share of capacity. Capacity is `weeklyCapacityHours / 5` for each
-  working day in the range (`WorkCalendar.workingDaysBetween`).
-- Web: `ReportsPage` gets three tabs: Summary (group-by select, date range and
-  the presets from `preset()`), Utilisation, and the existing Export. Bars are
-  drawn with `ProgressBar`. No chart library. Clicking a project row regroups
-  by task within that project.
-- Tricky: capacity for somebody who joined in the middle of the range or
-  changed their hours. There is no history of `weeklyCapacityHours`, only the
-  current value. Use the current value and say so on the page.
-- Undecided: a filter for approved time only. The CSV has a `timesheet_status`
-  column but no filter. It is what invoicing wants and it is cheap to add to
-  both.
 
 ### 10. Budget alerts
 
@@ -893,3 +853,30 @@ scroll while something is dragged (two bars that are not on screen together
 are linked at week zoom or in the task panel), a parent's subtasks do not
 follow when it is resized, and drawing a bar for a task without dates is the
 follow-up it was.
+
+### 9. Time and utilisation reports
+
+The Reports page has three tabs. Summary shows logged time per project,
+client, person or task (`GET /api/orgs/{orgId}/reports/time`) with bars drawn
+by `ProgressBar`, and a click on a project shows its tasks. Utilisation shows
+billable time against capacity per person (`.../reports/utilisation`, for
+managers). Export is the form that was there. The grouping is the plain class
+`TimeReport`, the share `Utilisation`, and the range `ReportRange`. Different
+from the design: the database does the adding up after all. Entries are
+grouped by project, person, billable flag and length, with a count, and one
+entry of each group is priced, which is the way item 14 describes and keeps
+the totals equal to the CSV export of entries to the cent. A test runs the
+report over the seeded year against that export. The presets (this and last
+week or month) are worked out by the API from the organisation's date and not
+by `preset()` in the browser. There is a `clientId` filter as well, and a
+project, client or person that is not in the organisation is a `404`.
+Capacity is not a second definition: it is
+`WorkloadCalculator.capacityMinutes`, the weekly hours over the working days,
+counted only up to today, which is where item 15 has to change it. Both
+reports also come as CSV with the rows on screen, in whole minutes and plain
+decimals. Amounts are shown to the cent so that a column adds up to its
+total. Still open: the filter for approved time only, which needs the week's
+status next to each entry in the grouped query. Somebody who has left the
+organisation still has their time in the summary but is not in utilisation.
+The summary has no filters of its own on the page beyond the grouping and
+the project click, although the API takes them.
