@@ -279,7 +279,10 @@ restore() {
       fi
       # The api only ever writes plain files in plain folders. Anything else that an archive holds,
       # a link, a device, a pipe, or a file hard-linked to another, could make it serve a file
-      # from elsewhere, so it is removed and counted.
+      # from elsewhere, so it is removed and counted. This comes right after unpacking and before
+      # anything else touches what was unpacked: BusyBox tar lists a hard link like a plain file
+      # and unpacks one to a file outside the folder as a second name of that file, which the
+      # chown -R of the swap would otherwise give to the api's user.
       odd=$(find "$staged" -mindepth 1 \( ! -type f ! -type d \) -o \( -type f -links +1 \) | wc -l)
       if [ "$odd" -gt 0 ]; then
         find "$staged" -mindepth 1 \( \( ! -type f ! -type d \) -o \( -type f -links +1 \) \) -exec rm -f {} \;
