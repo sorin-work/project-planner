@@ -142,6 +142,12 @@ const taskFrom = (req: HttpRequest<unknown>) => TASKS.find((t) => req.url.endsWi
 
 export const FIXTURES: FakeRoute[] = [
   { path: /^\/me$/, body: ME },
+  { path: /^\/auth\/options$/, body: { mail: true, inviteLinkRequired: false } },
+  { path: /^\/me\/notification-preferences$/, body: { mailAvailable: true, preferences: [
+    { type: 'MENTIONED', delivery: 'EMAIL', byDefault: 'EMAIL' },
+    { type: 'ASSIGNED', delivery: 'IN_APP', byDefault: 'EMAIL' },
+    { type: 'BUDGET_ALERT', delivery: 'OFF', byDefault: 'IN_APP' },
+  ] } },
   { path: /^\/notifications\/unread-count$/, body: { count: 3 } },
   { path: /^\/notifications$/, body: NOTIFICATIONS },
   { path: /^\/orgs\/3$/, body: { id: 3, name: 'Brightline', currency: 'EUR', timezone: 'Europe/London', defaultHourlyRate: 90, role: 'OWNER' } },
