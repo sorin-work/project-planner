@@ -17,6 +17,8 @@ import java.util.Map;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 
@@ -50,5 +52,18 @@ class DemoSeederTest {
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/projects").then().statusCode(200).body("$", hasSize(8));
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/dashboard").then().statusCode(200)
                 .body("activeProjects", hasSize(4)).body("pendingApprovals", notNullValue());
+
+        // The demo plan has something to warn about: one task that was pulled in front of the task it
+        // waits for, and the tail of the project that runs past the client's deadline.
+        Long booking = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("code", "ACME-APP").firstResult().id);
+        given().auth().oauth2(token).get("/api/projects/" + booking + "/schedule-issues").then().statusCode(200)
+                .body("$", hasSize(1))
+                .body("[0].type", equalTo("STARTS_TOO_EARLY"))
+                .body("[0].days", equalTo(3))
+                .body("[0].suggestedStart", notNullValue());
+        Long portal = QuarkusTransaction.requiringNew().call(() -> Project.<Project>find("code", "GLX-PORTAL").firstResult().id);
+        given().auth().oauth2(token).get("/api/projects/" + portal + "/schedule-issues").then().statusCode(200)
+                .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
+                .body("$", hasSize(2));
     }
 }

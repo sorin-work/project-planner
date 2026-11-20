@@ -323,6 +323,9 @@ public class DemoSeeder {
             }
             return TaskStatus.TODO;
         });
+        // Push notifications were pulled forward to get a head start while payments are still
+        // being built. Nothing stops that, so the plan has one dependency that does not hold.
+        plan.startEarly(push, 3);
         plan.subtasks(booking, "Stripe payment sheet", "Booking confirmation screen", "Refunds and cancellations");
         plan.subtasks(maps, "Tile download manager", "GPS track overlay");
         plan.priority(booking, Priority.URGENT);
@@ -434,6 +437,15 @@ public class DemoSeeder {
 
         void priority(int index, Priority priority) {
             tasks.get(index).entity.priority = priority;
+        }
+
+        /** Moves a scheduled task some working days earlier and leaves what it waits for where it is. */
+        void startEarly(int index, int workingDays) {
+            SeedTask t = tasks.get(index);
+            t.start = CAL.addWorkingDays(t.start, -workingDays);
+            t.due = CAL.addWorkingDays(t.due, -workingDays);
+            t.entity.startDate = t.start;
+            t.entity.dueDate = t.due;
         }
 
         void subtasks(int index, String... titles) {
