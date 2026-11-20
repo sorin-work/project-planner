@@ -2,8 +2,8 @@
 # The restore drill that CI runs after "docker compose build". It needs
 # Docker and nothing else, and it works on a compose stack of its own, with
 # its own volume and its own folder for the dumps, all removed at the end.
-# The data of the stack you use is not touched. The check does publish the
-# same host ports, so stop your stack first or set DB_PORT and API_PORT.
+# The check does publish the same host ports, so stop your stack first or
+# set DB_PORT and API_PORT.
 #
 #   1. Start db and api with the demo data and wait until both are healthy
 #      and the seed is in. Nothing else in CI starts the stack at all.
@@ -19,6 +19,21 @@
 #      to start on it, instead of running old code against a schema it does
 #      not know.
 #
+# On the way it drops a column, throws a database volume away and writes a
+# made-up row, so it must never get near data that somebody wants to keep.
+# Before it changes anything it makes sure of the following, and stops when
+# it cannot (check-restore-guards.sh proves each of these with a stand-in
+# for docker):
+#
+#   - Only docker-compose.yml is read. An override file, or a COMPOSE_FILE
+#     in the environment or in .env, could put the database on storage that
+#     is in use.
+#   - The compose project is not the one the stack itself runs under, except
+#     in CI, and it has no containers and no volume yet. A docker command
+#     that fails means "cannot tell", never "nothing there".
+#   - The db container is created first and looked at before it is started:
+#     its data has to be on the volume this project has just made for itself.
+#
 #   CHECK_PROJECT   compose project to use (default planner-restore-check)
 #   CHECK_KEEP=1    leave the stack and the dumps there afterwards
 set -eu
@@ -26,9 +41,15 @@ set -eu
 cd "$(dirname "$0")/.."
 
 project=${CHECK_PROJECT:-planner-restore-check}
+volume="${project}_db-data"
+remove="docker compose -f docker-compose.yml -p $project --profile backup down -v"
+
+# -f already takes precedence over COMPOSE_FILE and switches the override
+# file off. Unset as well, so that no command below can pick it up.
+unset COMPOSE_FILE
 
 compose() {
-  docker compose -p "$project" --profile backup "$@"
+  docker compose -f docker-compose.yml -p "$project" --profile backup "$@"
 }
 
 fail() {
@@ -52,15 +73,38 @@ counts() {
        union all select 'timesheets', count(*) from timesheets"
 }
 
-# Everything below ends in "down -v", which must never reach a stack that
-# was already there.
-[ -z "$(compose ps -aq)" ] || fail "the compose project $project already has containers, the check wants one of its own (CHECK_PROJECT)"
-if docker volume inspect "${project}_db-data" >/dev/null 2>&1; then
-  fail "the volume ${project}_db-data already exists, the check wants one of its own (CHECK_PROJECT)"
-fi
+# The data folder of the db container has to be the volume that this compose
+# project made for itself. Called while the container exists but has not
+# been started, so that a second server is never started on a data folder
+# another one is using.
+own_storage() {
+  container=$(compose ps -aq db) || fail "docker compose ps did not work"
+  [ -n "$container" ] || fail "the db container was not created"
+  mount=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Type}} {{.Name}}{{end}}{{end}}' "$container") || fail "docker inspect did not work"
+  [ "$mount" = "volume $volume" ] || fail "the database of the compose project $project would not be on the volume $volume but on '$mount'. The database was not started and no data was changed."
+  label=$(docker volume inspect -f '{{index .Labels "com.docker.compose.project"}}' "$volume") || fail "docker volume inspect did not work"
+  [ "$label" = "$project" ] || fail "the volume $volume was not made by the compose project $project (its label says '$label'). The database was not started and no data was changed."
+  mine=true
+}
+
+# The name the stack runs under when nobody passes one: "name:" in the
+# compose file, or else the name of the folder.
+for own in "$(sed -n 's/^name: *//p' docker-compose.yml)" "$(basename "$PWD")"; do
+  if [ "$project" = "$own" ] && [ "${CI:-}" != true ]; then
+    fail "$project is the compose project the stack itself runs under. This check throws the database volume of its project away, so it wants a project of its own: leave CHECK_PROJECT alone or pick another name. Only CI, where there is no data to lose, may use this one (CI=true)."
+  fi
+done
+
+containers=$(compose ps -aq) || fail "docker compose ps did not work, so there is no telling whether the compose project $project is in use. Nothing was started."
+[ -z "$containers" ] || fail "the compose project $project already has containers, and the check wants a project of its own (CHECK_PROJECT)."
+found=$(docker volume ls -q --filter "name=^${volume}\$") || fail "docker volume ls did not work, so there is no telling whether the volume $volume exists. Nothing was started."
+[ -z "$found" ] || fail "the volume $volume already exists, and the check wants one of its own (CHECK_PROJECT)."
 
 BACKUP_DIR=$(mktemp -d)
 export BACKUP_DIR SEED_DEMO=true BACKUP_KEEP=7 BACKUP_INTERVAL_SECONDS=86400
+
+# True while the database volume of the project is known to be this run's own.
+mine=false
 
 finish() {
   status=$?
@@ -69,17 +113,24 @@ finish() {
     compose logs --no-color --tail 60 db api >&2 || true
   fi
   if [ "${CHECK_KEEP:-}" = 1 ]; then
-    echo "The stack is still up and the dumps are in $BACKUP_DIR. To remove the stack:"
-    echo "  docker compose -p $project --profile backup down -v"
-  else
+    echo "The stack is still there and the dumps are in $BACKUP_DIR. To remove the stack:"
+    echo "  $remove"
+  elif [ "$mine" = true ]; then
     compose down -v --remove-orphans >/dev/null 2>&1 || true
+    rm -rf "$BACKUP_DIR"
+  else
+    # Whatever the database is on, it is not known to be this run's: the
+    # containers go, the volumes stay.
+    compose down --remove-orphans >/dev/null 2>&1 || true
     rm -rf "$BACKUP_DIR"
   fi
   exit "$status"
 }
 trap finish EXIT
 
-echo "== start db and api with the demo data"
+echo "== create db and api, look where the database will live, start them with the demo data"
+compose up --no-start db api
+own_storage
 compose up -d --wait db api
 # Healthy does not have to mean seeded. The seed is one transaction, so the
 # first user means all of it is there.
@@ -107,6 +158,9 @@ dump=$(ls "$BACKUP_DIR")
 
 echo "== lose the volume, restore $dump, start the api"
 compose down -v
+mine=false
+compose up --no-start db
+own_storage
 compose run --rm -T backup restore "$dump"
 compose up -d --wait api
 
