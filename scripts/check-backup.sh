@@ -84,6 +84,20 @@ PGDATABASE="$scratch" ATTACHMENTS_DIR="$restored_files" sh "$here/backup.sh" res
 diff "$work/files-before.txt" "$work/files-after.txt" || fail "the restored attachments (+) are not the ones that were archived (-)"
 [ ! -e "$restored_files/.restoring" ] || fail "the unpacked copy was left behind"
 
+echo "== an archive that holds a link is restored without it"
+crafted="$work/crafted"
+mkdir -p "$crafted/cc" "$work/crafted-target/cc"
+echo "a real file" >"$crafted/cc/cc000000000000000000000000000004"
+ln -s /etc/hostname "$crafted/cc/cc000000000000000000000000000005"
+cp "$BACKUP_DIR/$newest" "$BACKUP_DIR/planner-20000101T000000Z.dump"
+tar -C "$crafted" -cf "$BACKUP_DIR/planner-20000101T000000Z.files.tar" .
+PGDATABASE="$scratch" ATTACHMENTS_DIR="$work/crafted-target" sh "$here/backup.sh" restore planner-20000101T000000Z.dump >"$work/crafted.log"
+grep -q "left out 1 entries" "$work/crafted.log" || fail "the link in the archive was not reported"
+[ -f "$work/crafted-target/cc/cc000000000000000000000000000004" ] || fail "the plain file of the crafted archive was not restored"
+[ ! -e "$work/crafted-target/cc/cc000000000000000000000000000005" ] && [ ! -L "$work/crafted-target/cc/cc000000000000000000000000000005" ] ||
+  fail "the link in the archive was restored"
+rm -f "$BACKUP_DIR/planner-20000101T000000Z.dump" "$BACKUP_DIR/planner-20000101T000000Z.files.tar"
+
 echo "== row counts"
 row_counts "$PGDATABASE" >"$work/source.txt"
 row_counts "$scratch" >"$work/restored.txt"
