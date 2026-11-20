@@ -3,11 +3,13 @@ package com.projectplanner.project;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
+import com.projectplanner.support.TestClock;
 import com.projectplanner.task.Task;
 import com.projectplanner.task.TaskDependency;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.path.json.JsonPath;
+import io.restassured.response.Response;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -186,7 +193,9 @@ class ProjectDuplicateTest {
         owner.as().get("/api/projects/" + copyId + "/activity").then()
                 .body("$", hasSize(1))
                 .body("[0].action", equalTo("project.duplicated"))
-                .body("[0].summary", equalTo("Copied the plan of Website into Website for Globex: 3 phases, 6 tasks and 2 links"));
+                .body("[0].summary", equalTo("Copied the plan from another project: 3 phases, 6 tasks and 2 links"))
+                .body("[0].relatedProjectId", equalTo((int) source.projectId()))
+                .body("[0].relatedProjectName", equalTo("Website"));
         assertThat(designer.as().get("/api/notifications").then().extract().jsonPath().getList("$")).hasSize(designerNotifications);
         JsonPath after = tasks(owner, source.projectId());
         assertThat(after.getList("status")).isEqualTo(before.getList("status"));
@@ -238,7 +247,7 @@ class ProjectDuplicateTest {
                 .body("startDate", equalTo("2026-06-15")).body("endDate", nullValue()).body("status", equalTo("PLANNED"));
         owner.as().get("/api/projects/" + copy + "/tasks").then().body("$", hasSize(0));
         owner.as().get("/api/projects/" + copy + "/activity").then()
-                .body("[0].summary", equalTo("Copied the plan of Project EMPTY into Still empty: 0 phases, 0 tasks and 0 links"));
+                .body("[0].summary", equalTo("Copied the plan from another project: 0 phases, 0 tasks and 0 links"));
 
         // Tasks without any dates stay without, and the project still gets its start.
         long undated = Api.createProject(owner, "UNDATED");
@@ -258,7 +267,6 @@ class ProjectDuplicateTest {
         owner.as().get("/api/projects/" + source.projectId() + "/duplicate").then().statusCode(200)
                 .body("name", equalTo("Website (copy)"))
                 .body("code", equalTo("CODE-2"))
-                .body("startDate", notNullValue())
                 .body("phases", equalTo(3)).body("tasks", equalTo(6)).body("dependencies", equalTo(2));
 
         Map<String, Object> body = new HashMap<>(Map.of("name", "Website (copy)", "code", "code", "startDate", "2026-06-10"));
@@ -282,6 +290,226 @@ class ProjectDuplicateTest {
         owner.as().body(Map.of("name", "Their client", "code", "CODE-9", "startDate", "2026-06-10", "clientId", foreignClient))
                 .post("/api/projects/" + source.projectId() + "/duplicate").then().statusCode(400).body("code", equalTo("unknown_client"));
         owner.as().get("/api/orgs/" + owner.orgId() + "/projects").then().body("project.code", equalTo(List.of("CODE", "CODE-2")));
+    }
+
+    @Test
+    void proposesTheNextWorkingDayOfTheOrganisationAsTheStart() {
+        Account owner = Api.signup("Val");
+        long projectId = Api.createProject(owner, "TODAY");
+        owner.as().body(Map.of("timezone", "Pacific/Auckland")).patch("/api/orgs/" + owner.orgId()).then().statusCode(200);
+        try {
+            // Friday evening in UTC is Saturday morning in Auckland, so the organisation's next working day is Monday.
+            TestClock.fix(Instant.parse("2026-06-12T20:00:00Z"));
+            owner.as().get("/api/projects/" + projectId + "/duplicate").then().statusCode(200).body("startDate", equalTo("2026-06-15"));
+            // Tuesday noon in UTC is Wednesday there, a working day: that day itself.
+            TestClock.fix(Instant.parse("2026-06-16T12:30:00Z"));
+            owner.as().get("/api/projects/" + projectId + "/duplicate").then().statusCode(200).body("startDate", equalTo("2026-06-17"));
+        } finally {
+            TestClock.reset();
+        }
+    }
+
+    @Test
+    void theHistoryOfACopyDoesNotNameASourceThatItsReaderMayNotSee() {
+        Account owner = Api.signup("Wim");
+        Account designer = Api.signup("Xan");
+        Website source = website(owner, designer, "LEAK");
+        long globex = Api.createClient(owner, "Globex");
+        Account globexViewer = Api.signup("Yve");
+        Api.addMember(owner, globexViewer, "CLIENT", globex);
+        Account sourceViewer = Api.signup("Zoe");
+        Api.addMember(owner, sourceViewer, "CLIENT", source.clientId());
+
+        // The plan that was made for one client is copied for another.
+        long copy = duplicate(owner, source.projectId(), Map.of("name", "Portal for Globex", "code", "GLX-PORTAL",
+                "startDate", "2026-06-10", "clientId", globex));
+        String activity = "/api/projects/" + copy + "/activity";
+
+        // Globex sees its own project and its history, and learns nothing about the other client's project.
+        globexViewer.as().get("/api/projects/" + source.projectId()).then().statusCode(404);
+        String body = globexViewer.as().get(activity).then().statusCode(200)
+                .body("$", hasSize(1))
+                .body("[0].summary", equalTo("Copied the plan from another project: 3 phases, 6 tasks and 2 links"))
+                .body("[0].relatedProjectId", nullValue())
+                .body("[0].relatedProjectName", nullValue())
+                .extract().asString();
+        assertThat(body).doesNotContain("Website").doesNotContain("relatedProject").doesNotContain("LEAK");
+        // The team may see both, and gets the name and the id to link to.
+        for (Account reader : List.of(owner, designer)) {
+            reader.as().get(activity).then().statusCode(200)
+                    .body("[0].relatedProjectId", equalTo((int) source.projectId()))
+                    .body("[0].relatedProjectName", equalTo("Website"));
+        }
+        owner.as().get("/api/orgs/" + owner.orgId() + "/activity").then()
+                .body("find { it.action == 'project.duplicated' }.relatedProjectName", equalTo("Website"));
+        // The client of the source does not see the copy, so there is nothing to read there.
+        sourceViewer.as().get(activity).then().statusCode(404);
+
+        // A source that is gone is no longer named to anybody.
+        owner.as().delete("/api/projects/" + source.projectId()).then().statusCode(204);
+        owner.as().get(activity).then().statusCode(200)
+                .body("[0].summary", equalTo("Copied the plan from another project: 3 phases, 6 tasks and 2 links"))
+                .body("[0].relatedProjectId", nullValue());
+    }
+
+    @Test
+    void aCodeThatSomebodyElseTakesAtTheSameMomentIsAConflictAndNotAnError() throws Exception {
+        Account owner = Api.signup("Abe");
+        Account designer = Api.signup("Bip");
+        Website source = website(owner, designer, "RACE");
+        Map<String, Object> copy = Map.of("name", "A copy", "code", "RACE-2", "startDate", "2026-06-10");
+        Map<String, Object> fresh = Map.of("name", "A new project", "code", "RACE-3", "status", "PLANNED");
+
+        // Both ways of making a project: the copy and the plain create.
+        whileAnotherRequestHoldsTheCode(owner, "RACE-2",
+                () -> owner.as().body(copy).post("/api/projects/" + source.projectId() + "/duplicate"))
+                .then().statusCode(409).body("code", equalTo("code_taken")).body("message", equalTo("Another project already uses the code RACE-2"));
+        whileAnotherRequestHoldsTheCode(owner, "RACE-3",
+                () -> owner.as().body(fresh).post("/api/orgs/" + owner.orgId() + "/projects"))
+                .then().statusCode(409).body("code", equalTo("code_taken"));
+
+        // The request that lost left nothing behind: one project per code, and no tasks of half a copy.
+        owner.as().get("/api/orgs/" + owner.orgId() + "/projects").then()
+                .body("project.code.sort()", equalTo(List.of("RACE", "RACE-2", "RACE-3")));
+        long strayTasks = count("select count(*) from tasks t join projects p on p.id = t.project_id where p.code = 'RACE-2'");
+        assertThat(strayTasks).isZero();
+    }
+
+    /**
+     * Runs {@code request} while another transaction has inserted a project with {@code code} and
+     * has not committed yet. The request's own check cannot see that row, so it goes on to insert,
+     * and waits there for the other transaction. Only then is the other one committed, which leaves
+     * the request with the unique constraint and nothing else to stop it.
+     */
+    private Response whileAnotherRequestHoldsTheCode(Account owner, String code, Callable<Response> request) throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        QuarkusTransaction.begin();
+        try {
+            em.createNativeQuery("insert into projects (organisation_id, name, code, status, color, created_at, updated_at) "
+                            + "values (?1, 'Somebody else', ?2, 'PLANNED', '#4f6bed', current_timestamp, current_timestamp)")
+                    .setParameter(1, owner.orgId()).setParameter(2, code).executeUpdate();
+            Future<Response> answer = executor.submit(request);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            // The request is at its insert when another session is in the middle of one into projects.
+            while (((Number) em.createNativeQuery("select count(*) from information_schema.sessions "
+                            + "where session_id <> session_id() and lower(executing_statement) like 'insert into projects%'")
+                    .getSingleResult()).intValue() == 0) {
+                assertThat(answer.isDone()).as("the request answered before it had to wait for the other insert").isFalse();
+                assertThat(System.nanoTime()).as("the request never reached its insert").isLessThan(deadline);
+                Thread.sleep(10);
+            }
+            QuarkusTransaction.commit();
+            return answer.get(10, TimeUnit.SECONDS);
+        } finally {
+            if (QuarkusTransaction.isActive()) {
+                QuarkusTransaction.rollback();
+            }
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void aSourceThatChangesWhileItIsCopiedIsAConflictAndNothingIsCopied() {
+        Account owner = Api.signup("Cid");
+        Account designer = Api.signup("Dru");
+        Website source = website(owner, designer, "MOVE");
+        Api.createTask(owner, source.projectId(), Map.of("title", VanishingTask.TITLE));
+        long tasksBefore = count("select count(*) from tasks");
+        long projectsBefore = count("select count(*) from projects");
+
+        // Somebody deletes a task of the source between the moment the copy has read the plan and the
+        // moment it writes the tasks. A trigger stands in for that somebody: it fires when the copy's
+        // project row goes in, which is after the reading and before the writing.
+        QuarkusTransaction.requiringNew().run(() -> em.createNativeQuery("create trigger a_task_vanishes before insert on projects "
+                + "for each row call '" + VanishingTask.class.getName() + "'").executeUpdate());
+        try {
+            owner.as().body(Map.of("name", "A copy", "code", "MOVE-2", "startDate", "2026-06-10"))
+                    .post("/api/projects/" + source.projectId() + "/duplicate").then().statusCode(409)
+                    .body("code", equalTo("source_changed"))
+                    .body("message", equalTo("The project was changed while it was being copied. Nothing was copied, so try again."));
+        } finally {
+            QuarkusTransaction.requiringNew().run(() -> em.createNativeQuery("drop trigger a_task_vanishes").executeUpdate());
+        }
+
+        // Nothing of the copy, and the deletion that the trigger made inside the same transaction is undone with it.
+        assertThat(count("select count(*) from projects")).isEqualTo(projectsBefore);
+        assertThat(count("select count(*) from tasks")).isEqualTo(tasksBefore);
+        // Trying again, as the message says, works.
+        duplicate(owner, source.projectId(), Map.of("name", "A copy", "code", "MOVE-2", "startDate", "2026-06-10"));
+    }
+
+    /**
+     * Deletes the task with a title of its own when it fires. Used as a trigger on the test
+     * database, which loads the class by name, so it cannot be told anything by the test.
+     */
+    public static class VanishingTask implements org.h2.api.Trigger {
+
+        static final String TITLE = "A task that vanishes";
+
+        @Override
+        public void fire(java.sql.Connection connection, Object[] oldRow, Object[] newRow) throws java.sql.SQLException {
+            try (java.sql.PreparedStatement statement = connection.prepareStatement("delete from tasks where title = ?")) {
+                statement.setString(1, TITLE);
+                statement.executeUpdate();
+            }
+        }
+    }
+
+    @Test
+    void aPlanThatDoesNotFitIntoOneStatementIsSpreadOverSeveralAndComesOutTheSame() {
+        Account owner = Api.signup("Eda");
+        Account designer = Api.signup("Fox");
+        Website source = website(owner, designer, "SPLIT");
+        long whole = duplicate(owner, source.projectId(), Map.of("name", "In one go", "code", "SPLIT-2", "startDate", "2026-06-10", "keepAssignees", true));
+        long wholeStatements = statementsFor(() -> duplicate(owner, source.projectId(),
+                Map.of("name", "Counted", "code", "SPLIT-3", "startDate", "2026-06-10", "keepAssignees", true)));
+
+        // Two rows to a statement: three phases, four tasks, two subtasks and two links need 2 + 2 + 1 + 1 of them instead of 4.
+        int usual = ProjectDuplicator.rowsPerStatement;
+        ProjectDuplicator.rowsPerStatement = 2;
+        long splitStatements;
+        Map<String, Long> ids = new HashMap<>();
+        try {
+            splitStatements = statementsFor(() -> ids.put("split", duplicate(owner, source.projectId(),
+                    Map.of("name", "In pieces", "code", "SPLIT-4", "startDate", "2026-06-10", "keepAssignees", true))));
+        } finally {
+            ProjectDuplicator.rowsPerStatement = usual;
+        }
+        assertThat(usual).isEqualTo(5000);
+        assertThat(splitStatements).isEqualTo(wholeStatements + 2);
+
+        assertThat(shape(owner, ids.get("split"))).isEqualTo(shape(owner, whole));
+        assertThat(shape(owner, whole)).hasSize(6 + 3 + 2);
+    }
+
+    /** Everything a copy consists of, by title instead of id, so that two copies can be compared. */
+    private static List<String> shape(Account who, long projectId) {
+        JsonPath tasks = tasks(who, projectId);
+        JsonPath phases = who.as().get("/api/projects/" + projectId + "/phases").then().extract().jsonPath();
+        Map<Long, String> titles = new HashMap<>();
+        Map<Long, String> phaseNames = new HashMap<>();
+        for (Map<String, Object> task : tasks.<Map<String, Object>>getList("$")) {
+            titles.put(((Number) task.get("id")).longValue(), (String) task.get("title"));
+        }
+        for (Map<String, Object> phase : phases.<Map<String, Object>>getList("$")) {
+            phaseNames.put(((Number) phase.get("id")).longValue(), phase.get("position") + ":" + phase.get("name"));
+        }
+        List<String> lines = new ArrayList<>();
+        for (Map<String, Object> task : tasks.<Map<String, Object>>getList("$")) {
+            Number parent = (Number) task.get("parentId");
+            Number phase = (Number) task.get("phaseId");
+            lines.add("task " + task.get("title") + " " + task.get("startDate") + ".." + task.get("dueDate") + " position " + task.get("position")
+                    + " under " + (parent == null ? null : titles.get(parent.longValue()))
+                    + " in " + (phase == null ? null : phaseNames.get(phase.longValue())) + " for " + task.get("assigneeName"));
+        }
+        phaseNames.values().forEach(name -> lines.add("phase " + name));
+        for (Map<String, Object> link : who.as().get("/api/projects/" + projectId + "/dependencies").then().extract()
+                .jsonPath().<Map<String, Object>>getList("$")) {
+            lines.add("link " + titles.get(((Number) link.get("predecessorId")).longValue()) + " -> "
+                    + titles.get(((Number) link.get("successorId")).longValue()) + " lag " + link.get("lagDays"));
+        }
+        lines.sort(null);
+        return lines;
     }
 
     @Test
