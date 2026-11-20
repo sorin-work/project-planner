@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Announcer } from '../../core/announcer';
 import { messageOf } from '../../core/errors';
 import { Task, TaskStatus } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
@@ -14,12 +15,45 @@ export function dropIndex(cardMiddles: number[], y: number): number {
   return index === -1 ? cardMiddles.length : index;
 }
 
+/**
+ * Where Alt with an arrow key takes a card: left and right to the column before or after,
+ * at its end; up and down one place within its column. Null when there is nowhere to go.
+ */
+export function keyboardMove(
+  columns: { status: TaskStatus; tasks: { id: number }[] }[],
+  taskId: number,
+  key: string,
+): { status: TaskStatus; position: number } | null {
+  const from = columns.findIndex((c) => c.tasks.some((t) => t.id === taskId));
+  if (from === -1) {
+    return null;
+  }
+  const index = columns[from].tasks.findIndex((t) => t.id === taskId);
+  switch (key) {
+    case 'ArrowLeft':
+    case 'ArrowRight': {
+      const to = columns[from + (key === 'ArrowLeft' ? -1 : 1)];
+      return to ? { status: to.status, position: to.tasks.length } : null;
+    }
+    case 'ArrowUp':
+      return index > 0 ? { status: columns[from].status, position: index - 1 } : null;
+    case 'ArrowDown':
+      return index < columns[from].tasks.length - 1 ? { status: columns[from].status, position: index + 1 } : null;
+    default:
+      return null;
+  }
+}
+
 @Component({
   selector: 'app-board-tab',
   imports: [Avatar],
   template: `
     @if (error()) {
-      <p class="alert error">{{ error() }}</p>
+      <p class="alert error" role="alert">{{ error() }}</p>
+    }
+    @if (org.isTeam()) {
+      <p id="board-keys" class="muted small">Drag a card to another column, or focus it and press Alt with the arrow keys:
+        left and right change its status, up and down its place.</p>
     }
     <div class="board">
       @for (column of columns(); track column.status) {
@@ -29,7 +63,9 @@ export function dropIndex(cardMiddles: number[], y: number): number {
           @for (task of column.tasks; track task.id) {
             <article class="board-card" [attr.draggable]="org.isTeam()" (dragstart)="onDragStart($event, task)"
               (dragend)="dragging.set(null)" [class.dragging]="dragging() === task.id"
-              [class.critical]="store.criticalIds().has(task.id)" tabindex="0" (keydown.enter)="openTask(task.id)" (click)="openTask(task.id)">
+              [class.critical]="store.criticalIds().has(task.id)" tabindex="0" [attr.data-card]="task.id"
+              [attr.aria-describedby]="org.isTeam() ? 'board-keys' : null"
+              (keydown.enter)="openTask(task.id)" (keydown)="onCardKey($event, task)" (click)="openTask(task.id)">
               <p class="card-title">
                 @if (task.milestone) { <span class="diamond">◆</span> }
                 {{ task.title }}
@@ -62,6 +98,7 @@ export class BoardTab {
   protected readonly store = inject(ProjectStore);
   protected readonly org = inject(OrgContext);
   protected readonly openTask = injectOpenTask();
+  private readonly announcer = inject(Announcer);
 
   protected readonly dragging = signal<number | null>(null);
   protected readonly dragOver = signal<TaskStatus | null>(null);
@@ -80,6 +117,31 @@ export class BoardTab {
         .sort((a, b) => a.position - b.position || a.id - b.id),
     })),
   );
+
+  /** Alt and an arrow key: the same move as a drag, through the same update, and said out loud. */
+  onCardKey(event: KeyboardEvent, task: Task): void {
+    if (!event.altKey || !this.org.isTeam()) {
+      return;
+    }
+    const move = keyboardMove(this.columns(), task.id, event.key);
+    if (!move) {
+      return;
+    }
+    event.preventDefault();
+    this.error.set(null);
+    this.store.updateTask(task.id, move).subscribe({
+      next: () => {
+        this.store.reloadTasks();
+        this.announcer.announce(`${task.title} moved to ${this.labels[move.status]}, place ${move.position + 1}.`);
+        // The card is drawn again in its new place: the focus stays on it.
+        setTimeout(() => document.querySelector<HTMLElement>(`[data-card="${task.id}"]`)?.focus());
+      },
+      error: (err: unknown) => {
+        this.error.set(messageOf(err));
+        this.announcer.alert(`${task.title} was not moved: ${messageOf(err)}`);
+      },
+    });
+  }
 
   onDragStart(event: DragEvent, task: Task): void {
     this.dragging.set(task.id);
