@@ -63,4 +63,8 @@ public class Notification extends PanacheEntityBase {
     /** After a failed attempt, the earliest time of the next one. */
     @Column(name = "email_retry_at")
     public Instant emailRetryAt;
+
+    /** A run of the mail job has taken it on until then. */
+    @Column(name = "email_claimed_until")
+    public Instant emailClaimedUntil;
 }

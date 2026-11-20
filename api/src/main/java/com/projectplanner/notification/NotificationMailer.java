@@ -13,17 +13,22 @@ import io.quarkus.mailer.MailTemplate.MailTemplateInstance;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
+import org.hibernate.LockOptions;
+import org.hibernate.jpa.AvailableHints;
 import org.jboss.logging.Logger;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * The outbox of notification mails: once a minute, every notification that still waits
@@ -38,7 +43,10 @@ import java.util.Set;
  * role). It is then marked as done without a mail.
  * <p>
  * A mail that fails is tried again after 1, 2, 4, 8 and 16 minutes, and then given up,
- * which the log says. The job runs on every instance of the API, so the app expects one.
+ * which the log says. Several instances of the API can run the job at once: each run claims
+ * the rows it takes on (see {@link #claim}), and a run that dies before it has stamped its
+ * mail leaves rows that are taken on again once their claim has run out. A mail that the
+ * server got but whose answer was lost in a timeout is sent again that way.
  */
 @ApplicationScoped
 public class NotificationMailer {
@@ -47,6 +55,9 @@ public class NotificationMailer {
     static final int MAX_ATTEMPTS = 6;
     static final Duration FIRST_RETRY = Duration.ofMinutes(1);
     static final int PER_MAIL = 50;
+    static final int PER_ROUND = 500;
+    /** How long a run holds the notifications it took on before another run may take them. */
+    static final Duration CLAIM = Duration.ofMinutes(5);
     private static final String KIND = "notification";
 
     private final MailSettings settings;
@@ -78,18 +89,11 @@ public class NotificationMailer {
             return 0;
         }
         Instant now = clock.instant();
-        List<Long> people = QuarkusTransaction.requiringNew().call(() -> Notification.getEntityManager()
-                .createQuery("select distinct n.userId from Notification n where n.emailedAt is null"
-                        + " and (n.emailRetryAt is null or n.emailRetryAt <= :now) order by n.userId", Long.class)
-                .setParameter("now", now).getResultList());
+        List<Batch> batches = QuarkusTransaction.requiringNew().call(() -> claim(now));
         int sent = 0;
-        for (long userId : people) {
-            Optional<Batch> batch = QuarkusTransaction.requiringNew().call(() -> prepare(userId, now));
-            if (batch.isEmpty()) {
-                continue;
-            }
-            boolean delivered = outbox.deliver(KIND, batch.get().mail());
-            QuarkusTransaction.requiringNew().run(() -> finish(batch.get().ids(), delivered, now));
+        for (Batch batch : batches) {
+            boolean delivered = outbox.deliver(KIND, batch.mail());
+            QuarkusTransaction.requiringNew().run(() -> finish(batch, delivered, clock.instant()));
             if (delivered) {
                 sent++;
             }
@@ -97,49 +101,91 @@ public class NotificationMailer {
         return sent;
     }
 
-    private record Batch(List<Long> ids, MailTemplateInstance mail) {
+    /** What one person gets in one mail, and the attempts each of its notifications had before. */
+    private record Batch(Map<Integer, List<Long>> idsByAttempts, MailTemplateInstance mail) {
+
+        List<Long> ids() {
+            return idsByAttempts.values().stream().flatMap(List::stream).toList();
+        }
     }
 
-    /** Marks what needs no mail and puts the rest in one mail, without sending it. */
-    private Optional<Batch> prepare(long userId, Instant now) {
-        List<Notification> due = Notification.<Notification>find("userId = ?1 and emailedAt is null"
-                + " and (emailRetryAt is null or emailRetryAt <= ?2) order by id", userId, now).page(0, PER_MAIL).list();
-        User user = User.findById(userId);
-        Map<NotificationType, Delivery> wanted = preferences.of(userId);
-        List<Notification> mailed = new ArrayList<>();
-        for (Notification n : due) {
-            if (user != null && n.readAt == null && wanted.get(n.type) == Delivery.EMAIL && stillVisible(n)) {
-                mailed.add(n);
-            } else {
-                n.emailedAt = now;
+    /**
+     * Takes on what waits, in one transaction: the rows are read with {@code FOR UPDATE SKIP
+     * LOCKED}, so that two runs at the same moment never take the same one, and each is
+     * either marked done without a mail or claimed for {@link #CLAIM} before the transaction
+     * ends. The mails are built here and sent after the commit.
+     */
+    private List<Batch> claim(Instant now) {
+        List<Notification> due = Notification.<Notification>find("emailedAt is null"
+                        + " and (emailRetryAt is null or emailRetryAt <= ?1)"
+                        + " and (emailClaimedUntil is null or emailClaimedUntil <= ?1) order by userId, id", now)
+                .withLock(LockModeType.PESSIMISTIC_WRITE)
+                .withHint(AvailableHints.HINT_SPEC_LOCK_TIMEOUT, LockOptions.SKIP_LOCKED)
+                .page(0, PER_ROUND).list();
+        Map<Long, List<Notification>> byPerson = new LinkedHashMap<>();
+        due.forEach(n -> byPerson.computeIfAbsent(n.userId, id -> new ArrayList<>()).add(n));
+
+        List<Long> skipped = new ArrayList<>();
+        List<Long> claimed = new ArrayList<>();
+        List<Batch> batches = new ArrayList<>();
+        Map<Long, Map<NotificationType, Delivery>> wanted = preferences.of(byPerson.keySet());
+        for (Map.Entry<Long, List<Notification>> person : byPerson.entrySet()) {
+            User user = User.findById(person.getKey());
+            List<Notification> mailed = new ArrayList<>();
+            for (Notification n : person.getValue()) {
+                if (mailed.size() == PER_MAIL) {
+                    break;
+                }
+                if (user != null && n.readAt == null && wanted.get(n.userId).get(n.type) == Delivery.EMAIL && stillVisible(n)) {
+                    mailed.add(n);
+                } else {
+                    skipped.add(n.id);
+                }
+            }
+            if (!mailed.isEmpty()) {
+                mailed.forEach(n -> claimed.add(n.id));
+                batches.add(batch(user, mailed));
             }
         }
-        if (mailed.isEmpty()) {
-            return Optional.empty();
+        // Only the mail columns, so that a "mark all read" at the same moment is not undone.
+        if (!skipped.isEmpty()) {
+            Notification.update("emailedAt = ?1, emailClaimedUntil = null where id in ?2", now, skipped);
         }
+        if (!claimed.isEmpty()) {
+            Notification.update("emailClaimedUntil = ?1 where id in ?2", now.plus(CLAIM), claimed);
+        }
+        return batches;
+    }
+
+    private Batch batch(User user, List<Notification> mailed) {
         List<Line> lines = mailed.stream().map(n -> new Line(sentence(n), mails.link(target(n)))).toList();
         Set<NotificationType> types = new LinkedHashSet<>();
         mailed.forEach(n -> types.add(n.type));
         List<Line> stop = types.stream()
-                .map(type -> new Line("Stop mails about " + about(type), mails.link("/unsubscribe", unsubscribe.token(userId, type))))
+                .map(type -> new Line("Stop mails about " + about(type), mails.link("/unsubscribe", unsubscribe.token(user.id, type))))
                 .toList();
-        return Optional.of(new Batch(mailed.stream().map(n -> n.id).toList(), mails.notifications(user.email, lines, stop)));
+        Map<Integer, List<Long>> idsByAttempts = new TreeMap<>();
+        mailed.forEach(n -> idsByAttempts.computeIfAbsent(n.emailAttempts, a -> new ArrayList<>()).add(n.id));
+        return new Batch(idsByAttempts, mails.notifications(user.email, lines, stop));
     }
 
-    private void finish(List<Long> ids, boolean delivered, Instant now) {
+    /** Stamps the outcome with bulk updates of the mail columns only. */
+    private void finish(Batch batch, boolean delivered, Instant now) {
         if (delivered) {
-            Notification.update("emailedAt = ?1 where id in ?2", now, ids);
+            Notification.update("emailedAt = ?1, emailClaimedUntil = null where id in ?2", now, batch.ids());
             return;
         }
-        for (Notification n : Notification.<Notification>list("id in ?1", ids)) {
-            n.emailAttempts++;
-            if (n.emailAttempts >= MAX_ATTEMPTS) {
-                n.emailedAt = now;
-                LOG.warnf("Gave up mailing notification %d after %d attempts", n.id, n.emailAttempts);
+        batch.idsByAttempts().forEach((before, ids) -> {
+            int attempts = before + 1;
+            if (attempts >= MAX_ATTEMPTS) {
+                Notification.update("emailAttempts = ?1, emailedAt = ?2, emailClaimedUntil = null where id in ?3",
+                        attempts, now, ids);
+                LOG.warnf("Gave up mailing %d notifications after %d attempts", ids.size(), attempts);
             } else {
-                n.emailRetryAt = now.plus(FIRST_RETRY.multipliedBy(1L << (n.emailAttempts - 1)));
+                Notification.update("emailAttempts = ?1, emailRetryAt = ?2, emailClaimedUntil = null where id in ?3",
+                        attempts, now.plus(FIRST_RETRY.multipliedBy(1L << (attempts - 1))), ids);
             }
-        }
+        });
     }
 
     /** Whether the person may still see what the notification is about. */
