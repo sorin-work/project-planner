@@ -7,6 +7,7 @@ import { formatDate, formatRange } from '../../shared/dates';
 import { formatHours, formatMoney, formatPercent } from '../../shared/format';
 import { HealthBadge } from '../../shared/health-badge';
 import { ProgressBar } from '../../shared/progress-bar';
+import { countsText, endText, milestoneChanges, milestoneText } from './baseline-text';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
 
@@ -39,6 +40,10 @@ export class OverviewTab {
   protected readonly formatPercent = formatPercent;
   protected readonly formatDate = formatDate;
   protected readonly formatRange = formatRange;
+  protected readonly endText = endText;
+  protected readonly countsText = countsText;
+  protected readonly milestoneChange = milestoneText;
+  protected readonly baselineMilestones = computed(() => milestoneChanges(this.store.comparison()));
 
   protected readonly phaseSummaries = computed<PhaseSummary[]>(() => {
     const tasks = this.store.tasks();

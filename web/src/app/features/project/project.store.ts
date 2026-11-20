@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, forkJoin, map, tap } from 'rxjs';
 import { messageOf } from '../../core/errors';
-import { CriticalPath, Member, Phase, Project, ScheduleIssue, Task, TaskChange } from '../../core/models';
+import { Baseline, BaselineComparison, CriticalPath, Member, Phase, Project, ScheduleIssue, Task, TaskChange } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { ProjectApi } from '../../core/project.api';
 import { NewTask, TaskApi, TaskPatch } from '../../core/task.api';
@@ -24,6 +24,13 @@ export class ProjectStore {
   /** Why the critical path and the issues could not be refreshed after a change, or null when they are current. */
   readonly scheduleError = signal<string | null>(null);
   readonly loading = signal(true);
+  /** The project's baselines, oldest first. */
+  readonly baselines = signal<Baseline[]>([]);
+  /** The baseline the plan is compared with, or null for none. Starts on the project's reference. */
+  readonly comparedId = signal<number | null>(null);
+  /** The API's comparison of the plan with that baseline, refetched after every change. */
+  readonly comparison = signal<BaselineComparison | null>(null);
+  readonly comparisonError = signal<string | null>(null);
   /** Bumped after every change so tabs with their own data (health, activity) can reload. */
   readonly version = signal(0);
 
@@ -34,9 +41,13 @@ export class ProjectStore {
   readonly brokenLinks = computed(() => brokenLinks(this.issues()));
 
   private scheduleRequest = 0;
+  private comparisonRequest = 0;
+  private baselinesRequest = 0;
 
   load(projectId: number): Observable<void> {
     this.loading.set(true);
+    // Nothing of the project shown before stays on screen while this one loads, or after it fails.
+    this.clearBaselines();
     return forkJoin({
       project: this.projects.get(projectId),
       tasks: this.tasksApi.list(projectId),
@@ -55,6 +66,7 @@ export class ProjectStore {
         this.scheduleError.set(null);
         this.loading.set(false);
         this.orgApi.members(project.organisationId).subscribe({ next: (m) => this.members.set(m) });
+        this.loadBaselines(true);
       }),
       map(() => undefined),
     );
@@ -119,7 +131,12 @@ export class ProjectStore {
 
   refreshPhases(): void {
     const project = this.requireProject();
-    this.projects.phases(project.id).subscribe({ next: (p) => this.phases.set(p) });
+    this.projects.phases(project.id).subscribe({
+      next: (p) => {
+        this.phases.set(p);
+        this.refreshComparison();
+      },
+    });
   }
 
   /** Merges a server change (the task plus anything rescheduled because of it) into local state. */
@@ -136,6 +153,81 @@ export class ProjectStore {
   private changed(): void {
     this.version.update((v) => v + 1);
     this.refreshSchedule();
+    this.refreshComparison();
+  }
+
+  /**
+   * Refetches the baselines. With {@code pickReference}, or when the project had none
+   * before, the comparison switches to the project's reference baseline. Otherwise it
+   * stays on the one picked, "no baseline" included, unless that one is gone.
+   */
+  loadBaselines(pickReference = false): void {
+    const project = this.project();
+    if (!project) {
+      return;
+    }
+    const request = ++this.baselinesRequest;
+    this.projects.baselines(project.id).subscribe({
+      next: (baselines) => {
+        if (request !== this.baselinesRequest) {
+          return;
+        }
+        // With no baselines before, "no baseline" was not a choice: the first one is compared with at once.
+        const hadSome = this.baselines().length > 0;
+        this.baselines.set(baselines);
+        const picked = this.comparedId();
+        const keep = !pickReference && hadSome && (picked === null || baselines.some((b) => b.id === picked));
+        this.compareWith(keep ? picked : (baselines.find((b) => b.reference)?.id ?? null));
+      },
+      error: (err: unknown) => {
+        if (request === this.baselinesRequest) {
+          this.clearBaselines();
+          this.comparisonError.set(messageOf(err));
+        }
+      },
+    });
+  }
+
+  /** Forgets the baselines and the comparison, and drops any answer still on its way for them. */
+  private clearBaselines(): void {
+    this.baselinesRequest++;
+    this.comparisonRequest++;
+    this.baselines.set([]);
+    this.comparedId.set(null);
+    this.comparison.set(null);
+    this.comparisonError.set(null);
+  }
+
+  /** Compares the plan with another baseline, or with none. */
+  compareWith(baselineId: number | null): void {
+    this.comparedId.set(baselineId);
+    this.refreshComparison();
+  }
+
+  /** Asks the API for the comparison again. An answer to an older request is dropped, as with the schedule. */
+  refreshComparison(): void {
+    const id = this.comparedId();
+    const request = ++this.comparisonRequest;
+    if (id === null) {
+      this.comparison.set(null);
+      this.comparisonError.set(null);
+      return;
+    }
+    this.projects.baselineComparison(id).subscribe({
+      next: (comparison) => {
+        if (request === this.comparisonRequest) {
+          this.comparison.set(comparison);
+          this.comparisonError.set(null);
+        }
+      },
+      error: (err: unknown) => {
+        if (request === this.comparisonRequest) {
+          // An old comparison would put the thin bars where the plan no longer says.
+          this.comparison.set(null);
+          this.comparisonError.set(messageOf(err));
+        }
+      },
+    });
   }
 
   /**

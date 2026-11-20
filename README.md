@@ -26,6 +26,15 @@ the point is knowing whether a project will land on time and on budget.
   task starts again as to do. Logged time, comments, notifications and activity are
   not copied, and neither are the client and the assignees unless you ask for them.
   The new project gets a code of its own, proposed and yours to change.
+- **Baselines**: save the dates of a plan under a name ("Signed off 3 March") on the
+  project's Settings tab, and compare the plan with it later. The timeline draws the
+  baseline as a thin grey bar under each bar, says in words how far each task moved,
+  and lists what changed: slipped, pulled in, added since and removed since, in working
+  days. The Overview tab has the end of the project and of the plan against the
+  baseline and a table of the milestones. A baseline never changes after it is saved.
+  A project keeps up to ten, and one of them is the reference the timeline starts on.
+  Everybody who can see the project sees the comparison, client viewers of its client
+  included; only owners and managers save, rename, mark and delete baselines.
 - **Rates**: hourly rates per member, defaults per role and an organisation default.
   The most specific one wins (project → member → role → organisation). Money is only
   shown to owners and managers.
@@ -152,7 +161,7 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 issue endpoints), `time`
 (entries, timers, timesheets, CSV export), `workload`, `report` (project health,
 time and utilisation reports),
-`comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
+`baseline`, `comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
 The scheduling and reporting rules are plain Java classes without any framework
@@ -164,6 +173,7 @@ dependencies, so they are tested in isolation:
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
 | `Rescheduler`         | Pushes dependants later when a task moves and shifts a task by working days, keeping durations |
 | `PlanShift`           | Moves a whole plan to a new start, every date at its distance in working days |
+| `BaselineComparison`  | Compares a plan with a baseline: slip of start and finish per task and phase, the ends, the estimates |
 | `ScheduleCheck`       | Lists what does not fit in a plan, with the rescheduler's link rule  |
 | `CriticalPath`        | Early/late start and finish, float and the critical tasks            |
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
@@ -218,7 +228,9 @@ relative to the day it runs. Set `SEED_DEMO=false` for an empty database.
 Two of the demo projects have schedule issues to look at on their timeline: in the
 Acme booking app "Push notifications" was pulled in front of "Booking and payments",
 which it waits for, and the last tasks of the Globex patient portal are due after
-the client's deadline.
+the client's deadline. The Acme booking app also has a baseline, "Signed off at
+kick-off", from which its build and release phases have slipped a week, so its timeline
+has grey bars to compare with and its Overview a launch that is late.
 
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
@@ -578,6 +590,36 @@ Two things to know: tasks that were finished in the source are open again in the
 so an overlap that the source no longer reports comes back. And a date on a weekend is
 taken as the working day it stands for, which changes nothing unless a task lies on a
 weekend entirely: that one becomes a one-day task and can be in the way of a neighbour.
+
+`POST /projects/{id}/baselines` with `{ "name", "reference"? }` saves the dates of every
+task and phase and the project's own start and end as they are now (`201`). The rows
+are copied inside the database by one statement per table, so a plan of a few thousand
+tasks takes as many statements as a small one, and the caller's transaction holds them
+together. A baseline keeps the task's id, title, phase name, dates, estimate and whether
+it is a milestone, as plain values: a task deleted later is still in it. A project keeps
+up to ten (`409 baseline_limit`), names are unique within the project
+(`409 baseline_name_taken`), and the first baseline is the reference.
+`PATCH /baselines/{id}` renames one or makes it the reference (`{ "reference": true }`),
+and `DELETE /baselines/{id}` deletes it; when that was the reference, the latest one left
+takes over. These three are for owners and managers. Each locks the project's row first,
+so two that arrive together run one after the other: the limit, the names and the one
+reference hold, and the database has unique constraints on the name and the reference
+behind that. `GET /projects/{id}/baselines` and
+`GET /baselines/{id}/comparison` are for everybody who can see the project.
+
+The comparison has an entry per task and per phase that is in the plan or in the
+baseline, with the dates of both and `startSlipDays` and `finishSlipDays` in working
+days (later is positive), plus `projectEnd` (the project's own end date) and `planEnd`
+(the latest due date), the counts of each change, and the total estimate then and now.
+`change` is one of `UNCHANGED`, `SLIPPED`, `PULLED_IN`, `ADDED` and `REMOVED`. The finish
+decides, and the start only when the finish did not move. A date on a weekend counts as
+the working day it stands for, so a due date moved from Friday to Saturday has not
+slipped. A task that had no dates in the baseline and has them now is `ADDED` with
+`existedThen: true`; one that is gone is `REMOVED` with `existsNow: false`. Whether a task
+exists then and now is decided first, so a task created or deleted since is `ADDED` or
+`REMOVED` even when it has no dates. The schedule
+issues and the critical path look at the plan only, never at a baseline, and duplicating
+a project does not copy its baselines.
 
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
 returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue?, suggestionCauses? }`,

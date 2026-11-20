@@ -11,6 +11,7 @@ import { segments } from '../../shared/mentions';
 import { TimerService } from '../time/timer.service';
 import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
+import { baselineLabel } from './baseline-text';
 import { issueText, linkIssue, linkNote, moveCost, moveTo } from './schedule-issues';
 
 @Component({
@@ -64,6 +65,12 @@ export class TaskPanel {
       .filter((i) => i.type === 'AFTER_PROJECT_END' || i.type === 'OUTSIDE_PARENT')
       .map((i) => issueText(i, (id) => this.taskTitle(id))),
   );
+  /** How the task compares with the baseline on the timeline: the words for its thin bar. */
+  protected readonly baselineNote = computed(() => {
+    const comparison = this.store.comparison();
+    const change = comparison?.tasks.find((t) => t.taskId === this.taskId());
+    return comparison && change ? { name: comparison.baseline.name, text: baselineLabel(change) } : null;
+  });
   protected readonly handles = computed(() => new Set(this.store.members().map((m) => m.handle)));
   protected readonly canEdit = computed(() => this.org.isTeam());
   protected readonly isCritical = computed(() => this.store.criticalIds().has(this.taskId()));

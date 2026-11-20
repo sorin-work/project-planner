@@ -92,6 +92,17 @@ class DemoSeederTest {
                 .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
                 .body("$", hasSize(2));
 
+        // The Acme plan has the baseline it was signed off with. Build and release are a week behind it,
+        // and the loose end on the owner's plate came after it.
+        Number baseline = given().auth().oauth2(token).get("/api/projects/" + booking + "/baselines").then().statusCode(200)
+                .body("$", hasSize(1)).body("[0].reference", equalTo(true)).extract().path("[0].id");
+        given().auth().oauth2(token).get("/api/baselines/" + baseline + "/comparison").then().statusCode(200)
+                .body("tasks.find { it.title == 'Launch' }.change", equalTo("SLIPPED"))
+                .body("tasks.find { it.title == 'Launch' }.finishSlipDays", equalTo(5))
+                .body("tasks.find { it.title == 'Kick-off and goals' }.change", equalTo("UNCHANGED"))
+                .body("tasks.find { it.title == 'Agree beta test group with Ruth' }.change", equalTo("ADDED"))
+                .body("planEnd.slipDays", equalTo(5));
+
         // The patient portal is over its hours budget and has told the two people who run projects. The other
         // projects start at the level their burn is at, so logging more time on them announces nothing old.
         var inbox = given().auth().oauth2(token).get("/api/notifications?limit=200").then().statusCode(200).extract().jsonPath();
