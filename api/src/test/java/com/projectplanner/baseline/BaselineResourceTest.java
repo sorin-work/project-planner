@@ -314,7 +314,8 @@ class BaselineResourceTest {
         long started = System.nanoTime();
         long largeStatements = BigPlan.statementsFor(em, () -> ids.put("large", take(owner, large, "Agreed")));
         long millis = (System.nanoTime() - started) / 1_000_000;
-        assertThat(largeStatements).as("statements for 3000 tasks, %d ms", millis).isEqualTo(smallStatements).isLessThanOrEqualTo(17);
+        // One of them is the session check that CurrentUser.id() makes once per request.
+        assertThat(largeStatements).as("statements for 3000 tasks, %d ms", millis).isEqualTo(smallStatements).isLessThanOrEqualTo(18);
 
         owner.as().get("/api/projects/" + large + "/baselines").then().body("[0].tasks", equalTo(3000));
         // One task in the middle of the chain slips a week and takes everything after it along.
