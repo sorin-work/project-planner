@@ -5,6 +5,7 @@ import com.projectplanner.baseline.BaselineDtos.BaselineResponse;
 import com.projectplanner.baseline.BaselineDtos.ComparisonResponse;
 import com.projectplanner.baseline.BaselineDtos.UpdateBaselineRequest;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.project.Project;
@@ -18,6 +19,8 @@ import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.util.List;
@@ -30,6 +33,7 @@ import java.util.List;
  */
 @Path("/api")
 @Authenticated
+@Tag(name = "Baselines")
 public class BaselineResource {
 
     private final OrgAccess access;
@@ -42,6 +46,8 @@ public class BaselineResource {
 
     @GET
     @Path("/projects/{projectId}/baselines")
+    @Operation(summary = "List the baselines of a project, oldest first",
+            description = "For everybody who can see the project, client viewers of its client included.")
     public List<BaselineResponse> list(@PathParam("projectId") long projectId) {
         return baselines.list(access.project(projectId));
     }
@@ -50,6 +56,11 @@ public class BaselineResource {
     @Path("/projects/{projectId}/baselines")
     @Transactional
     @ResponseStatus(201)
+    @Operation(summary = "Save the dates of a project's plan as a baseline",
+            description = "For owners and managers. Copies the dates of every task and phase and the project's own dates as they are now. "
+                    + "A baseline never changes afterwards. The first baseline of a project is its reference.")
+    @Fails(status = 409, code = "baseline_limit", when = "the project already keeps ten baselines")
+    @Fails(status = 409, code = "baseline_name_taken", when = "another baseline of the project has the name")
     public BaselineResponse take(@PathParam("projectId") long projectId, @Valid @NotNull BaselineRequest request) {
         Project project = access.project(projectId);
         Membership me = access.manageProject(project);
@@ -59,6 +70,9 @@ public class BaselineResource {
     @PATCH
     @Path("/baselines/{baselineId}")
     @Transactional
+    @Operation(summary = "Rename a baseline or make it the one the project is compared against",
+            description = "For owners and managers. The dates of a baseline cannot be changed.")
+    @Fails(status = 409, code = "baseline_name_taken", when = "another baseline of the project has the name")
     public BaselineResponse update(@PathParam("baselineId") long baselineId, @Valid @NotNull UpdateBaselineRequest request) {
         Baseline baseline = find(baselineId);
         access.manageProject(access.project(baseline.projectId));
@@ -69,6 +83,8 @@ public class BaselineResource {
     @Path("/baselines/{baselineId}")
     @Transactional
     @ResponseStatus(204)
+    @Operation(summary = "Delete a baseline",
+            description = "For owners and managers. If it was the reference, the latest baseline that is left becomes it.")
     public void delete(@PathParam("baselineId") long baselineId) {
         Baseline baseline = find(baselineId);
         Project project = access.project(baseline.projectId);
@@ -78,6 +94,10 @@ public class BaselineResource {
 
     @GET
     @Path("/baselines/{baselineId}/comparison")
+    @Operation(summary = "Compare the plan as it is now with a baseline",
+            description = "For everybody who can see the project. Per task and per phase the dates then and now and how far the start "
+                    + "and the finish moved in working days, the change of the project's end and of the plan's end, and the tasks added "
+                    + "and removed since.")
     public ComparisonResponse comparison(@PathParam("baselineId") long baselineId) {
         Baseline baseline = find(baselineId);
         return baselines.compare(access.project(baseline.projectId), baseline);
