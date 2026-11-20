@@ -183,6 +183,9 @@ export class TimesheetPage {
   constructor() {
     effect(() => {
       const orgId = this.org.orgId();
+      // The switcher changes the organisation without leaving the page. What was chosen or
+      // loaded for the other one (projects, tasks, an entry being edited) must not stay.
+      untracked(() => this.forgetOrganisation());
       if (orgId !== null) {
         this.projectApi.list(orgId).subscribe({
           next: (items) => {
@@ -231,6 +234,17 @@ export class TimesheetPage {
         untracked(() => this.load(orgId, week));
       }
     });
+  }
+
+  private forgetOrganisation(): void {
+    this.projects.set([]);
+    this.projectsLoaded.set(false);
+    this.tasks.set([]);
+    this.rowTasks.set([]);
+    this.rowForm = { projectId: null, taskId: null };
+    this.editing.set(null);
+    this.form = this.emptyForm();
+    this.formError.set(null);
   }
 
   shiftWeek(weeks: number): void {
@@ -712,8 +726,15 @@ export class TimesheetPage {
         this.show(orgId, w);
       },
       error: (err: unknown) => {
-        if (load === this.loads) {
-          this.error.set(messageOf(err));
+        if (load !== this.loads) {
+          return;
+        }
+        this.error.set(messageOf(err));
+        // A week that could not be loaded must not leave another one on screen under its name.
+        // Reading the same week again and failing keeps what is there.
+        const shown = this.week();
+        if (shown && (this.weekOrg !== orgId || shown.weekStart !== (week ?? this.currentWeek()))) {
+          this.week.set(null);
         }
       },
     });

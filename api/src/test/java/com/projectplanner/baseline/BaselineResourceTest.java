@@ -3,6 +3,7 @@ package com.projectplanner.baseline;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
 import com.projectplanner.support.BigPlan;
+import com.projectplanner.support.LockLog;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.path.json.JsonPath;
@@ -10,9 +11,18 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 
+import io.restassured.response.Response;
+
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -204,6 +214,8 @@ class BaselineResourceTest {
         owner.as().body(Map.of("name", "signed OFF")).post(path).then().statusCode(409).body("code", equalTo("baseline_name_taken"));
         owner.as().body(Map.of("name", "  ")).post(path).then().statusCode(400).body("errors.field", hasItem("name"));
         owner.as().body(Map.of("name", "Signed off")).patch("/api/baselines/" + second).then().statusCode(409);
+        owner.as().body(Map.of("name", "   ")).patch("/api/baselines/" + second).then().statusCode(400).body("errors.field", hasItem("name"));
+        owner.as().get(path).then().body("name", equalTo(List.of("Signed off", "After the change request")));
 
         // Rename one, make the other the reference: there is always exactly one.
         owner.as().body(Map.of("name", "Signed off 3 March")).patch("/api/baselines/" + first).then().statusCode(200)
@@ -302,7 +314,7 @@ class BaselineResourceTest {
         long started = System.nanoTime();
         long largeStatements = BigPlan.statementsFor(em, () -> ids.put("large", take(owner, large, "Agreed")));
         long millis = (System.nanoTime() - started) / 1_000_000;
-        assertThat(largeStatements).as("statements for 3000 tasks, %d ms", millis).isEqualTo(smallStatements).isLessThanOrEqualTo(16);
+        assertThat(largeStatements).as("statements for 3000 tasks, %d ms", millis).isEqualTo(smallStatements).isLessThanOrEqualTo(17);
 
         owner.as().get("/api/projects/" + large + "/baselines").then().body("[0].tasks", equalTo(3000));
         // One task in the middle of the chain slips a week and takes everything after it along.
@@ -317,5 +329,93 @@ class BaselineResourceTest {
                 .body("planEnd.slipDays", equalTo(5))
                 .body("projectEnd.change", equalTo("UNCHANGED"))
                 .body("projectEnd.slipDays", nullValue());
+    }
+
+    /** Sends the requests at the same moment, each from its own thread, and gives their status codes in the order given. */
+    private static List<Integer> together(List<Callable<Response>> requests) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(requests.size());
+        try {
+            CountDownLatch go = new CountDownLatch(1);
+            List<Future<Response>> answers = new ArrayList<>();
+            for (Callable<Response> request : requests) {
+                answers.add(executor.submit(() -> {
+                    go.await();
+                    return request.call();
+                }));
+            }
+            go.countDown();
+            List<Integer> codes = new ArrayList<>();
+            for (Future<Response> answer : answers) {
+                codes.add(answer.get(30, TimeUnit.SECONDS).statusCode());
+            }
+            return codes;
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void changesThatArriveTogetherKeepTheLimitTheNamesAndTheOneReference() throws Exception {
+        Account owner = Api.signup("Lou");
+        Plan plan = plan(owner, "RACE");
+        String path = "/api/projects/" + plan.projectId() + "/baselines";
+        for (int i = 1; i < BaselineService.MAX_PER_PROJECT; i++) {
+            take(owner, plan.projectId(), "Baseline " + i);
+        }
+
+        // One slot is left and four requests want it.
+        List<Callable<Response>> four = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Map<String, Object> body = Map.of("name", "Last " + i, "reference", true);
+            four.add(() -> owner.as().body(body).post(path));
+        }
+        assertThat(together(four)).containsExactlyInAnyOrder(201, 409, 409, 409);
+        owner.as().get(path).then().body("$", hasSize(BaselineService.MAX_PER_PROJECT)).body("findAll { it.reference }", hasSize(1));
+
+        // Four renames to one name, and the mark asked for on four baselines at once.
+        List<Number> ids = owner.as().get(path).then().extract().path("id");
+        List<Callable<Response>> renames = new ArrayList<>();
+        List<Callable<Response>> marks = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            String one = "/api/baselines/" + ids.get(i);
+            renames.add(() -> owner.as().body(Map.of("name", "Agreed")).patch(one));
+            marks.add(() -> owner.as().body(Map.of("reference", true)).patch(one));
+        }
+        assertThat(together(renames)).containsExactlyInAnyOrder(200, 409, 409, 409);
+        assertThat(together(marks)).containsOnly(200);
+        owner.as().get(path).then().body("findAll { it.name == 'Agreed' }", hasSize(1)).body("findAll { it.reference }", hasSize(1));
+
+        // Deleting the reference twice at once: one delete, one 404, and the latest left takes the mark once.
+        Number reference = owner.as().get(path).then().extract().path("find { it.reference }.id");
+        List<Callable<Response>> deletes = List.of(() -> owner.as().delete("/api/baselines/" + reference),
+                () -> owner.as().delete("/api/baselines/" + reference));
+        assertThat(together(deletes)).containsExactlyInAnyOrder(204, 404);
+        owner.as().get(path).then().body("$", hasSize(BaselineService.MAX_PER_PROJECT - 1)).body("findAll { it.reference }", hasSize(1));
+    }
+
+    @Test
+    void everyChangeToTheBaselinesLocksTheProjectAndNothingBeforeIt() {
+        Account owner = Api.signup("Max");
+        Plan plan = plan(owner, "LOCK");
+        String path = "/api/projects/" + plan.projectId() + "/baselines";
+        long first = take(owner, plan.projectId(), "First");
+
+        LockLog.start();
+        Number second = owner.as().body(Map.of("name", "Second")).post(path).then().statusCode(201).extract().path("id");
+        assertThat(LockLog.stop()).containsExactly("projects");
+        LockLog.start();
+        owner.as().body(Map.of("name", "Renamed")).patch("/api/baselines/" + first).then().statusCode(200);
+        assertThat(LockLog.stop()).containsExactly("projects");
+        LockLog.start();
+        owner.as().body(Map.of("reference", true)).patch("/api/baselines/" + second).then().statusCode(200);
+        assertThat(LockLog.stop()).containsExactly("projects");
+        LockLog.start();
+        owner.as().delete("/api/baselines/" + second).then().statusCode(204);
+        assertThat(LockLog.stop()).containsExactly("projects");
+        // Reading locks nothing.
+        LockLog.start();
+        owner.as().get(path).then().statusCode(200);
+        owner.as().get("/api/baselines/" + first + "/comparison").then().statusCode(200);
+        assertThat(LockLog.stop()).isEmpty();
     }
 }

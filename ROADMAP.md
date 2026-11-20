@@ -29,8 +29,8 @@ couple of weekends, **L** several weeks of spare time.
 | 6   | Scheduled backups and a tested restore     | Shipped | infra    | S    | -          |
 | 7   | API reference built from the code          | Shipped | backend  | S    | -          |
 | 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
-| 9   | Time and utilisation reports               | Later | both     | M    | -          |
-| 10  | Budget alerts                              | Later | both     | S    | -          |
+| 9   | Time and utilisation reports               | Shipped | both     | M    | -          |
+| 10  | Budget alerts                              | Shipped | both     | S    | -          |
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
 | 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
@@ -169,97 +169,6 @@ only a keyboard or with a screen reader. Gaps I already know about:
   towards a small live-region service of my own and plain key handlers.
 
 ## Later
-
-### 9. Time and utilisation reports
-
-The Reports page is a single form that downloads a CSV. To answer "how many
-hours went to Acme last month" or "how billable was the team in October" I
-open the CSV in a spreadsheet and build a pivot table. The data is all there.
-
-- API: `GET /api/orgs/{orgId}/reports/time` with `from`, `to`, a `groupBy` of
-  project, client, member or task, and the filters the export has (`userId`,
-  `projectId`, `billable`). Each row has a key, a label, total minutes,
-  billable minutes and, for managers, the billable amount. Plus a totals row.
-- Same rules as `ExportResource`: team only (`access.team`), members get their
-  own time and no money, the range is capped (the export allows two years),
-  and running timers are left out
-  (`startedAt is null or endedAt is not null`).
-- Put the grouping in a plain class in `report/`, like `BudgetCalculator`, fed
-  with rows of project, person, task, billable flag, minutes and rate, so it
-  is tested without a database.
-- Rates: one `RateBook.load(orgId)` per request, then
-  `rate(project.hourlyRate, userId)`.
-- Tricky: rounding. `Money.cost` rounds each entry to cents, and both
-  `BudgetCalculator` and the CSV add up rounded entries. Summing minutes in
-  SQL and multiplying once gives totals a few cents away from the CSV for the
-  same range, and somebody will notice. Price per entry in Java for now (a
-  year of the demo team is a few thousand rows) and leave the grouped query to
-  item 14.
-- Utilisation: `GET /api/orgs/{orgId}/reports/utilisation` for managers. Per
-  person and range: logged hours, billable hours, capacity, and billable hours
-  as a share of capacity. Capacity is `weeklyCapacityHours / 5` for each
-  working day in the range (`WorkCalendar.workingDaysBetween`).
-- Web: `ReportsPage` gets three tabs: Summary (group-by select, date range and
-  the presets from `preset()`), Utilisation, and the existing Export. Bars are
-  drawn with `ProgressBar`. No chart library. Clicking a project row regroups
-  by task within that project.
-- Tricky: capacity for somebody who joined in the middle of the range or
-  changed their hours. There is no history of `weeklyCapacityHours`, only the
-  current value. Use the current value and say so on the page.
-- Undecided: a filter for approved time only. The CSV has a `timesheet_status`
-  column but no filter. It is what invoicing wants and it is cheap to add to
-  both.
-
-### 10. Budget alerts
-
-The point of the app is knowing whether a project will land on budget, but it
-only tells you when you open the project. Nobody hears about it when a project
-crosses 80% of its hours or goes over. Harvest sends a message at a threshold,
-and that is the one thing of theirs I miss.
-
-- When: after time changes on a project, which is `TimeService.create`,
-  `update`, `delete` and `finish` (a stopped timer). Compare the hours burn
-  and the money burn with the thresholds and notify when either burn crosses
-  one for the first time.
-- One threshold setting, two alert states. The thresholds (80 and 100) are the
-  same for hours and for money, kept as constants next to
-  `HealthStatus.BURN_AHEAD_TOLERANCE`. What has been announced is kept per
-  burn: two integer columns on `projects`, `hours_alert_pct` and
-  `amount_alert_pct`, both defaulting to 0
-  (`V17__add_project_budget_alert.sql`). Each holds the highest threshold
-  already announced for its own burn. With a single column, hours reaching
-  100 would swallow the later message that money passed 80.
-- Reset each state on its own: when its burn falls back under a threshold
-  (entries deleted) or its budget changes in `ProjectService`.
-- Who: every owner and manager of the organisation, with the loop
-  `TimesheetService.submit` uses. A new `NotificationType.BUDGET_ALERT` with
-  the project set and no actor. Pass `null` as the actor: `Notifier.notify`
-  skips people's own actions, and the manager whose entry crossed the line
-  should still hear about it.
-- Money is only for owners and managers. They are the only recipients for now,
-  but keep the hours message and the money message separate so that widening
-  the audience later cannot leak amounts.
-- Where: a small `BudgetAlerts` bean in `report/`. `TimeService` either calls
-  it or fires a CDI event that it observes, which keeps `time` from depending
-  on `report`.
-- Tricky: cost. `ProjectHealthService.budget` loads every time entry of the
-  project and a full `RateBook` on each call. Doing that on every saved entry
-  is wasteful on a long project. The hours threshold only needs a
-  `sum(minutes)`. Money needs minutes per person, since the rate depends on
-  project and person, so one grouped query.
-- Web: an icon in `ICONS`. `notificationTarget` has nowhere to send a
-  notification that has a project but no task, so add that case (to the
-  project's overview tab).
-- Tricky: a changed rate (on the project, a member, a role or the
-  organisation) moves the money burn without any time being logged. Nothing
-  fires at that moment. The next entry on the project picks it up.
-- Undecided: who a project belongs to. There is no project lead, so every
-  manager is told about every project, which is noise in a bigger team. A lead
-  on `projects` would fix that, and would help the daily summary that item 12
-  leaves as a follow-up.
-- Undecided: alerts for the schedule (health turning off track, or the plan
-  running past `Project.endDate` after a cascade). Those need hooks in
-  `TaskService` as well. Not here.
 
 ### 11. Invitation and password reset emails
 
@@ -799,6 +708,71 @@ scroll while something is dragged (two bars that are not on screen together
 are linked at week zoom or in the task panel), a parent's subtasks do not
 follow when it is resized, and drawing a bar for a task without dates is the
 follow-up it was.
+
+### 9. Time and utilisation reports
+
+The Reports page has three tabs. Summary shows logged time per project,
+client, person or task (`GET /api/orgs/{orgId}/reports/time`) with bars drawn
+by `ProgressBar`, and a click on a project shows its tasks. Utilisation shows
+billable time against capacity per person (`.../reports/utilisation`, for
+managers). Export is the form that was there. The grouping is the plain class
+`TimeReport`, the share `Utilisation`, and the range `ReportRange`. Different
+from the design: the database does the adding up after all. Entries are
+grouped by project, person, billable flag and length, with a count, and one
+entry of each group is priced, which is the way item 14 describes and keeps
+the totals equal to the CSV export of entries to the cent. A test runs the
+report over the seeded year against that export. The presets (this and last
+week or month) are worked out by the API from the organisation's date and not
+by `preset()` in the browser. There is a `clientId` filter as well, and a
+project, client or person that is not in the organisation is a `404`.
+Capacity is not a second definition: it is
+`WorkloadCalculator.capacityMinutes`, the weekly hours over the working days,
+which is where item 15 has to change it. Time and capacity are both counted
+only up to today, since time can be logged a week ahead. Both
+reports also come as CSV with the rows on screen, in whole minutes and plain
+decimals. Amounts are shown to the cent so that a column adds up to its
+total. Still open: the filter for approved time only, which needs the week's
+status next to each entry in the grouped query. Somebody who has left the
+organisation still has their time in the summary, and can be filtered by, but
+is not in utilisation, which the page says.
+The summary has no filters of its own on the page beyond the grouping and
+the project click, although the API takes them.
+
+### 10. Budget alerts
+
+`BudgetAlerts` in `report/` observes three CDI events fired inside the
+transaction of the change: `TimeChanged` (`TimeService.create`, `update`,
+`delete`, `finish`, and both projects when an entry moves), `BudgetChanged`
+(`ProjectService.update` when the hours budget, the money budget or the
+project's rate changes) and `RatesChanged` (the organisation's default rate,
+a role's rate, a member's rate or role, a member removed). The thresholds are
+80 and 100, the same for hours and money, in `BudgetThresholds`. The burn is
+compared as the overview shows it, a whole percentage, so a project that
+reads 80% there has had its alert. `hours_alert_pct` and `amount_alert_pct`
+(`V17`) hold the highest threshold announced per burn. Going from under 80
+straight past 100 is one alert, for 100. A burn that falls back takes its
+level down with it, so a later real crossing alerts again. Every owner and
+manager gets a `BUDGET_ALERT` with the project and no actor, one message for
+hours (no amounts) and one for money. The numbers come from
+`BudgetCalculator` through `ProjectHealthService.budget`, which now groups
+the entries in the database by person, billable flag and length with a count,
+so money is still rounded per entry and the overview reads the same way.
+Changes to a project's time lock its row first (two projects lowest id
+first, each checked to be in the organisation before it is locked), so two
+entries saved at the same moment give one alert. Rows are always taken
+memberships first, then projects, which a rate change follows too. A replayed
+create with a client key returns before anything is saved and does not
+alert. A project without a budget and nothing to take back costs no query.
+The demo projects start at the level of their burn, and only the patient
+portal, which is over its hours budget, has told the managers.
+Different from the design: the thresholds are not next to
+`HealthStatus.BURN_AHEAD_TOLERANCE` but in a class of their own with the
+rule for when an alert goes out. A changed rate is looked at the moment it
+changes, for every project of the organisation with a money budget in one
+grouped query, instead of waiting for the next entry. Saving the same rate
+again changes nothing and looks at nothing. Still open: every manager hears about every
+project, since there is no project lead, and there are no alerts for the
+schedule. Email is item 12.
 
 ### 13. Duplicate a project as a template
 

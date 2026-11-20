@@ -29,9 +29,9 @@ public final class BaselineComparison {
         SLIPPED,
         /** Finishes earlier. If the finish did not move: starts earlier. */
         PULLED_IN,
-        /** Has dates now and had none in the baseline: a new task, or one that was given dates since. */
+        /** Created since the baseline, with or without dates, or there then without dates and given some since. */
         ADDED,
-        /** Had dates in the baseline and has none now: the task was deleted, or its dates were cleared. */
+        /** Deleted since the baseline, with or without dates, or there now with the dates it had cleared. */
         REMOVED
     }
 
@@ -132,7 +132,13 @@ public final class BaselineComparison {
         Integer startSlip = null;
         Integer finishSlip = null;
         Change change;
-        if (datedThen && datedNow) {
+        if (then == null) {
+            // Created since. It is new whether it has dates or not, never "unchanged".
+            change = Change.ADDED;
+        } else if (now == null) {
+            // Deleted since, with or without dates.
+            change = Change.REMOVED;
+        } else if (datedThen && datedNow) {
             startSlip = calendar.slip(calendar.onOrAfter(then.first()), calendar.onOrAfter(now.first()));
             finishSlip = calendar.slip(calendar.onOrBefore(then.last()), calendar.onOrBefore(now.last()));
             // The finish decides. A task that ends when it was going to has only slipped if it starts later.
@@ -143,7 +149,7 @@ public final class BaselineComparison {
         } else if (datedThen) {
             change = Change.REMOVED;
         } else {
-            // No dates then and none now: nothing has changed that a baseline keeps.
+            // There then and now, without dates either time: nothing has changed that a baseline keeps.
             change = Change.UNCHANGED;
         }
         return new TaskChange(named.id(), named.title(), named.milestone(), change, then != null, now != null,

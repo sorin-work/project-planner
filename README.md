@@ -110,6 +110,20 @@ the point is knowing whether a project will land on time and on budget.
   address so that they survive a reload and the back button.
 - **Comments with @mentions** (handles are the part of the email before the @, with
   autocomplete), in-app notifications, an activity log per project and organisation.
+- **Budget alerts**: when a project's hours burn or money burn reaches 80% of its
+  budget, and again when it reaches 100%, every owner and manager gets a notification
+  that opens the project's overview. Hours and money are announced separately, and the
+  hours message has no amounts in it. Each threshold is announced once. A burn that
+  falls back under one (time deleted, the budget raised) can announce it again later.
+  The check runs when time is logged, changed, moved, deleted or a timer stops, and when
+  a budget or a rate changes. A project without a budget is never looked at.
+- **Reports**: logged time per project, client, person or task for this or last week
+  or month, or any range up to two years, with the billable time and, for owners and
+  managers, the billable amount. A click on a project shows its tasks. Utilisation
+  compares each person's billable time with their capacity. Members see their own
+  time, without amounts. Time is counted in whole minutes and money to the cent, so
+  every column adds up to its total, and both reports download as CSV with the rows
+  on screen.
 - **CSV export** of timesheets (rate and amount columns for managers), safe to open in
   a spreadsheet.
 - **Backups**: with Docker, an optional service dumps the whole database once a day
@@ -145,7 +159,8 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 `auth`, `org` (organisations, members, invitations, rates), `client`, `project`
 (projects and phases), `task` (tasks, dependencies, critical path and schedule
 issue endpoints), `time`
-(entries, timers, timesheets, CSV export), `workload`, `report` (project health),
+(entries, timers, timesheets, CSV export), `workload`, `report` (project health,
+time and utilisation reports),
 `baseline`, `comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
@@ -164,7 +179,11 @@ dependencies, so they are tested in isolation:
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
 | `BudgetCalculator`    | Hours and money burn against the budgets                             |
 | `HealthStatus`        | Turns progress and burn into on track / at risk / off track          |
-| `WorkloadCalculator`  | Allocated hours per person per week vs capacity                      |
+| `BudgetThresholds`    | The 80% and 100% budget alerts, once each per burn, upwards only     |
+| `WorkloadCalculator`  | Allocated hours per person per week vs capacity, and capacity for a range |
+| `TimeReport`          | Time per project, client, person or task, priced entry by entry in cents |
+| `Utilisation`         | Billable time as a share of capacity, per person and in total        |
+| `ReportRange`         | This and last week or month from the organisation's date, or two dates |
 | `MissingTimesheets`   | Who has not submitted a finished week, and the limits on reminders   |
 | `RateResolver`        | Picks the hourly rate for a piece of time                            |
 | `MentionParser`       | Finds @handles in comments (and ignores email addresses)             |
@@ -202,7 +221,8 @@ creates a demo agency, *Brightline Studio*, with eight projects at different sta
 planned), phases, milestones and about ninety tasks with dependencies, a year of
 time entries for five people, timesheets
 (older weeks approved, last week waiting for review, one sent back and one still a
-draft with a reminder), comments with mentions and some notifications. All dates are
+draft with a reminder), comments with mentions and some notifications, among them the
+budget alert of the Globex patient portal, which is over its hours budget. All dates are
 relative to the day it runs. Set `SEED_DEMO=false` for an empty database.
 
 Two of the demo projects have schedule issues to look at on their timeline: in the
@@ -564,7 +584,10 @@ up to ten (`409 baseline_limit`), names are unique within the project
 (`409 baseline_name_taken`), and the first baseline is the reference.
 `PATCH /baselines/{id}` renames one or makes it the reference (`{ "reference": true }`),
 and `DELETE /baselines/{id}` deletes it; when that was the reference, the latest one left
-takes over. These three are for owners and managers. `GET /projects/{id}/baselines` and
+takes over. These three are for owners and managers. Each locks the project's row first,
+so two that arrive together run one after the other: the limit, the names and the one
+reference hold, and the database has unique constraints on the name and the reference
+behind that. `GET /projects/{id}/baselines` and
 `GET /baselines/{id}/comparison` are for everybody who can see the project.
 
 The comparison has an entry per task and per phase that is in the plan or in the
@@ -575,7 +598,9 @@ days (later is positive), plus `projectEnd` (the project's own end date) and `pl
 decides, and the start only when the finish did not move. A date on a weekend counts as
 the working day it stands for, so a due date moved from Friday to Saturday has not
 slipped. A task that had no dates in the baseline and has them now is `ADDED` with
-`existedThen: true`; one that is gone is `REMOVED` with `existsNow: false`. The schedule
+`existedThen: true`; one that is gone is `REMOVED` with `existsNow: false`. Whether a task
+exists then and now is decided first, so a task created or deleted since is `ADDED` or
+`REMOVED` even when it has no dates. The schedule
 issues and the critical path look at the plan only, never at a baseline, and duplicating
 a project does not copy its baselines.
 
@@ -628,6 +653,49 @@ managers and only take weeks that are over by the organisation's date
 `{ "weekStart", "userIds": [...] }`, and the answer says who was reminded and who was
 left out and why: `{ "reminded": [...], "skipped": [{ "userId", "reason" }] }` with the
 reasons `NOT_MISSING`, `YOURSELF`, `ALREADY_REMINDED` and `DAILY_LIMIT`.
+
+### Reports
+
+`GET .../reports/time` and `GET .../reports/utilisation` take a range: either
+`preset=this_week|last_week|this_month|last_month`, which the API works out from the
+organisation's date, or `from` and `to`. Both days are included, a week is Monday to
+Sunday, a month runs from its first to its last day, and a range covers at most two
+years. The answer says which dates it used.
+
+The time report also takes `groupBy=project|client|member|task` and the filters
+`projectId`, `clientId`, `userId` and `billable`. Each row has a `key`, a `label`,
+`minutes`, `billableMinutes` and, for owners and managers, `billableAmount`, and
+`total` is the sum of the rows. Running timers are left out.
+
+- Rounding: time is whole minutes. Money is priced one entry at a time, minutes at the
+  hourly rate rounded half up to a cent, exactly as the budget and the entry export do
+  it. Three entries of twenty minutes at 100 an hour are 99.99, not 100.00. Nothing is
+  rounded after adding up, so a total is the sum of its rows to the cent.
+- The database does the adding up. Entries are grouped by project, person, billable
+  flag and length (and task, when rows are per task) and counted, and one entry of
+  each group is priced. A year of the demo team is a few hundred groups.
+- Access: the team only, client viewers get `403`. A member gets their own time and
+  no amounts (the field is left out), and `403` when asking for somebody else. A
+  project, client or person that is not in the organisation is a `404`, never an
+  empty report. Somebody who has left the organisation but has time in it can still
+  be asked for with `userId`, as they still have a row when the report is per person.
+- Utilisation is for owners and managers. A row has `minutes`, `billableMinutes`,
+  `capacityMinutes` and `utilisationPct`, which is billable time as a share of
+  capacity with one decimal. Capacity is the one the workload page uses: a person's
+  weekly hours spread over Monday to Friday. Time and capacity are both counted from
+  the start of the range up to its end or today, whichever comes first (`countedTo`,
+  `workingDays`), so time that is logged ahead does not count against days that have
+  no capacity yet. It uses the weekly hours as they are now, also for somebody who
+  joined or changed them inside the range, and it does not know about holidays or
+  time off. Only the current team is listed: the time of somebody who has left is in
+  the time report and not here, so the two totals can differ.
+- The `.csv` forms have the same rows and the same access rules. Columns:
+  `from,to,group_by,key,label,minutes,billable_minutes,billable_amount` (the last one
+  only for owners and managers) and
+  `from,to,member,minutes,billable_minutes,capacity_minutes,utilisation_pct`. Dates
+  are ISO dates, time is whole minutes so that a column can be summed, amounts are
+  plain decimals, and a text cell that starts with `=`, `+`, `-` or `@` gets an
+  apostrophe in front so that a spreadsheet does not run it.
 
 ## License
 

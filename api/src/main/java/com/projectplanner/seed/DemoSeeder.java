@@ -18,6 +18,7 @@ import com.projectplanner.org.RoleRate;
 import com.projectplanner.project.Phase;
 import com.projectplanner.project.Project;
 import com.projectplanner.project.ProjectStatus;
+import com.projectplanner.report.BudgetAlerts;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.Priority;
 import com.projectplanner.task.Task;
@@ -64,6 +65,7 @@ public class DemoSeeder {
     private final PasswordHasher hasher;
     private final ActivityLog activity;
     private final Notifier notifier;
+    private final BudgetAlerts budgetAlerts;
     private final Clock clock;
 
     private final Random random = new Random(20251110L);
@@ -75,11 +77,12 @@ public class DemoSeeder {
     private Instant now;
 
     public DemoSeeder(@ConfigProperty(name = "planner.seed-demo") boolean enabled, PasswordHasher hasher,
-                      ActivityLog activity, Notifier notifier, Clock clock) {
+                      ActivityLog activity, Notifier notifier, BudgetAlerts budgetAlerts, Clock clock) {
         this.enabled = enabled;
         this.hasher = hasher;
         this.activity = activity;
         this.notifier = notifier;
+        this.budgetAlerts = budgetAlerts;
         this.clock = clock;
     }
 
@@ -104,6 +107,7 @@ public class DemoSeeder {
         createProjects();
         logTime();
         calibrateBudgets();
+        settleBudgetAlerts();
         createLooseEnds();
         createBaseline();
         createTimesheets();
@@ -642,6 +646,23 @@ public class DemoSeeder {
         }
     }
 
+    /**
+     * The projects arrive with a year of time on them. Their alert levels start where their
+     * burn is, so that the next hour logged does not announce something that happened months
+     * ago. Only the patient portal, which is over its budget, has told the managers, two days ago.
+     */
+    private void settleBudgetAlerts() {
+        for (Project p : Project.<Project>list("organisationId = ?1 order by id", org.id)) {
+            if (p.code.equals("GLX-PORTAL")) {
+                budgetAlerts.check(p);
+            } else {
+                budgetAlerts.settle(p);
+            }
+        }
+        Notification.update("createdAt = ?1 where organisationId = ?2 and type = ?3",
+                now.minusSeconds(2 * 86400L + 5400), org.id, NotificationType.BUDGET_ALERT);
+    }
+
     /** A few things on the owner's own plate, so the dashboard has something to say. */
     private void createLooseEnds() {
         Project globex = project("GLX-PORTAL");
@@ -663,8 +684,8 @@ public class DemoSeeder {
         Instant takenAt = now.minusSeconds(100 * 86400L);
         Baseline baseline = new Baseline();
         baseline.projectId = acme.id;
-        baseline.name = "Signed off at kick-off";
-        baseline.reference = true;
+        baseline.setName("Signed off at kick-off");
+        baseline.referenceOf = acme.id;
         baseline.projectStart = acme.startDate;
         baseline.projectEnd = acme.endDate;
         baseline.createdBy = users.get("maya").id;

@@ -127,9 +127,9 @@ class BaselineComparisonTest {
     @Test
     void tasksWithoutDatesOnEitherSideHaveNothingToCompare() {
         assertThat(one(task(1, null, null), task(1, null, null)).change()).isEqualTo(Change.UNCHANGED);
-        // A task that was deleted and never had dates is not a change to the plan's dates either.
-        assertThat(one(task(1, null, null), null).change()).isEqualTo(Change.UNCHANGED);
-        assertThat(one(null, task(1, null, null)).change()).isEqualTo(Change.UNCHANGED);
+        // Existence comes first: a dateless task that was deleted or created since is a change to the plan.
+        assertThat(one(task(1, null, null), null).change()).isEqualTo(Change.REMOVED);
+        assertThat(one(null, task(1, null, null)).change()).isEqualTo(Change.ADDED);
     }
 
     @Test
@@ -196,5 +196,24 @@ class BaselineComparisonTest {
         assertThat(phases.getFirst().finishSlipDays()).isEqualTo(2);
         assertThat(phases.getFirst().startSlipDays()).isZero();
         assertThat(phases.get(1).existsNow()).isFalse();
+    }
+
+    @Test
+    void aTaskWithoutDatesThatWasCreatedSinceIsAddedAndNotUnchanged() {
+        Result result = comparison.compare(List.of(task(1, day(0), day(4))), List.of(task(1, day(0), day(4)), task(2, null, null)), null, null);
+        TaskChange added = result.tasks().stream().filter(t -> t.taskId() == 2).findFirst().orElseThrow();
+        assertThat(added.change()).isEqualTo(Change.ADDED);
+        assertThat(added.existedThen()).isFalse();
+        assertThat(result.counts().get(Change.ADDED)).isEqualTo(1);
+        assertThat(result.counts().get(Change.UNCHANGED)).isEqualTo(1);
+    }
+
+    @Test
+    void aTaskWithoutDatesThatWasDeletedSinceIsRemovedAndNotUnchanged() {
+        Result result = comparison.compare(List.of(task(1, day(0), day(4)), task(2, null, null)), List.of(task(1, day(0), day(4))), null, null);
+        TaskChange removed = result.tasks().stream().filter(t -> t.taskId() == 2).findFirst().orElseThrow();
+        assertThat(removed.change()).isEqualTo(Change.REMOVED);
+        assertThat(removed.existsNow()).isFalse();
+        assertThat(result.counts().get(Change.REMOVED)).isEqualTo(1);
     }
 }

@@ -85,6 +85,17 @@ public final class WorkloadCalculator {
         return result;
     }
 
+    /**
+     * What a person can work from {@code from} to {@code to}, both included, in minutes:
+     * their weekly hours spread evenly over the working days of a week. A whole week comes
+     * to exactly the weekly hours, which is the capacity the weeks of the grid show. Reports
+     * that need a capacity for other ranges ask here, so that there is one definition.
+     */
+    public long capacityMinutes(Person person, LocalDate from, LocalDate to) {
+        int days = calendar.workingDaysBetween(from, to);
+        return Math.round(person.capacityHours() * 60 * days / WorkCalendar.WORKING_DAYS_PER_WEEK);
+    }
+
     private static long key(long userId, int week) {
         return userId * 1000 + week;
     }

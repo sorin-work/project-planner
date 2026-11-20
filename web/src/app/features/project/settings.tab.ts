@@ -136,6 +136,8 @@ export class SettingsTab {
         this.store.project.set(p);
         // A new end date changes which tasks are due after it.
         this.store.refreshSchedule();
+        // And how the project's end compares with the baseline.
+        this.store.refreshComparison();
         this.busy.set(false);
         this.saved.set(true);
       },

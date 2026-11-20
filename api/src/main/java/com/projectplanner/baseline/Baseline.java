@@ -30,9 +30,16 @@ public class Baseline extends PanacheEntityBase {
     @Column(nullable = false)
     public String name;
 
-    /** The baseline of its project that comparisons use unless another is picked. At most one per project. */
-    @Column(name = "is_reference", nullable = false)
-    public boolean reference;
+    /** {@link #keyOf} the name, unique within the project. */
+    @Column(name = "name_key", nullable = false)
+    public String nameKey;
+
+    /**
+     * The project's id when this is the baseline its comparisons use unless another is
+     * picked, otherwise null. The column is unique, so a project has one at most.
+     */
+    @Column(name = "reference_of")
+    public Long referenceOf;
 
     /** The project's own dates when the baseline was taken. */
     @Column(name = "project_start")
@@ -46,6 +53,20 @@ public class Baseline extends PanacheEntityBase {
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
+
+    public boolean isReference() {
+        return referenceOf != null;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+        this.nameKey = keyOf(name);
+    }
+
+    /** What two names must not share: "Signed off" and " signed OFF " are the same name. */
+    public static String keyOf(String name) {
+        return name.trim().toLowerCase(java.util.Locale.ROOT);
+    }
 
     /** Oldest first: the order they were taken in. */
     public static List<Baseline> forProject(long projectId) {
