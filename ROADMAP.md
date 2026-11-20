@@ -60,8 +60,9 @@ A few things hold for every item:
   partial indexes or Postgres-only functions. Where an item needs a migration
   I have written down a version number for it, so that two items in progress
   at the same time do not both take `V16`. Gaps are fine. The numbers run up
-  to `V24`. Item 2 had none and took `V25` for the key on time entries, so the
-  next free one is `V26`.
+  to `V24`. Item 2 had none and took `V25` for the key on time entries, and
+  item 13 took `V26` for the second project of an activity entry, so the next
+  free one is `V27`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -874,6 +875,12 @@ The copy has the schedule issues of the source's dates and no
 others, with two things to know: tasks finished in the source are open again,
 so an overlap the source had stopped reporting is reported, and a task that
 lies on a weekend entirely becomes a one-day task on the next working day and
-can then be in the way of a neighbour. Still open: real templates (projects
+can then be in the way of a neighbour. The copy's one activity entry does not
+name the source, because a copy can be made for another client: the source's
+id is kept next to the entry (`related_project_id`, `V26`) and its name is
+added for readers who may see it. A code that two requests take at the same
+moment is `409 code_taken` for the second, from the unique constraint, for a
+plain create as well, and a source that is changed while it is copied is
+`409 source_changed`. Still open: real templates (projects
 flagged as such and hidden elsewhere), a choice of which phases to copy, and
 the organisation's calendar in `ProjectDuplicator` once item 15 has one.

@@ -503,7 +503,9 @@ with it (`201`, status `PLANNED`). It is for owners and managers who can see the
 The body is `{ "name", "code", "startDate", "clientId"?, "keepAssignees"? }`: without
 `clientId` the copy is internal, and without `keepAssignees` nobody is assigned. With it,
 people who have left the team are dropped instead of the copy failing. A code that is
-in use answers `409 code_taken`. `GET /projects/{id}/duplicate` proposes
+in use answers `409 code_taken`, also when another request took it a moment earlier.
+A task or phase deleted from the source while it is being copied answers
+`409 source_changed`, and nothing is copied. `GET /projects/{id}/duplicate` proposes
 `{ name, code, startDate }` (the code is free at that moment) and says how many phases,
 tasks and links there are to copy.
 
@@ -513,6 +515,10 @@ filled by one statement, and by one more for every further 5,000 rows). The firs
 (the earliest task date or the project's own start) lands on `startDate`, or on the next
 working day, and everything else keeps its distance from it in working days. So the
 schedule issues of the copy are those of the source's dates, no more and no fewer.
+The copy has one activity entry. Its text does not say which project the plan came
+from, because a copy can be made for another client: `relatedProjectId` and
+`relatedProjectName` are only in the entry for a reader who may see the source.
+
 Two things to know: tasks that were finished in the source are open again in the copy,
 so an overlap that the source no longer reports comes back. And a date on a weekend is
 taken as the working day it stands for, which changes nothing unless a task lies on a
