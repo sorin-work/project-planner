@@ -28,7 +28,7 @@ couple of weekends, **L** several weeks of spare time.
 | 5   | Accessibility pass                         | Next  | frontend | M    | -          |
 | 6   | Scheduled backups and a tested restore     | Next  | infra    | S    | -          |
 | 7   | API reference built from the code          | Next  | backend  | S    | -          |
-| 8   | Resize bars and draw links on the timeline | Later | both     | M    | -          |
+| 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
 | 9   | Time and utilisation reports               | Later | both     | M    | -          |
 | 10  | Budget alerts                              | Later | both     | S    | -          |
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
@@ -371,65 +371,6 @@ Quarkus can build an OpenAPI document from the resources.
   it adds a build step and a dependency. Not in this item.
 
 ## Later
-
-### 8. Resize bars and draw links on the timeline
-
-On the timeline a bar can only be moved as a whole. Making a task longer, or
-saying "this waits for that", means opening the task panel and using date
-fields and a select. Every Gantt tool lets you drag the end of a bar and draw
-an arrow from one bar to another.
-
-- Resize: handles at both ends of a bar in `gantt.html`. `Gantt` keeps one
-  drag state (`Drag` with `taskId`, `startX`, `dx`). Give it a mode: move,
-  start or end. A resize ends in a new output with the new start or due date,
-  which `TimelineTab` sends through `store.updateTask`. That already cascades
-  and returns a `TaskChange`. Milestones cannot be resized
-  (`TaskService.setDates` forces start and due to the same day).
-- Link: a small connector at the right end of a bar. Dropping it on another
-  bar calls `store.addDependency(successorId, predecessorId, 0)`. The API
-  answers `409 dependency_cycle` with the chain in the message, or
-  `409 dependency_exists`. Show both in the tab's existing error line.
-- Remove a link: the arrows are thin paths. Add a wide transparent path to
-  click on, make the arrow focusable, and delete with a button or the Delete
-  key through `store.removeDependency(successorId, dependencyId)`. `GanttLink`
-  only has the dependency id, so add the successor.
-- Keyboard: the arrow keys move a focused bar today. `Shift` plus the arrow
-  keys should change the due date. Linking by keyboard stays in the task
-  panel.
-- Put the arithmetic in `gantt-layout.ts` next to `dragDays` (new dates from a
-  resize, never letting due pass start) and test it there. jsdom has pointer
-  events but no layout and no `setPointerCapture` (the code already calls it
-  with `?.`), so a component spec can only send events with made-up
-  coordinates.
-- Tricky: weekends. `TaskService.shift` moves by calendar days (`plusDays`).
-  Drag a Thursday to Friday task one column to the right and it becomes Friday
-  to Saturday, which `WorkCalendar.duration` counts as one working day: the
-  task quietly got shorter. Resizing makes that easier to hit.
-- So `shift` changes to N working days, in either direction. The new start is
-  `addWorkingDays(start, n)`, which takes negative numbers, and the due date
-  keeps the length in working days, the way `Rescheduler` treats dependants.
-  Do not snap the result with `onOrAfter`: a Monday bar moved left by one or
-  two days would land on the weekend, snap back to Monday and never move.
-- The timeline then sends working days. One arrow key press is one working
-  day. For a drag, take the day the bar was dropped on, go on to the next
-  working day in the direction of the drag if that day is a weekend, and
-  count the working days from the old start (`workingDaysBetween` in
-  `shared/dates.ts` exists and nothing uses it yet). A resize snaps its end
-  the same way, in the direction of the drag.
-- `movingATaskCascadesThroughItsDependants` in `TaskResourceTest` shifts by 7
-  and expects a week later. With working days that request becomes 5.
-- Tricky: at month zoom a day is 4 pixels wide (`DAY_WIDTH.month`), too small
-  for handles. Edit only at day and week zoom. On touch screens the bars need
-  `touch-action: none`, or the drag scrolls `.gantt-scroll` instead.
-- Tricky: a parent with subtasks. Nothing ties their dates together today, so
-  resizing the parent leaves the subtasks where they were. Leave that as it
-  is.
-- So the pull request is: resize handles, drawing and removing links, `Shift`
-  plus the arrow keys, and `shift` in working days with the timeline sending
-  them.
-- Follow-up, not in this pull request: drawing a bar on the empty row of a
-  task without dates, to give it dates. Cheap once resize exists, but easy to
-  trigger by accident, so it wants a look of its own.
 
 ### 9. Time and utilisation reports
 
@@ -809,7 +750,8 @@ its capacity view on leave and public holidays.
   in item 1, the working-day shift in item 8, capacity in item 9, the date
   shift in item 13 and the slip in item 16. Whichever lands second switches to
   the organisation's calendar. The timeline's own count of working days for a
-  drag (item 8) needs the holiday dates too.
+  drag (item 8: `snapToWorkingDay` and `moveWorkingDays` in `gantt-edit.ts`)
+  needs the holiday dates too.
 - Undecided, with my leaning in brackets: approval for time off (no, this is a
   planner and not an HR tool), half days (no), importing public holidays (a
   typed list of dates is enough), and one calendar per country for spread-out
@@ -976,3 +918,23 @@ too-early issue carries suggested dates. The check shares the link rule
 is still never rejected, and the phase dates were left alone. Still open: the
 list is only on the timeline tab, so the overview and the project list do not
 show that a plan has issues.
+
+### 8. Resize bars and draw links on the timeline
+
+At day and week zoom a bar has a grab strip at each end and a dot after it.
+Dragging an end saves the new start or due date through `store.updateTask`.
+Dragging the dot onto another bar calls `store.addDependency`, the same
+endpoint and loop check as the form in the task panel. An arrow can be clicked
+or focused and removed with a button or the Delete key, and `Shift` plus the
+arrow keys moves the due date of the focused bar.
+`POST /api/tasks/{id}/shift` now moves by working days in either direction and
+keeps the length in working days (`Rescheduler.shift`), and the timeline sends
+working days. A refused edit leaves the bar where it was, because the timeline
+only draws what the API answered. Different from the design: the arithmetic of
+a drag is in its own file, `gantt-edit.ts`, next to `gantt-layout.ts`; bars can
+still be moved at month zoom, only the handles are left out there; and a click
+on a handle that does not move opens the task, like a click on the bar. Still
+open: the start date has no key of its own on the bar (the Start field in the
+task panel does that), linking by keyboard stays in the task panel, a parent's
+subtasks do not follow when it is resized, and drawing a bar for a task
+without dates is the follow-up it was.

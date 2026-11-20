@@ -38,9 +38,15 @@ the point is knowing whether a project will land on time and on budget.
 - **Critical path** (CPM forward/backward pass over working days) with float per task.
 - **Views**: list grouped by phase, kanban board with drag and drop, and an SVG
   timeline (Gantt) with dependency arrows, the critical path, today line, collapsible
-  phases, day/week/month zoom, and bars you can drag (or move with the arrow keys)
-  to reschedule. Dependencies with a schedule issue are drawn red and dashed, and the
-  toolbar counts the issues and lists them.
+  phases and day/week/month zoom. Dependencies with a schedule issue are drawn red
+  and dashed, and the toolbar counts the issues and lists them.
+- **Editing on the timeline**: drag a bar to move it, drag either end to change its
+  start or due date, drag the dot after a bar onto another bar to make that one wait
+  for it, and click an arrow to remove the link. Everything counts in working days: a
+  bar dropped on a weekend goes on to the next working day in the direction of the
+  drag, and a moved task keeps its length. With the keyboard, the arrow keys move the
+  focused bar by a working day, Shift with the arrow keys moves its due date and
+  Delete removes the focused arrow. The handles are there at day and week zoom.
 - **Time tracking**: start/stop timers from a task or the top bar, manual entries,
   billable and non-billable time. Timers stopped after midnight book the time on the
   day they started.
@@ -95,7 +101,7 @@ dependencies, so they are tested in isolation:
 | --------------------- | -------------------------------------------------------------------- |
 | `WorkCalendar`        | Working-day arithmetic (Mon–Fri): durations, lags, week starts       |
 | `DependencyGraph`     | Cycle detection, reachability, topological order                     |
-| `Rescheduler`         | Pushes dependants later when a task moves, keeping durations         |
+| `Rescheduler`         | Pushes dependants later when a task moves and shifts a task by working days, keeping durations |
 | `ScheduleCheck`       | Lists what does not fit in a plan, with the rescheduler's link rule  |
 | `CriticalPath`        | Early/late start and finish, float and the critical tasks            |
 | `ProgressCalculator`  | Progress by estimate, planned vs earned hours, SPI, overdue counts   |
@@ -113,8 +119,9 @@ request rather than stored in the token.
 
 On the web side, `core/` holds the API clients, auth and the current-organisation
 context; `features/` has one folder per page; the timeline lives in
-`features/gantt` with its layout maths (`gantt-layout.ts`) separate from the
-component so it can be unit tested.
+`features/gantt` with its layout maths (`gantt-layout.ts`) and the arithmetic of a
+drag (`gantt-edit.ts`: pixels to days, weekend snapping, handles, drop targets)
+separate from the component so they can be unit tested.
 
 ## Running with Docker
 
@@ -247,6 +254,12 @@ token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
+
+`POST /tasks/{id}/shift` takes `{ "days": n }` in working days, negative for earlier.
+The start moves by that many working days and the due date keeps the task's length in
+working days, so a Thursday to Friday task shifted by 1 runs Friday to Monday. The
+result is not pulled onto a working day afterwards: a Monday start shifted by -1 is
+the Friday before.
 
 `GET /projects/{id}/schedule-issues` is open to everyone who can see the project and
 returns a list of `{ type, taskId, relatedTaskId?, days?, suggestedStart?, suggestedDue? }`,
