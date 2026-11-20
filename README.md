@@ -47,11 +47,16 @@ the point is knowing whether a project will land on time and on budget.
   day they started.
 - **Timesheets**: a weekly grid per person, one row per project and task and one cell
   per day. Time is typed into the cells as `1:30`, `1.5`, `1,5`, `90m` or `1h 30m` (a
-  number on its own is hours). Anything else is refused, not guessed. A cell saves when
-  you leave it or press Enter, the arrow keys move between cells, and rows can be added
-  before they have time or copied from last week.
+  number on its own is hours). Anything else is refused, not guessed, and decimal hours
+  are not rounded: `1.555` is refused, and `1.30` is an hour and eighteen minutes. A cell
+  saves when you leave it or press Enter and shows what it read as hours and minutes
+  (`1:18`) at once. The arrow keys move between cells, and rows can be added before
+  they have time or copied from last week.
   - An empty cell creates an entry. A cell with one entry changes its time and keeps
     its note and billable flag. A cleared cell deletes the entry.
+  - A change that can't be saved puts the saved time back, marks the cell and says why
+    under the grid, and the week is read again. "Submit week" waits for cells that are
+    still being saved and does not go ahead when one of them was refused.
   - An entry with a note is never deleted from the grid, and a cell with several
     entries or a running timer is not typed into at all. Those are changed in the list
     of entries below the grid, where everything about them can be seen.
@@ -137,7 +142,9 @@ component so it can be unit tested. The weekly grid is split the same way:
 `timesheet-grid.ts` says what a typed cell means, `save-queue.ts` runs one save per
 cell at a time so that typing again during a slow save never makes a second entry
 (and makes the keys that do the same for a create whose answer got lost), and
-`timesheet-rows.ts` keeps the rows that have no time yet in `localStorage`.
+`timesheet-rows.ts` keeps the rows that have no time yet in `localStorage`, under
+keys that start with the person's id (`core/user-storage.ts`). Signing out removes
+them.
 
 ## Running with Docker
 
@@ -302,7 +309,10 @@ empty. The timeline says which of the two it is in a line under its toolbar.
 managers, `?userId=`. Without a date it is the current week by the organisation's date.
 The weekly grid needs no endpoints of its own: a cell is a `POST`, `PUT` or `DELETE` on
 `/orgs/{org}/time-entries`. A `PUT` replaces the entry, so the note has to be sent back
-with it, and a week that is submitted or approved answers `409 timesheet_locked`.
+with it. A week that is submitted or approved answers `409 timesheet_locked` to
+everything that would change its time: a new entry, a change, an entry moved into or
+out of it, a delete, and stopping a timer that was started in it. A running timer
+keeps its day until it is stopped, and its week can't be submitted while it runs.
 
 A create can carry a `clientKey` (8 to 64 characters, made up by the client). The same
 key from the same person for the same project, task and day is taken as the same

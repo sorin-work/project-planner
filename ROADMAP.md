@@ -893,13 +893,15 @@ that a plan has issues.
 ### 2. Type hours into the weekly grid
 
 The cells of the weekly grid are inputs. They take what `parseDuration` takes
-and refuse the rest, save when they are left or on Enter, and Tab, Enter and
-the arrow keys move between them. What a typed cell means is decided in
+and refuse the rest, save when they are left or on Enter and then show hours
+and minutes (`1:18`), and Tab, Enter and the arrow keys move between them.
+`parseDuration` no longer rounds: decimal hours have to be whole minutes.
+What a typed cell means is decided in
 `timesheet-grid.ts` (`parseCell`, `cellAction`): create, update or delete
 through the existing `/time-entries` endpoints, with the note and the billable
 flag sent back on an update. Rows without time can be added, are kept per
-organisation and week in `localStorage` (`timesheet-rows.ts`) and can be
-copied from last week. Saved entries are put into the week on screen instead
+person, organisation and week in `localStorage` (`timesheet-rows.ts`, removed
+on sign-out) and can be copied from last week. Saved entries are put into the week on screen instead
 of loading it again, also by the form and the list. Without `?week=` the page
 asks the API for the current week, and `TimesheetResource.week` now works that
 out from the organisation's date. Different from the design: a cell with
@@ -907,7 +909,11 @@ several entries is a button that points at them in the list, as planned, and
 a cleared cell does not delete an entry that has a note either, because the
 note can not be seen in the grid. One save runs per cell at a time
 (`save-queue.ts`), the latest typed value wins, and "Submit week" waits for
-saves that are still on their way. A row that loses its last entry is kept,
+saves that are still on their way and is held back when one was refused. A
+save that fails marks its cell, says why under the grid and makes the page
+read the week again, as does coming back to the tab. On the API, stopping a
+timer now checks the week's lock and a running timer keeps its day
+(`TimeService.finish`, `update`). A row that loses its last entry is kept,
 and rows of weeks more than twelve weeks back are forgotten. Left and right
 only leave a cell once the caret is at the end of its text. A create carries
 a key that the client makes up (`client_key` on `time_entries`, `V25`), and
