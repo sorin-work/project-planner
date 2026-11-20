@@ -231,4 +231,115 @@ class NotificationMailerTest {
                 Notification.update("emailedAt = createdAt where userId = ?1", team.member().userId()));
         assertThat(mailer.run()).isZero();
     }
+
+    private static Number memberId(Account owner, Account who) {
+        return owner.as().get("/api/orgs/" + owner.orgId() + "/members").then().extract()
+                .path("find { it.userId == " + who.userId() + " }.id");
+    }
+
+    @Test
+    void approvalsAreNotMailedToSomebodyWhoIsNoLongerAManager() {
+        Account owner = Api.signup("Odile Owner");
+        Account manager = Api.signup("Manny Manager");
+        Account member = Api.signup("Mo Member");
+        Api.addMember(owner, manager, "MANAGER");
+        Api.addMember(owner, member, "MEMBER");
+        manager.as().body(Map.of("preferences", List.of(Map.of("type", "TIMESHEET_SUBMITTED", "delivery", "EMAIL"))))
+                .put("/api/me/notification-preferences").then().statusCode(200);
+        long projectId = Api.createProject(owner, "WEEK");
+        java.time.LocalDate monday = java.time.LocalDate.now().with(java.time.DayOfWeek.MONDAY);
+        member.as().body(Map.of("projectId", projectId, "date", monday.toString(), "minutes", 60))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201);
+        member.as().body(Map.of("weekStart", monday.toString()))
+                .post("/api/orgs/" + owner.orgId() + "/timesheets/submit").then().statusCode(200);
+
+        owner.as().body(Map.of("role", "MEMBER")).patch("/api/orgs/" + owner.orgId() + "/members/" + memberId(owner, manager))
+                .then().statusCode(200);
+
+        mailer.run();
+        assertThat(mails(manager.email())).isEmpty();
+    }
+
+    @Test
+    void nothingIsMailedToSomebodyWhoLeftTheOrganisation() {
+        Team team = team();
+        assign(team);
+        team.owner().as().delete("/api/orgs/" + team.owner().orgId() + "/members/" + memberId(team.owner(), team.member()))
+                .then().statusCode(204);
+
+        mailer.run();
+        assertThat(mails(team.member().email())).isEmpty();
+    }
+
+    @Test
+    void nothingIsMailedAboutATaskThatWasDeleted() {
+        Team team = team();
+        assign(team);
+        team.owner().as().delete("/api/tasks/" + team.taskId()).then().statusCode(204);
+
+        mailer.run();
+        assertThat(mails(team.member().email())).isEmpty();
+    }
+
+    @Test
+    void aNotificationThatAnotherRunHasTakenOnWaitsUntilItsClaimRunsOut() {
+        Team team = team();
+        Instant start = Instant.now().plusSeconds(5);
+        TestClock.fix(start);
+        assign(team);
+        // As a run on another instance would leave it, or one that died while it sent.
+        QuarkusTransaction.requiringNew().run(() -> Notification.update("emailClaimedUntil = ?1 where userId = ?2",
+                start.plus(NotificationMailer.CLAIM), team.member().userId()));
+
+        assertThat(mailer.run()).isZero();
+        TestClock.fix(start.plus(NotificationMailer.CLAIM).plusSeconds(1));
+        assertThat(mailer.run()).isEqualTo(1);
+        assertThat(mails(team.member().email())).hasSize(1);
+    }
+
+    @Test
+    void twoRunsAtTheSameMomentSendOneMail() throws Exception {
+        Team team = team();
+        assign(team);
+        AtomicInteger delivered = new AtomicInteger();
+        QuarkusMock.installMockForType(new MailOutbox(null) {
+            @Override
+            public boolean deliver(String kind, MailTemplateInstance mail) {
+                delivered.incrementAndGet();
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return true;
+            }
+        }, MailOutbox.class);
+
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first = pool.submit(mailer::run);
+            var second = pool.submit(mailer::run);
+            assertThat(first.get() + second.get()).isEqualTo(1);
+        } finally {
+            pool.shutdown();
+        }
+        assertThat(delivered).hasValue(1);
+    }
+
+    @Test
+    void readingANotificationWhileItsMailIsOnItsWayIsNotUndone() {
+        Team team = team();
+        assign(team);
+        QuarkusMock.installMockForType(new MailOutbox(null) {
+            @Override
+            public boolean deliver(String kind, MailTemplateInstance mail) {
+                // "Mark all as read" while the mail server takes its time, and then fails.
+                team.member().as().post("/api/notifications/read-all").then().statusCode(204);
+                return false;
+            }
+        }, MailOutbox.class);
+
+        mailer.run();
+        team.member().as().get("/api/notifications/unread-count").then().body("count", equalTo(0));
+    }
 }
