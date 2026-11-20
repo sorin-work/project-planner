@@ -459,31 +459,44 @@ Everything works from the keyboard, and what changes out of sight is read out:
   the shell, one polite and one for errors, so a screen reader hears them wherever the
   focus is. Whatever has the focus shows a ring.
 - **Task panel**: it takes the focus when a task opens, Escape closes it, and the focus
-  goes back to the row, card or bar that opened it.
+  goes back to the row, card or bar that opened it, or to the list, board or timeline
+  when that task was deleted, which is read out. In a text field Escape first leaves the
+  field, so a comment that is being written is kept and the panel says so; the next
+  Escape closes it. Escape in the mention suggestions only closes the suggestions.
 - **Search**: Ctrl+K (Cmd+K on a Mac) opens it as a modal dialog. The focus stays in it,
   and goes back where it was when it closes.
 - **Board**: focus a card and press Alt with the arrow keys. Left and right change the
-  status, up and down the place in the column. Each move is read out.
+  status, up and down the place in the column. Each move is read out, and so is why a
+  card did not move (it is at the edge, or only the team moves cards). Alt with an arrow
+  on a card never goes Back or Forward in the browser.
 - **Timeline**: the arrow keys move the focused bar by a working day, Shift with the
   arrow keys moves its due date, Delete removes a focused arrow and Escape gives up a
-  drag. Each change is read out with the task's new dates. Every bar says in its label how
+  drag. Presses that follow each other within 300 ms, a held key included, are added up
+  and saved as one move, which is read out once with the task's new dates. Every bar says in its label how
   it compares with the baseline being compared against, and every arrow says how its
   task waits.
 - **Weekly grid**: the arrow keys move between cells, and Enter saves and moves down.
   Each save, and each refusal, is read out.
 - **Files**: "Attach files" is a button that opens the file picker, so dropping is not the
-  only way. **Baselines** are a select and buttons. **Mentions**: the comment box points
-  at its list of suggestions and at the person who is highlighted.
+  only way. **Baselines** are a select and buttons. **Mentions**: the comment box is a combobox
+  that says when its suggestions are open, points at the list and at the person who is
+  highlighted. The role is on a wrapper around the textarea (the ARIA 1.1 pattern),
+  because ARIA in HTML allows no role on a textarea.
 - `prefers-reduced-motion` turns the pulse of the running timer and the transitions off.
 
 Three specs check this in CI:
 
 - `a11y.spec.ts` renders every page inside the shell, with an API that answers from
-  fixtures (`src/testing/fixtures.ts`), and runs axe over it (`src/testing/axe.ts`). The
+  fixtures (`src/testing/fixtures.ts`), and runs axe over it (`src/testing/axe.ts`). It
+  does the same with the search dialog open, the menu open and a timer running, the
+  mention suggestions open, a page whose data could not be loaded, and as a member and
+  a client viewer. The
   only rule that is off is colour contrast, because jsdom computes no colours.
 - `contrast.spec.ts` reads `styles.css`, works out every text colour against its
   background in the light and the dark theme, hover and focus states included, and holds
-  each to 4.5:1. The focus ring has to reach 3:1 on every background. A rule is only left
+  each to 4.5:1. Text in a container is measured on the container's background, and an
+  `opacity` is multiplied into the colour. A `:hover:not(:disabled)` state is measured;
+  only disabled states are exempt. The focus ring has to reach 3:1 on every background. A rule is only left
   out with a reason written next to it: the shapes that hold no text, and the avatar,
   whose colours are measured on their own. That check is why `--muted`, `--primary`,
   `--good`, `--warning`, `--danger` and `--critical` are darker in the light theme than

@@ -405,9 +405,9 @@ it. axe runs over every page rendered inside the shell, with only colour contras
 and contrast is worked out from `styles.css` for every text colour and background in
 both themes, which darkened six colours of the light theme and gave the dark theme dark
 text on primary and danger. `prefers-reduced-motion` stops the timer's pulse.
-Differences from the design: contrast is computed, not checked by hand; the arrow keys
-on the timeline still save on every press, now read out each time, since the API
-already orders them. Still open: a session with a real screen reader, and drawing a
+Differences from the design: contrast is computed, not checked by hand; presses of the
+arrow keys on the timeline within 300 ms are added up and saved and read out as one
+move. The mention box is a combobox on a wrapper, since a textarea may carry no role. Still open: a session with a real screen reader, and drawing a
 link on the timeline from the keyboard (the task panel's form does it today).
 
 ### 6. Scheduled backups and a tested restore
