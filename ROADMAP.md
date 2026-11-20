@@ -125,7 +125,8 @@ and a one-click fix.
   "Move to" button, and the timeline toolbar shows a count.
 - The "Move to" button shows the suggested start and sends
   `PATCH /api/tasks/{id}` with exactly the two suggested dates. Not
-  `POST /api/tasks/{id}/shift`: that one moves by calendar days.
+  `POST /api/tasks/{id}/shift`: that one takes a number of days (calendar
+  days today, working days once item 8 is in), not dates.
 - Tricky: `CriticalPath` already treats the planned start as "no earlier
   than", and pushes a successor that starts too early in its own forward pass.
   So with a broken link the "Plan ends" date on the timeline toolbar
