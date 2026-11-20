@@ -83,6 +83,24 @@ class DemoSeederTest {
                 .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
                 .body("$", hasSize(2));
 
+        // Copies of the two plans, moved to next summer, say the same about their dates as the
+        // originals: one task too early for its dependency, and two past the project's end.
+        Number bookingCopy = given().auth().oauth2(token).contentType(ContentType.JSON)
+                .body(Map.of("name", "Acme booking app, season two", "code", "ACME-APP-2", "startDate", "2027-06-01"))
+                .post("/api/projects/" + booking + "/duplicate").then().statusCode(201).extract().path("id");
+        given().auth().oauth2(token).get("/api/projects/" + bookingCopy + "/schedule-issues").then().statusCode(200)
+                .body("$", hasSize(1))
+                .body("[0].type", equalTo("STARTS_TOO_EARLY"))
+                .body("[0].days", equalTo(3));
+        Number portalCopy = given().auth().oauth2(token).contentType(ContentType.JSON)
+                .body(Map.of("name", "Globex portal, second clinic group", "code", "GLX-PORTAL-2", "startDate", "2027-06-05"))
+                .post("/api/projects/" + portal + "/duplicate").then().statusCode(201).extract().path("id");
+        given().auth().oauth2(token).get("/api/projects/" + portalCopy + "/schedule-issues").then().statusCode(200)
+                .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
+                .body("days", equalTo(given().auth().oauth2(token).get("/api/projects/" + portal + "/schedule-issues")
+                        .then().extract().path("days")));
+        given().auth().oauth2(token).get("/api/orgs/" + orgId + "/projects").then().statusCode(200).body("$", hasSize(10));
+
         // Last week Tom has a draft and Samir a week that was sent back. Tom was reminded today, Samir was not.
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/timesheets/missing").then().statusCode(200)
                 .body("people.userName", contains("Samir Haddad", "Tom Becker"))
