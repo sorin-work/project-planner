@@ -567,10 +567,13 @@ not a search engine. On PostgreSQL alone a trigram index would be the next step.
 `/orgs/{org}/holidays` lists the holidays (`?from=&to=` optional) for every member, client
 viewers included since they see the timeline, and takes `POST`, `PUT /{id}` and
 `DELETE /{id}` from owners and managers. A second holiday on a date is
-`409 holiday_taken`. `/orgs/{org}/time-off` lists the team's time off (`?userId=`,
+`409 holiday_taken`, also when two requests ask for the same date at once. A holiday that
+is added, moved or removed is in the organisation's activity log, since it changes every
+duration and capacity across it. `/orgs/{org}/time-off` lists the team's time off (`?userId=`,
 `?from=&to=`) for the team. People add, change and remove their own, owners and managers
 anybody's on the team (`unknown_member` for anybody else). Days that are already off are
-`409 time_off_overlaps`. Every count of working days in a request uses one calendar of
+`409 time_off_overlaps`, checked with the person's membership locked so that two requests
+can not both get through. Every count of working days in a request uses one calendar of
 the organisation (`calendar/OrgCalendars`, request-scoped, one query for the holidays),
 and the web app counts drags on the timeline with the same holidays (`shared/dates.ts`).
 

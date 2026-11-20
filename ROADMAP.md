@@ -684,7 +684,8 @@ that fall on weekdays and takes them out of `workingDaysBetween` after the
 fast path for whole weeks. `OrgCalendars`, request-scoped, reads them once per
 request, and every place that counted working days with
 `WorkCalendar.DEFAULT` now asks it: the rescheduler in `TaskService` (moves,
-shifts and the cascade), the critical path and the schedule check in
+shifts and the cascade, through item 17's `LinkRule` for all four link types,
+whose start-to-finish takes the working day before with the holidays), the critical path and the schedule check in
 `ScheduleResource`, progress and the three counts in `ProjectHealthService`,
 `ProjectDuplicator` with `PlanShift`, the slips of item 16 in `BaselineService`,
 `WorkloadResource` and the capacity in `TimeReportService`. `DEFAULT` is left for the tests and the seeder. Capacity
@@ -700,7 +701,8 @@ marks weeks with less capacity, and the timesheet header names a holiday
 and time can still be logged on one. The demo team's holidays are time off
 now, and Tom is away three days next week. Different from the design: the
 holidays are readable by client viewers. Overlapping time off for one person
-is refused. Left as the roadmap leaned: no approval, no half days, no import,
+is refused, under a lock on their membership, and holiday changes are in the
+activity log. Left as the roadmap leaned: no approval, no half days, no import,
 one calendar per organisation. Still open: the missing timesheets list still
 shows the plain weekly hours as capacity, and the demo has no public holidays,
 since one inside a seeded plan would change the schedule issues the demo is
