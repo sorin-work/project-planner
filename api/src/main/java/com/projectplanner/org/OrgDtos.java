@@ -2,6 +2,7 @@ package com.projectplanner.org;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.projectplanner.auth.User;
+import com.projectplanner.common.ApiDocs;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
@@ -9,6 +10,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -28,13 +30,15 @@ public final class OrgDtos {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record OrganisationResponse(long id, String name, String currency, String timezone,
-                                       BigDecimal defaultHourlyRate, Role role) {
+                                       @Schema(description = "The rate for time that no project, member or role rate covers. " + ApiDocs.MANAGERS_ONLY) BigDecimal defaultHourlyRate,
+                                       @Schema(description = "Your own role in the organisation.") Role role) {
         public static OrganisationResponse of(Organisation org, Membership membership) {
             BigDecimal rate = membership.role.canManage() ? org.defaultHourlyRate : null;
             return new OrganisationResponse(org.id, org.name, org.currency, org.timezone, rate, membership.role);
         }
     }
 
+    @Schema(description = "Only the fields that are sent change.")
     public record UpdateOrganisationRequest(
             @Size(min = 1, max = 120) String name,
             @Pattern(regexp = "[A-Z]{3}", message = "must be a three letter ISO currency code") String currency,
@@ -44,7 +48,9 @@ public final class OrgDtos {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record MemberResponse(long id, long userId, String name, String email, String handle, Role role,
-                                 BigDecimal hourlyRate, BigDecimal weeklyCapacityHours, Long clientId,
+                                 @Schema(description = "The member's own rate, when they have one. " + ApiDocs.MANAGERS_ONLY) BigDecimal hourlyRate,
+                                 BigDecimal weeklyCapacityHours,
+                                 @Schema(description = "For a client viewer, the client they belong to.") Long clientId,
                                  Instant joinedAt) {
         public static MemberResponse of(Membership m, User user, boolean showRates) {
             return new MemberResponse(m.id, user.id, user.name, user.email, user.handle(), m.role,
@@ -52,10 +58,11 @@ public final class OrgDtos {
         }
     }
 
+    @Schema(description = "Only the fields that are sent change. A rate cannot be set back to nothing by sending null, which is what clearHourlyRate is for.")
     public record UpdateMemberRequest(
             Role role,
             @DecimalMin("0") @DecimalMax("100000") BigDecimal hourlyRate,
-            boolean clearHourlyRate,
+            @Schema(description = ApiDocs.CLEARS) boolean clearHourlyRate,
             @DecimalMin("0") @DecimalMax("168") BigDecimal weeklyCapacityHours,
             Long clientId) {
     }
@@ -74,7 +81,10 @@ public final class OrgDtos {
 
     /** Result of inviting someone: existing users are added straight away. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record InviteResult(MemberResponse member, InvitationResponse invitation) {
+    @Schema(description = "One of the two, never both.")
+    public record InviteResult(
+            @Schema(description = "The person already had an account and is in the organisation now.") MemberResponse member,
+            @Schema(description = "Nobody has an account with that email yet. They join when they sign up with it.") InvitationResponse invitation) {
     }
 
     public record RoleRateEntry(@NotNull Role role, @NotNull @DecimalMin("0") @DecimalMax("100000") BigDecimal hourlyRate) {
