@@ -13,8 +13,10 @@ describe('LoginPage', () => {
     });
   });
 
-  async function render() {
+  async function render(mail = false) {
     const fixture = TestBed.createComponent(LoginPage);
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController).expectOne('/api/auth/options').flush({ mail, inviteLinkRequired: false });
     await fixture.whenStable();
     return { fixture, el: fixture.nativeElement as HTMLElement };
   }
@@ -56,5 +58,19 @@ describe('LoginPage', () => {
       .flush({ status: 401, code: 'invalid_credentials', message: 'Email or password is incorrect' }, { status: 401, statusText: 'Unauthorized' });
     await fixture.whenStable();
     expect(el.querySelector('[role=alert]')?.textContent).toContain('Email or password is incorrect');
+  });
+
+  it('offers the reset link only when the server sends mail', async () => {
+    const without = await render(false);
+    expect(without.el.querySelector('a[href="/forgot"]')).toBeNull();
+    without.fixture.destroy();
+  });
+
+  it('shows the reset link when the server sends mail, and says when a new password was set', async () => {
+    const { fixture, el } = await render(true);
+    fixture.componentRef.setInput('reset', 'done');
+    await fixture.whenStable();
+    expect(el.querySelector('a[href="/forgot"]')?.textContent).toContain('Forgot your password?');
+    expect(el.querySelector('[role=status]')?.textContent).toContain('Your password was changed');
   });
 });

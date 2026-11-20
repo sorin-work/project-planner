@@ -14,6 +14,26 @@ export const routes: Routes = [
     title: 'Sign up', loadComponent: () => import('./features/auth/signup.page').then((m) => m.SignupPage),
   },
   {
+    path: 'forgot',
+    canActivate: [guestGuard],
+    loadComponent: () => import('./features/auth/forgot.page').then((m) => m.ForgotPage),
+  },
+  {
+    path: 'reset',
+    canActivate: [guestGuard],
+    loadComponent: () => import('./features/auth/reset.page').then((m) => m.ResetPage),
+  },
+  {
+    // Not for guests only: somebody who is signed in accepts with the account they are in.
+    path: 'invite',
+    loadComponent: () => import('./features/auth/invite.page').then((m) => m.InvitePage),
+  },
+  {
+    // Works without signing in, from the stop link of a notification mail.
+    path: 'unsubscribe',
+    loadComponent: () => import('./features/auth/unsubscribe.page').then((m) => m.UnsubscribePage),
+  },
+  {
     path: '',
     component: Shell,
     canActivate: [authGuard],

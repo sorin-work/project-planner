@@ -58,6 +58,15 @@ public class OrgAccess {
      * mentions a project next to something else, and leaves the mention out instead of refusing.
      */
     public boolean sees(Membership membership, Project project) {
+        return canSee(membership, project);
+    }
+
+    /**
+     * The rule behind {@link #viewProject}, for any membership and not only the signed-in
+     * user's: the whole team sees every project of the organisation, a client viewer only
+     * those of their own client. Mentions and notification mails ask it about other people.
+     */
+    public static boolean canSee(Membership membership, Project project) {
         return Objects.equals(membership.organisationId, project.organisationId)
                 && (membership.role != Role.CLIENT || Objects.equals(membership.clientId, project.clientId));
     }

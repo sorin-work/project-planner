@@ -31,8 +31,8 @@ couple of weekends, **L** several weeks of spare time.
 | 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
 | 9   | Time and utilisation reports               | Shipped | both     | M    | -          |
 | 10  | Budget alerts                              | Shipped | both     | S    | -          |
-| 11  | Invitation and password reset emails       | Later | both     | M    | -          |
-| 12  | Notification emails and preferences        | Later | both     | M    | 11         |
+| 11  | Invitation and password reset emails       | Shipped | both     | M    | -          |
+| 12  | Notification emails and preferences        | Shipped | both     | M    | 11         |
 | 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
 | 14  | Performance on large projects              | Shipped | both     | M    | -          |
 | 15  | Public holidays and time off               | Shipped | both     | L    | -          |
@@ -122,126 +122,10 @@ A few things hold for every item:
 
 ## Next
 
-### 11. Invitation and password reset emails
+Nothing is left in this group: item 5 was the last.
 
-The app sends no email at all, and two things are broken without it. Inviting
-somebody who has no account stores an `Invitation` and tells the manager that
-the person "joins automatically when they sign up with that address", but the
-person is never told. And a forgotten password cannot be reset:
-`MeResource.changePassword` needs the current one, so the only way back in is
-editing the database.
+## Later
 
-- Mail: add `quarkus-mailer`. Settings: `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`
-  and `APP_URL` (links need the web app's address, and the API does not know
-  it). Mailpit as a `mail` service in `docker-compose.yml`, with its inbox on
-  a host port listed with the other three in `.env.example`.
-- Without `MAIL_HOST` nothing is sent and the app behaves as it does today. In
-  dev and test `quarkus.mailer.mock` is on by default, and tests assert on the
-  injected `MockMailbox`.
-- Invitations: `OrgResource.invite` mails "Maya invited you to Brightline
-  Studio" with a link to `/signup?email=...`. `SignupPage` reads the
-  parameter. The router already binds query parameters to inputs
-  (`withComponentInputBinding`, used by `LoginPage.returnUrl`). People who
-  already have an account are added at once today. Mail them too. Add a
-  "Resend" link beside "cancel" in `team.page.html`.
-- Reset: `POST /api/auth/forgot` with an email always answers 204, whether the
-  account exists or not. `POST /api/auth/reset` takes the token and a new
-  password. A `password_resets` table holds the user, a SHA-256 of the token,
-  an expiry of one hour and a used-at time
-  (`V18__create_password_resets.sql`). New pages `/forgot` and `/reset` under
-  `guestGuard`, and a link on `LoginPage`.
-- Tricky: joining by typing an address. `AuthService.signup` accepts every
-  pending invitation for the email it is given, and nothing proves that the
-  person owns that address. Today that is the only way to join. Once
-  invitations are mailed, the link can carry a token (a `token_hash` on
-  `invitations`, in the same migration) and sign-up can insist on it. I lean
-  towards requiring the token when mail is configured and keeping the current
-  behaviour when it is not.
-- Tricky: a reset does not end other sessions. Logins are stateless JWTs valid
-  for `JWT_TTL` (seven days). Only `CurrentUser.get()` loads the user, and
-  only `MeResource` calls it. Everything else goes through `OrgAccess` or
-  `NotificationResource`, which ask `CurrentUser.id()` for the id in the token
-  and never look at the user. A check in `get()` would leave old tokens valid
-  on nearly every endpoint.
-- So the check goes into `CurrentUser.id()`, the one method every signed-in
-  request passes through (`get()` calls it too). Load the user there, once per
-  request (the bean is request-scoped), and answer 401 when the token was
-  issued before a new `password_changed_at` on `users` (same migration).
-  `TokenService.issue` already puts an issued-at time in the token. Compare in
-  whole seconds: issued-at has no fractions, and a login straight after the
-  change must not be thrown out. The price is one user lookup per request. I
-  would pay it, since `MeResource.changePassword` has the same hole.
-- Tricky: `/api/auth/forgot` can be used to flood somebody's inbox, and
-  nothing in the API is rate limited. One live token per user and a minimum
-  gap between mails covers it without new machinery.
-- Templates: plain text plus simple HTML, with Qute, which the mailer brings
-  along.
-- Undecided: verifying the address at sign-up. It would close the hole above
-  for everybody, but the first run of a fresh install would then depend on
-  working mail. I would not.
-
-### 12. Notification emails and preferences
-
-Notifications only exist inside the app, behind a bell that the web app polls
-once a minute (`UNREAD_POLL_MS` in `Shell`). Somebody who is not looking at
-the app does not learn that they were mentioned, given a task or had a
-timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
-
-- Every notification is created in one place, `Notifier.notify`. Do not send
-  mail from there. It runs inside the request's transaction, so a slow mail
-  server would slow the request down, and a rollback would come too late to
-  take the mail back.
-- Outbox instead: an `emailed_at` column on `notifications`, and a job that
-  mails the rows that still need it and stamps them. `quarkus-scheduler`, once
-  a minute. Several notifications for one person in the same run go into one
-  mail. A notification that was read before the job ran (`read_at`) is not
-  mailed.
-- Preferences: which types are mailed, per user. A `notification_preferences`
-  table (user, type, email on or off) with the defaults in code: on for
-  `MENTIONED`, `ASSIGNED`, `TIMESHEET_REJECTED` and `TIMESHEET_REMINDER`, off
-  for `COMMENTED`.
-  `GET` and `PUT /api/me/notification-preferences`, and a card in
-  `SettingsPage`. Both schema changes go in `V19__notification_emails.sql`.
-- Links: `APP_URL` plus the targets `notificationTarget` returns, and a
-  footer link to the settings card.
-- Tests: switch the scheduler off in the test profile
-  (`quarkus.scheduler.enabled=false`), call the job method directly and assert
-  on `MockMailbox`.
-- Tricky: rows that must never be mailed. An install that is upgraded has old
-  notifications without `emailed_at`. Stamp those in the migration.
-- The migration does not cover demo data. `DemoSeeder` runs after Flyway and
-  creates its notifications through `Notifier.notify`, so a fresh install with
-  `SEED_DEMO=true` would mail every unread demo notification the first time
-  the job runs. `DemoSeeder.notification` already rewrites `createdAt` and
-  `readAt` on each row it has just created. Set `emailedAt` there as well, and
-  assert in `DemoSeederTest` that seeding leaves nothing for the job to send.
-- Tricky: mentions leak task titles. `CommentResource.mentionedUsers` matches
-  the handles against every membership of the organisation and never asks
-  whether that person can see the project. A client viewer mentioned on
-  another client's task gets "... mentioned you on" followed by the task's
-  title in the app today, and would get it by mail. Fix that for mentions in
-  general, as part of this item. The rule is in `OrgAccess.viewProject` (a
-  client viewer only sees projects of their own client) but tied to the
-  signed-in user. Give `OrgAccess` a check that takes any membership and a
-  project, use it in `viewProject`, and have `mentionedUsers` skip the people
-  who fail it. That closes the gap for the in-app notification too. With it in
-  place, client viewers get mail like anybody else. The other types only ever
-  go to team members.
-- The suggestion list in `CommentBox` offers every member as well
-  (`store.members()`). Filter it by the same rule, which the web app can do
-  from the member's `clientId` and the project's.
-- So the pull request is: the outbox column and the job, the preferences with
-  their endpoint and settings card, the project check for mentions, and the
-  seeding fix.
-- Follow-up, not in this pull request: a daily summary ("due today",
-  "overdue", and for managers "timesheets waiting"), which is the other half
-  of what people expect. The queries exist in `DashboardResource`. It needs
-  "eight in the morning in the organisation's time zone"
-  (`Organisation.zone()`) and a record of what was sent, so that it does not
-  repeat. The automatic timesheet reminders that item 3 leaves out belong to
-  that follow-up too.
-- Undecided: separate preferences per organisation for people who are in
-  several. I lean towards no.
 
 ### Follow-ups of 14. Performance on large projects
 
@@ -547,6 +431,53 @@ grouped query, instead of waiting for the next entry. Saving the same rate
 again changes nothing and looks at nothing. Still open: every manager hears about every
 project, since there is no project lead, and there are no alerts for the
 schedule. Email is item 12.
+
+### 11. Invitation and password reset emails
+
+Mail goes out by plain SMTP with `quarkus-mailer` when `MAIL_HOST` is set, and then
+`MAIL_FROM` and `APP_URL` are required, links being built from `APP_URL` and never
+from the Host header. TLS is required unless `MAIL_STARTTLS=DISABLED`, which
+`.env.example` sets for Mailpit, the optional `mail` service (page on 127.0.0.1, SMTP
+not published). Without mail the app behaves as before, the reset endpoints answer
+`mail_off` and the web app hides the links. `POST /api/auth/forgot` always answers
+204, does its work on a mail thread after the answer, is limited per client and per
+account (one a minute, three live links, never cancelling an earlier one), and
+`POST /api/auth/reset` uses a link with one conditional update. Invitations get a
+hashed, single-use link for seven days, a "resend" that replaces it and
+`POST /api/invitations/accept` for an existing account with the invited address.
+`V18` adds `password_resets`, the link columns on `invitations`, and on `users` a
+`token_version` that every token carries, the database counts up on a reset or a
+change, and `CurrentUser.id()` checks. Different from the design: a version instead of
+comparing the change with the token's issued-at time, since whole seconds would let a
+token from the same second survive a reset; the mails carry no names, not "Maya
+invited you to Brightline Studio"; the token travels after the `#` instead of
+`/signup?email=`, and the links go to new `/invite` and `/reset` pages. With mail on, a
+mailed invitation is only accepted with its link: signing up with the address alone
+makes an account and leaves the invitation waiting for its link.
+`INVITE_LINK_REQUIRED`, off by default, makes every sign-up need one. A password change now answers with a new token,
+since it ends the session it was made in too. Still open: verifying the
+address at sign-up (not done, as the roadmap leaned), and the per-client limit is kept
+in memory, so it resets on restart and is per API instance.
+
+### 12. Notification emails and preferences
+
+`V19` adds `emailed_at`, `email_attempts` and `email_retry_at` to `notifications`
+(stamping the old rows) and `notification_preferences`. `Notifier.notify` sends
+nothing and leaves a notification that is to be mailed without `emailed_at`;
+`NotificationMailer`, on `quarkus-scheduler` once a minute, mails what waits, one mail
+per person, after looking at each notification again: read, no longer mailed to the
+person, out of the organisation or out of their sight means it is marked done without a
+mail. Failures are retried after 1, 2, 4, 8 and 16 minutes. `GET` and
+`PUT /api/me/notification-preferences` and a card on the settings page choose per type
+between mail, the app only and not at all. `OrgAccess.canSee` takes any membership, and
+`mentionedUsers` and the suggestions in `CommentBox` leave out client viewers of other
+clients. `DemoSeeder` marks everything it creates as mailed. Different from the design:
+three choices instead of mail on or off; the mails carry no titles or comment text,
+only a fixed sentence per type and a link; every mail has a signed stop link per type
+that works without signing in, through a page at `/unsubscribe` that asks first.
+Still open: the daily summary and the automatic timesheet reminders, which stay the
+follow-up the roadmap planned; links in a mail open in whichever organisation the
+browser has selected; and the job expects one API instance.
 
 ### 13. Duplicate a project as a template
 

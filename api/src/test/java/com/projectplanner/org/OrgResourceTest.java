@@ -33,7 +33,7 @@ class OrgResourceTest {
     }
 
     @Test
-    void invitedPeopleJoinWhenTheySignUp() {
+    void aMailedInvitationIsNotTakenBySigningUpWithTheAddress() {
         Account owner = Api.signup("Quinn");
         String email = Api.uniqueEmail("rita");
         owner.as().body(Map.of("email", email, "role", "MANAGER"))
@@ -42,12 +42,11 @@ class OrgResourceTest {
                 .body("invitation.email", equalTo(email));
         owner.as().get("/api/orgs/" + owner.orgId() + "/invitations").then().body("email", hasItem(email));
 
+        // Mail is on in the tests, so the invitation went out with a link, and only the link
+        // joins. See InvitationMailTest and MailOffTest.
         Account rita = Api.signup("Rita", email, null);
-        rita.as().get("/api/me").then()
-                .body("organisations", hasSize(1))
-                .body("organisations[0].organisationId", equalTo((int) owner.orgId()))
-                .body("organisations[0].role", equalTo("MANAGER"));
-        owner.as().get("/api/orgs/" + owner.orgId() + "/invitations").then().body("$", hasSize(0));
+        rita.as().get("/api/me").then().body("organisations", hasSize(1)).body("organisations[0].role", equalTo("OWNER"));
+        owner.as().get("/api/orgs/" + owner.orgId() + "/invitations").then().body("email", hasItem(email));
     }
 
     @Test

@@ -29,6 +29,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -82,17 +83,17 @@ public class CommentResource {
         comment.createdAt = Instant.now(clock);
         comment.persist();
 
-        Set<Long> notified = new HashSet<>();
-        for (long userId : mentionedUsers(project.organisationId, comment.body)) {
-            if (notified.add(userId)) {
-                notifier.notify(userId, project.organisationId, me.userId, NotificationType.MENTIONED,
-                        author.name + " mentioned you on " + task.title, project.id, task.id);
-            }
+        // Everybody mentioned, and the assignee if they were not, in one go.
+        Map<Long, NotificationType> recipients = new LinkedHashMap<>();
+        for (long userId : mentionedUsers(project, comment.body)) {
+            recipients.put(userId, NotificationType.MENTIONED);
         }
-        if (task.assigneeId != null && !notified.contains(task.assigneeId)) {
-            notifier.notify(task.assigneeId, project.organisationId, me.userId, NotificationType.COMMENTED,
-                    author.name + " commented on " + task.title, project.id, task.id);
+        if (task.assigneeId != null) {
+            recipients.putIfAbsent(task.assigneeId, NotificationType.COMMENTED);
         }
+        notifier.notifyEach(recipients, project.organisationId, me.userId,
+                type -> author.name + (type == NotificationType.MENTIONED ? " mentioned you on " : " commented on ") + task.title,
+                project.id, task.id);
         activity.record(project.organisationId, project.id, task.id, me.userId, "comment.added",
                 author.name + " commented on " + task.title);
         return toResponse(comment, author);
@@ -130,18 +131,24 @@ public class CommentResource {
         comment.delete();
     }
 
-    /** Team members (and client viewers) of the organisation whose handle is mentioned. */
-    static Set<Long> mentionedUsers(long organisationId, String body) {
+    /**
+     * Members of the organisation whose handle is mentioned and who may see the project.
+     * A client viewer of another client is left out, so that a mention does not tell them
+     * the title of a task they cannot open.
+     */
+    static Set<Long> mentionedUsers(Project project, String body) {
         Set<String> handles = MentionParser.handles(body);
         Set<Long> ids = new HashSet<>();
         if (handles.isEmpty()) {
             return ids;
         }
-        List<Long> members = Membership.forOrganisation(organisationId).stream().map(m -> m.userId).toList();
+        // Only those who may see the project, and the people in one query. A handle is the part of
+        // the email before the @, so it can not be asked for in SQL.
+        List<Long> members = Membership.forOrganisation(project.organisationId).stream()
+                .filter(m -> OrgAccess.canSee(m, project)).map(m -> m.userId).toList();
         if (members.isEmpty()) {
             return ids;
         }
-        // The people in one query. A handle is the part of the email before the @, so it can not be asked for in SQL.
         for (User user : User.<User>list("id in ?1", members)) {
             if (handles.contains(user.handle())) {
                 ids.add(user.id);

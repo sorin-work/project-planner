@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
@@ -11,7 +12,13 @@ import { fieldErrors, messageOf } from '../../core/errors';
     <main class="auth-page">
       <form class="card auth-card" [formGroup]="form" (ngSubmit)="submit()" novalidate>
         <h1 class="brand">Create your account</h1>
-        <p class="muted">If a teammate invited you, use the email they invited and you'll join their team.</p>
+        @if (options().inviteLinkRequired) {
+          <p class="muted">Signing up needs an invitation: open the link in the invitation mail.</p>
+        } @else if (options().mail) {
+          <p class="muted">If a teammate invited you, open the link in the invitation mail to join their team.</p>
+        } @else {
+          <p class="muted">If a teammate invited you, use the email they invited and you'll join their team.</p>
+        }
 
         <label for="name">Your name</label>
         <input id="name" formControlName="name" autocomplete="name" />
@@ -54,6 +61,7 @@ export class SignupPage {
     password: ['', [Validators.required, Validators.minLength(8), Validators.maxLength(72)]],
     organisationName: [''],
   });
+  protected readonly options = toSignal(this.auth.options$, { initialValue: { mail: false, inviteLinkRequired: false } });
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly serverErrors = signal<Record<string, string>>({});

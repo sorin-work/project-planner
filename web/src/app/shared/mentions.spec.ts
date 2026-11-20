@@ -1,4 +1,4 @@
-import { activeMention, insertMention, segments } from './mentions';
+import { activeMention, insertMention, mentionable, segments } from './mentions';
 
 describe('mentions', () => {
   it('detects a mention being typed', () => {
@@ -30,5 +30,20 @@ describe('mentions', () => {
       { text: '.', mention: false },
     ]);
     expect(segments('write to ana@example.com', handles)).toEqual([{ text: 'write to ana@example.com', mention: false }]);
+  });
+});
+
+describe('mentionable', () => {
+  const people = [
+    { name: 'Maya', role: 'OWNER' },
+    { name: 'Tom', role: 'MEMBER' },
+    { name: 'Jordan', role: 'CLIENT', clientId: 1 },
+    { name: 'Gina', role: 'CLIENT', clientId: 2 },
+    { name: 'Nobody', role: 'CLIENT' },
+  ];
+
+  it('offers the team and the viewers of the project client only', () => {
+    expect(mentionable(people, 1).map((p) => p.name)).toEqual(['Maya', 'Tom', 'Jordan']);
+    expect(mentionable(people, undefined).map((p) => p.name)).toEqual(['Maya', 'Tom']);
   });
 });

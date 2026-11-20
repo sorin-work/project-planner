@@ -67,6 +67,22 @@ export interface Invitation {
   role: Role;
   clientId?: number;
   createdAt: string;
+  /** When the link in the last invitation mail stops working. Missing when no mail was sent. */
+  linkExpiresAt?: string;
+}
+
+/** What the server offers before signing in. */
+export interface AuthOptions {
+  mail: boolean;
+  inviteLinkRequired: boolean;
+}
+
+/** What an invitation link is for. */
+export interface InvitationLink {
+  email: string;
+  organisationName: string;
+  role: Role;
+  hasAccount: boolean;
 }
 
 export interface RoleRate {
@@ -613,4 +629,28 @@ export interface SearchResponse {
   projects: SearchHit[];
   tasks: SearchHit[];
   comments: SearchHit[];
+}
+
+export type NotificationType =
+  | 'MENTIONED'
+  | 'ASSIGNED'
+  | 'COMMENTED'
+  | 'TIMESHEET_SUBMITTED'
+  | 'TIMESHEET_APPROVED'
+  | 'TIMESHEET_REJECTED'
+  | 'TIMESHEET_REMINDER'
+  | 'BUDGET_ALERT';
+
+/** How somebody gets one type of notification: mailed (and in the app), in the app only, or not at all. */
+export type Delivery = 'EMAIL' | 'IN_APP' | 'OFF';
+
+export interface NotificationPreference {
+  type: NotificationType;
+  delivery: Delivery;
+  byDefault: Delivery;
+}
+
+export interface NotificationPreferences {
+  mailAvailable: boolean;
+  preferences: NotificationPreference[];
 }

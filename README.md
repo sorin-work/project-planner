@@ -10,11 +10,16 @@ the point is knowing whether a project will land on time and on budget.
 
 ## Features
 
+- **Forgotten passwords**: with mail set up, "Forgot your password?" on the sign-in
+  page mails a link that works for one hour. Setting a new password, there or in the
+  settings, signs you out everywhere else.
 - **Organisations and roles**: owners, managers, members and client viewers. Invite
   people by email; anyone who already has an account is added straight away, others
-  join automatically when they sign up with the invited address. Client viewers are
-  tied to one client and only see that client's projects (read-only, but they can
-  comment).
+  join automatically when they sign up with the invited address. When the server
+  sends mail (see [Mail](#mail)), the invitation is mailed with a link that works for
+  seven days and can be sent again, and someone who was added is told by mail. Client
+  viewers are tied to one client and only see that client's projects (read-only, but
+  they can comment).
 - **Clients and projects**: projects have a client (or are internal), a code like
   `ACME-WEB`, status (planned, active, on hold, done), start and end dates, an hours
   budget, a money budget and an optional fixed hourly rate.
@@ -130,6 +135,12 @@ the point is knowing whether a project will land on time and on budget.
   address so that they survive a reload and the back button.
 - **Comments with @mentions** (handles are the part of the email before the @, with
   autocomplete), in-app notifications, an activity log per project and organisation.
+  A mention only reaches people who can see the project: a client viewer of another
+  client is neither offered nor notified.
+- **Notification mails**: with mail set up, mentions, tasks assigned to you, timesheets
+  sent back and reminders are also mailed, several at a time in one mail. Each type can
+  be mailed, shown in the app only or switched off in the settings, and every mail has
+  a link that stops the mails of its types without signing in.
 - **Budget alerts**: when a project's hours burn or money burn reaches 80% of its
   budget, and again when it reaches 100%, every owner and manager gets a notification
   that opens the project's overview. Hours and money are announced separately, and the
@@ -181,7 +192,8 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 issue endpoints), `time`
 (entries, timers, timesheets, CSV export), `workload`, `report` (project health,
 time and utilisation reports),
-`attachment`, `baseline`, `comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
+`attachment`, `baseline`, `comment`, `notification`, `mail` (settings, the mails and the
+thread that sends them), `activity`, `dashboard`, `search` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
 The scheduling and reporting rules are plain Java classes without any framework
@@ -258,14 +270,19 @@ has grey bars to compare with and its Overview a launch that is late.
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
-| api     | 4411      | http://localhost:4411/q/health                      | Quarkus; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
+| api     | 4411      | http://localhost:4411/q/health                      | Quarkus, on 127.0.0.1 only; with `API_DOCS=true` the API reference is at http://localhost:5191/api/docs |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
+| mail    | 5192      | http://localhost:5192                               | optional mail catcher (Mailpit), only on 127.0.0.1 |
 | backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
 Ports can be changed with `WEB_PORT`, `API_PORT` and `DB_PORT` (in `.env` or inline,
-e.g. `WEB_PORT=8081 docker compose up`). Data lives in the `db-data` volume and the
-files attached to tasks in the `attachments` volume; `docker compose down -v` removes
-both. The dumps of the backup service are files in
+e.g. `WEB_PORT=8081 docker compose up`). The API port is only published on 127.0.0.1,
+for the checks below: the web container is the way in. Publishing it on other
+addresses lets clients reach the API without nginx, which is fine for the API itself
+(every request still needs its token), but such clients are counted by their own
+address for the reset limit, and the address is all the limit has to go on. Data lives
+in the `db-data` volume and the files attached to tasks in the `attachments` volume;
+`docker compose down -v` removes both. The dumps of the backup service are files in
 `./backups` and stay.
 
 Quick check from the command line:
@@ -290,6 +307,107 @@ All demo accounts use the password `demo-password`.
 | `samir@example.com`        | Samir Haddad  | Member                            |
 | `jordan@northwind.example` | Jordan Reyes  | Client viewer for Northwind Traders |
 
+## Mail
+
+The app mails invitations, links to reset a password and notifications. It sends them
+by plain SMTP, to the server in `MAIL_HOST`. Without `MAIL_HOST` it sends nothing and
+works as it did before it had mail: there is no "Forgot your password?" link,
+invitations are not mailed and there is no "resend" beside them, the reset
+endpoints answer 404 with the code `mail_off`, and notifications only show in the app.
+
+With `MAIL_HOST` set, `MAIL_FROM` and `APP_URL` have to be set too, or the API does not
+start. `APP_URL` is the address of the web app, such as `https://planner.example.com`.
+The links in mails are built from it and never from the address a request came in on.
+The connection to the mail server has to be encrypted: STARTTLS on port 587 by
+default, or TLS from the start with `MAIL_TLS=true` on port 465. `MAIL_STARTTLS=DISABLED`
+lifts that, which is only meant for the mail catcher. `MAIL_USERNAME` and
+`MAIL_PASSWORD` are used when the server asks for them.
+
+For development, `.env.example` starts the `mail` service, a mail catcher
+([Mailpit](https://mailpit.axllent.org)), and points the API at it. Every mail the
+app sends ends up at http://localhost:5192 and nowhere else. The page is only bound to
+127.0.0.1 and the catcher's SMTP port is not published. Without `.env`, Compose starts
+neither and mail is off.
+
+What the mails hold, and what they do not:
+
+- Only fixed wording, the link and how long it works. No names and no organisation
+  names, because those are typed by users and a mail in the app's name should not carry
+  somebody else's words.
+- The token travels after the `#` of the link (`/reset#token=...`), which browsers do
+  not send to a server, so it stays out of access logs. The page takes it out of the
+  address bar once it has read it.
+- A token is 32 random bytes. Only its SHA-256 is stored. It works once: using it is a
+  single update that only matches while it still works, so of two requests with the
+  same link only one gets through.
+
+A reset request answers 204 whether or not the address has an account. The lookup,
+the link and the mail happen on a thread of their own after the answer is ready, so the
+time it takes does not tell either. One client may ask ten times in a quarter of an
+hour, by the address nginx saw: with `BEHIND_PROXY=true` the API takes the
+`X-Forwarded-For` that nginx writes, but only from the addresses in `TRUSTED_PROXIES`.
+In Compose that is the web container's fixed address, `WEB_ADDRESS` in the subnet
+`COMPOSE_SUBNET` (`172.28.40.10` in `172.28.40.0/24`), so a client that reaches the API
+another way cannot pick an address for itself. Change both when that subnet is taken on
+the machine, for one when two copies of the stack run side by side. An account gets at most
+three links that work at the same time, and at most one a minute. Asking again never
+cancels a link that was already sent, so nobody can keep the link in somebody else's
+inbox dead. Using a link ends every session of the account that was started before,
+and its other links stop working, however close in time the session was started: every
+token carries a version of the account, which a reset or a change of password counts up.
+A password change in the settings does the same and gives the session it was made in a
+new token.
+
+An invitation link fixes the organisation and the role. The page at `/invite` shows
+which address it is for. With an account for that address you sign in and accept;
+without one you sign up there, with that address. Signed in with another account, it
+says so and does not let you accept. Sending an invitation again gives it a new link
+and the old one stops working, and cancelling it stops its link at once.
+
+With mail on, a mailed invitation is only ever accepted with its link. Signing up with
+the invited address alone makes an account of its own and leaves the invitation
+waiting: otherwise whoever knows the address could sign up first and get the invited
+role. The link still works for that account, after signing in. Nobody is kept from
+signing up by an invitation they did not ask for. Invitations made while mail was off
+were never mailed and are still accepted by signing up with the address, as before.
+`INVITE_LINK_REQUIRED=true` goes further: nobody can sign up without the link of an
+invitation (`409 invitation_required`), which closes the app to people nobody invited. It only has an effect with
+mail on, so that a fresh install without mail can still be joined, and it is off by
+default.
+
+### Notification mails
+
+`Notifier.notify` sends nothing itself: it runs inside the transaction of the request,
+so a slow mail server would hold the request up and a rollback would come too late to
+take a mail back. A notification that is to be mailed waits with no `emailed_at`, and
+a job (`NotificationMailer`, once a minute) mails what waits, one mail per person with
+everything of theirs that came in since. The job looks at every notification again
+before it mails it, and only marks it as done when it is read already, its type is no
+longer mailed to the person, they left the organisation, or they can no longer see
+what it is about (a project of another client, budgets or approvals after losing the
+manager role). A mail that fails is tried again after 1, 2, 4, 8 and 16 minutes and
+then given up, which the log says. The job runs on each instance of the API, so the
+app expects one.
+
+The mails say what happened in fixed words, one line per notification with a link to
+the task, the project, the week or the approvals page: never the title of a task or
+the words of a comment. They end with a link to the settings and, for each type in the
+mail, a link that stops the mails of that type. That link works without signing in:
+its token names the person and the type and is signed with a key of its own derived
+from `JWT_SECRET`, so it can do nothing else and cannot be bent to another person or
+type. The page it opens asks before it changes anything, so a mail scanner that opens
+links does not unsubscribe anybody.
+
+Defaults: mailed for mentions, tasks assigned to you, timesheets sent back and
+reminders; the app only for the rest. "Not at all" also leaves the notification out of
+the app. The choice holds for every organisation a person is in. Notifications from
+before the upgrade, made while mail was off, or seeded with the demo data are never
+mailed.
+
+A mail that cannot be sent is logged at WARN with the kind of mail and the type of the
+error, without the address or the link. The whole error, which can name the address,
+is at DEBUG. The API tests send to a mock mailbox and never to a server.
+
 ## Backup and restore
 
 Everything is in two volumes: `db-data` for the database and `attachments` for the files
@@ -303,7 +421,7 @@ docker compose --profile backup up -d
 ```
 
 To have it start with every `docker compose up`, put `COMPOSE_PROFILES=backup` in
-`.env`.
+`.env` (`COMPOSE_PROFILES=mail,backup` to keep the mail catcher as well).
 
 Dumps land in `./backups` as `planner-<UTC date and time>.dump`, in `pg_dump`'s custom
 format, each with `planner-<the same time>.files.tar` next to it: the attachments as they
@@ -320,7 +438,9 @@ After each dump only the newest seven are kept. Files with any other name are le
 alone: rename a dump to keep it for good. How old a dump is, and which ones are the
 oldest, is read from the time in the file name and never from the file's modification
 time. A dump dated in the future, which is what a clock that was set back leaves behind,
-counts as made now and not as overdue.
+counts as made now and not as overdue. A file that is named like a dump but with a date
+that does not exist, 31 February for one, is left alone: it does not count as a backup,
+it is never removed, and the log names it after every dump.
 
 The folder, the number of dumps and the time between two of them are `BACKUP_DIR`,
 `BACKUP_KEEP` and `BACKUP_INTERVAL_SECONDS` (see [Configuration](#configuration)).
@@ -432,6 +552,18 @@ npm start
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
+| `MAIL_HOST`            | none: mail is off (`mail` in `.env.example`)  | api     |
+| `MAIL_PORT`            | `587`                                         | api     |
+| `MAIL_FROM`            | none, required with `MAIL_HOST`               | api     |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | none                                | api     |
+| `MAIL_STARTTLS`        | `REQUIRED` (`DISABLED` for the mail catcher)  | api     |
+| `MAIL_TLS`             | `false` (`true` for TLS from the start, 465)  | api     |
+| `APP_URL`              | none, required with `MAIL_HOST`               | api     |
+| `INVITE_LINK_REQUIRED` | `false`                                       | api     |
+| `BEHIND_PROXY`         | `false` (`true` in compose)                   | api     |
+| `TRUSTED_PROXIES`      | `127.0.0.1` (`WEB_ADDRESS` in compose)        | api     |
+| `COMPOSE_SUBNET`, `WEB_ADDRESS` | `172.28.40.0/24`, `172.28.40.10`     | compose |
+| `MAIL_UI_PORT`         | `5192`                                        | compose |
 | `ATTACHMENTS_DIR`      | `data/attachments` (`/data/attachments` in compose) | api |
 | `ATTACHMENTS_MAX_FILE_BYTES` | `20971520` (20 MB)                      | api     |
 | `ATTACHMENTS_MAX_ORGANISATION_BYTES` | `2147483648` (2 GB)             | api     |
@@ -627,7 +759,9 @@ that the source does not, and it only describes `/api`.
 
 The rules that hold for every endpoint:
 
-- Apart from sign-up and login, a request needs a token: `Authorization: Bearer <token>`.
+- Apart from sign-up, login and the forgotten password and invitation link endpoints
+  under `/api/auth`, a request needs a token: `Authorization: Bearer <token>`. A token
+  stops working when the password is changed or reset after it was issued.
 - Errors are JSON: `{ "status", "code", "message", "errors"? }`. The `code` is stable.
   The reference lists the codes of each endpoint and the ones that any endpoint can
   answer with.

@@ -30,6 +30,25 @@ services:
       # Serves the interactive API reference at /api/docs. Off unless asked for: this file
       # is also how the app runs for real. .env.example turns it on for development.
       API_DOCS: ${API_DOCS:-false}
+      # Mail for invitations and password resets. Off unless MAIL_HOST is set, see
+      # "Mail" in the README. .env.example points it at the mail catcher below.
+      MAIL_HOST: ${MAIL_HOST:-}
+      # The mailer needs a host even when mail is off, and an empty MAIL_HOST is not
+      # "unset" to it. This one wins over the line in application.properties.
+      QUARKUS_MAILER_HOST: ${MAIL_HOST:-localhost}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-REQUIRED}
+      MAIL_TLS: ${MAIL_TLS:-false}
+      APP_URL: ${APP_URL:-}
+      INVITE_LINK_REQUIRED: ${INVITE_LINK_REQUIRED:-false}
+      # Requests come through the web container, which sets X-Forwarded-For. The header is
+      # only believed from that container's fixed address: a name would be looked up on
+      # every request, and a failed lookup would count every client as one.
+      BEHIND_PROXY: 'true'
+      TRUSTED_PROXIES: ${WEB_ADDRESS:-172.28.40.10}
       # Files attached to tasks, on their own volume. The backup service archives it with every dump.
       ATTACHMENTS_DIR: /data/attachments
     volumes:
@@ -38,7 +57,8 @@ services:
       db:
         condition: service_healthy
     ports:
-      - '${API_PORT:-4411}:8080'
+      # Only on this machine: the web container is the way in. See the README on ports.
+      - '127.0.0.1:${API_PORT:-4411}:8080'
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/q/health/ready || exit 1']
       interval: 10s
@@ -48,6 +68,9 @@ services:
 
   web:
     build: ./web
+    networks:
+      default:
+        ipv4_address: ${WEB_ADDRESS:-172.28.40.10}
     depends_on:
       api:
         condition: service_healthy
@@ -58,6 +81,16 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # Optional, for development: catches every mail the api sends and shows it on a
+  # web page at http://localhost:MAIL_UI_PORT. Start it with --profile mail, or with
+  # COMPOSE_PROFILES in .env. Its SMTP port is only reachable inside compose, and the
+  # page only from this machine.
+  mail:
+    image: axllent/mailpit:v1.27.10
+    profiles: [mail]
+    ports:
+      - '127.0.0.1:${MAIL_UI_PORT:-5192}:8025'
 
   # Optional, start it with: docker compose --profile backup up -d
   # Dumps the database once a day into BACKUP_DIR, with an archive of the
@@ -90,3 +123,10 @@ services:
 volumes:
   db-data:
   attachments:
+
+# A subnet of its own, so that the web container has the fixed address the api trusts.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${COMPOSE_SUBNET:-172.28.40.0/24}

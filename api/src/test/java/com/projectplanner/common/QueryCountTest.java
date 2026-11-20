@@ -27,6 +27,11 @@ import static org.hamcrest.Matchers.lessThan;
  * today, and none of them depends on how many projects, tasks, entries, people or weeks there
  * are. Counting is exact and does not depend on the machine, where a timing would. A change
  * that loads something per row shows up here as a count over its bound.
+ * <p>
+ * Every signed-in request also sends one statement of its own before the endpoint runs: the
+ * session check in {@code CurrentUser.id()}, which reads the account's token version. The
+ * bounds below include it, so "under ten" for the project list is nine of the endpoint's own
+ * plus that one.
  */
 @QuarkusTest
 class QueryCountTest {
@@ -61,26 +66,28 @@ class QueryCountTest {
     @Test
     void theProjectListIsUnderTenStatementsForEveryRole() {
         // The roadmap's target. The projects, the organisation, the clients, the tasks of all
-        // projects, the rates (three), the holidays and the time of all projects, besides the caller.
+        // projects, the rates (three), the holidays and the time of all projects, besides the caller
+        // and the session check.
         for (Account who : java.util.List.of(org.owner(), org.members().getFirst(), org.clientViewer())) {
-            assertThat(statements(who, r -> r.get(orgPath("/projects")))).isLessThanOrEqualTo(9);
+            assertThat(statements(who, r -> r.get(orgPath("/projects")))).isLessThanOrEqualTo(10);
         }
-        assertThat(statements(org.owner(), r -> r.get(orgPath("/projects/options")))).isLessThanOrEqualTo(3);
+        assertThat(statements(org.owner(), r -> r.get(orgPath("/projects/options")))).isLessThanOrEqualTo(4);
     }
 
     @Test
     void theDashboardDoesNotGrowWithTheProjects() {
-        assertThat(statements(org.owner(), r -> r.get(orgPath("/dashboard")))).isLessThanOrEqualTo(22);
+        assertThat(statements(org.owner(), r -> r.get(orgPath("/dashboard")))).isLessThanOrEqualTo(23);
     }
 
     @Test
     void peopleAreLookedUpTogether() {
         // Thirty-six weeks in the queue, five members, five organisations, a comment that mentions somebody.
-        assertThat(statements(org.owner(), r -> r.get(orgPath("/timesheets")))).isLessThanOrEqualTo(8);
-        assertThat(statements(org.owner(), r -> r.get(orgPath("/members")))).isLessThanOrEqualTo(3);
-        assertThat(statements(org.owner(), r -> r.get("/api/me"))).isLessThanOrEqualTo(3);
+        // The comment also reads how the people it notifies want to hear of it, in one query for all.
+        assertThat(statements(org.owner(), r -> r.get(orgPath("/timesheets")))).isLessThanOrEqualTo(9);
+        assertThat(statements(org.owner(), r -> r.get(orgPath("/members")))).isLessThanOrEqualTo(4);
+        assertThat(statements(org.owner(), r -> r.get("/api/me"))).isLessThanOrEqualTo(4);
         assertThat(statements(org.owner(), r -> r.body(Map.of("body", "Over to @" + org.manager().handle()))
-                .post("/api/tasks/" + org.bigProjectTaskId() + "/comments"))).isLessThanOrEqualTo(10);
+                .post("/api/tasks/" + org.bigProjectTaskId() + "/comments"))).isLessThanOrEqualTo(12);
     }
 
     @Test

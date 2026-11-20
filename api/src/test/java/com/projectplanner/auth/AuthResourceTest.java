@@ -1,10 +1,12 @@
 package com.projectplanner.auth;
 
 import com.projectplanner.support.Api;
+import com.projectplanner.support.TestClock;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.Map;
 
 import static io.restassured.RestAssured.given;
@@ -91,15 +93,31 @@ class AuthResourceTest {
     }
 
     @Test
-    void changesPassword() {
+    void changesPasswordAndEndsEveryOtherSession() {
         Api.Account account = Api.signup("Eve");
+        String otherSession = given().contentType(ContentType.JSON)
+                .body(Map.of("email", account.email(), "password", "correct-horse"))
+                .post("/api/auth/login").then().statusCode(200).extract().path("token");
         account.as().body(Map.of("currentPassword", "nope-nope", "newPassword", "new-password-1"))
                 .post("/api/me/password").then().statusCode(400).body("code", equalTo("wrong_password"));
-        account.as().body(Map.of("currentPassword", "correct-horse", "newPassword", "new-password-1"))
-                .post("/api/me/password").then().statusCode(204);
-        given().contentType(ContentType.JSON)
-                .body(Map.of("email", account.email(), "password", "new-password-1"))
-                .post("/api/auth/login").then().statusCode(200);
+
+        // In the same second as both tokens: they stop working all the same.
+        TestClock.fix(Instant.now());
+        try {
+            String fresh = account.as().body(Map.of("currentPassword", "correct-horse", "newPassword", "new-password-1"))
+                    .post("/api/me/password").then().statusCode(200)
+                    .body("user.id", equalTo((int) account.userId()))
+                    .extract().path("token");
+
+            given().auth().oauth2(otherSession).get("/api/me").then().statusCode(401);
+            account.as().get("/api/orgs/" + account.orgId()).then().statusCode(401);
+            given().auth().oauth2(fresh).get("/api/orgs/" + account.orgId()).then().statusCode(200);
+            given().contentType(ContentType.JSON)
+                    .body(Map.of("email", account.email(), "password", "new-password-1"))
+                    .post("/api/auth/login").then().statusCode(200);
+        } finally {
+            TestClock.reset();
+        }
     }
 
     @Test

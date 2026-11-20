@@ -1,0 +1,7 @@
+Your project-planner account was added to an organisation.
+
+Sign in to see it:
+
+{link}
+
+You can switch to it from the organisation menu in the app.

@@ -193,6 +193,25 @@ expect 1 3
 [ ! -e "$BACKUP_DIR/$overdue" ] || fail "the overdue dump was kept instead of the new one"
 grep -lq new "$BACKUP_DIR"/*.dump || fail "the dump that was just written was pruned"
 
+begin "a file dated 31 February: not a dump to count or to remove"
+# From last year, so that it would be the oldest by its name and the first to go.
+impossible="planner-$(($(date -u +%Y) - 1))0231T030000Z.dump"
+echo "odd" >"$BACKUP_DIR/$impossible"
+oldest=$(old_dump $((-4 * DAY)))
+old_dump $((-3 * DAY)) >/dev/null
+old_dump $((-2 * DAY)) >/dev/null
+run_loop
+expect 1 4
+[ -e "$BACKUP_DIR/$impossible" ] || fail "the file with a date that does not exist was removed"
+[ ! -e "$BACKUP_DIR/$oldest" ] || fail "the oldest real dump was kept in its place"
+grep -q "$impossible has a date that does not exist" "$STATE/log" || fail "the log does not mention the file"
+
+begin "only a file dated 31 February: it does not count as a backup, so a dump is made"
+echo "odd" >"$BACKUP_DIR/$impossible"
+run_loop
+expect 1 2
+[ -e "$BACKUP_DIR/$impossible" ] || fail "the file with a date that does not exist was removed"
+
 begin "pg_dump is cut short: a pause after every attempt, nothing removed"
 old_dump $((-4 * DAY)) >/dev/null
 old_dump $((-3 * DAY)) >/dev/null
