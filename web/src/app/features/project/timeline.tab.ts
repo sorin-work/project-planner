@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Observable } from 'rxjs';
+import { Announcer } from '../../core/announcer';
 import { messageOf } from '../../core/errors';
 import { TaskChange } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { TaskPatch } from '../../core/task.api';
-import { formatDate } from '../../shared/dates';
+import { formatDate, formatRange } from '../../shared/dates';
 import { Gantt } from '../gantt/gantt';
 import { resizeDates } from '../gantt/gantt-edit';
 import { Zoom } from '../gantt/gantt-layout';
@@ -134,6 +135,7 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
 })
 export class TimelineTab {
   protected readonly store = inject(ProjectStore);
+  private readonly announcer = inject(Announcer);
   protected readonly org = inject(OrgContext);
   protected readonly openTask = injectOpenTask();
 
@@ -251,10 +253,13 @@ export class TimelineTab {
     request.subscribe({
       next: (result) => {
         this.message.set(describe(result));
+        // A screen reader hears every edit, a move with the arrow keys included, and where the task now is.
+        this.announcer.announce(this.message() ?? landed(result));
         after?.();
       },
       error: (err: unknown) => {
         this.error.set(messageOf(err));
+        this.announcer.alert(`Not saved: ${messageOf(err)}`);
         after?.();
       },
     });
@@ -263,6 +268,12 @@ export class TimelineTab {
   private title(taskId: number): string {
     return this.store.byId().get(taskId)?.title ?? `#${taskId}`;
   }
+}
+
+/** "Design: 3 Mar – 7 Mar." for an answer about a task, or "Saved." for one that is not. */
+function landed(result: unknown): string {
+  const task = (result as Partial<TaskChange> | null)?.task;
+  return task ? `${task.title}: ${formatRange(task.startDate, task.dueDate)}.` : 'Saved.';
 }
 
 /** "X moved; 2 dependent tasks were pushed back.", or null when nothing else had to move. */
