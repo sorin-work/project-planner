@@ -6,6 +6,9 @@ import com.projectplanner.notification.NotificationType;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Role;
 import com.projectplanner.project.Project;
+import com.projectplanner.report.ReportRange;
+import com.projectplanner.report.TimeReportService;
+import com.projectplanner.report.TimeReportService.Filter;
 import com.projectplanner.support.TestClock;
 import com.projectplanner.task.TaskDependency;
 import com.projectplanner.time.TimeEntry;
@@ -15,7 +18,9 @@ import io.restassured.http.ContentType;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +37,9 @@ class DemoSeederTest {
 
     @Inject
     DemoSeeder seeder;
+
+    @Inject
+    TimeReportService reports;
 
     @Test
     void seedsADemoOrganisationOnce() {
@@ -84,6 +92,24 @@ class DemoSeederTest {
                 .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
                 .body("$", hasSize(2));
 
+        // The patient portal is over its hours budget and has told the two people who run projects. The other
+        // projects start at the level their burn is at, so logging more time on them announces nothing old.
+        var inbox = given().auth().oauth2(token).get("/api/notifications?limit=200").then().statusCode(200).extract().jsonPath();
+        List<String> alerts = inbox.getList("findAll { it.type == 'BUDGET_ALERT' }.message");
+        assertThat(alerts).isNotEmpty().allMatch(message -> message.startsWith("Globex patient portal has used 1"));
+        assertThat(alerts).anyMatch(message -> message.contains("% of its hours budget: "));
+        Number overBudget = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/projects").then()
+                .extract().path("find { it.project.code == 'GLX-PORTAL' }.project.id");
+        Number underBudget = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/projects").then()
+                .extract().path("find { it.project.code == 'INT-DS' }.project.id");
+        for (Number projectId : List.of(overBudget, underBudget)) {
+            given().auth().oauth2(token).contentType(ContentType.JSON)
+                    .body(Map.of("projectId", projectId, "date", LocalDate.now(DemoSeeder.ZONE).toString(), "minutes", 30))
+                    .post("/api/orgs/" + orgId + "/time-entries").then().statusCode(201);
+        }
+        assertThat(given().auth().oauth2(token).get("/api/notifications?limit=200").then().extract().jsonPath()
+                .<String>getList("findAll { it.type == 'BUDGET_ALERT' }.message")).isEqualTo(alerts);
+
         // Copies of the two plans, moved to next summer, say the same about their dates as the
         // originals: one task too early for its dependency, and two past the project's end.
         Number bookingCopy = given().auth().oauth2(token).contentType(ContentType.JSON)
@@ -106,5 +132,81 @@ class DemoSeederTest {
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/timesheets/missing").then().statusCode(200)
                 .body("people.userName", contains("Samir Haddad", "Tom Becker"))
                 .body("people.remindedToday", contains(false, true));
+    }
+
+    /**
+     * The reports over the seeded year, where the database does the adding up, against the CSV
+     * export of the same year, which prices one entry at a time: to the minute and to the cent.
+     */
+    @Test
+    void aYearOfReportsAddsUpToTheEntries() {
+        QuarkusTransaction.requiringNew().run(seeder::seed);
+        String token = given().contentType(ContentType.JSON)
+                .body(Map.of("email", DemoSeeder.DEMO_EMAIL, "password", DemoSeeder.DEMO_PASSWORD))
+                .post("/api/auth/login").then().statusCode(200).extract().path("token");
+        Number orgId = given().auth().oauth2(token).get("/api/me").then().extract().path("organisations[0].organisationId");
+        LocalDate to = LocalDate.now(DemoSeeder.ZONE);
+        LocalDate from = to.minusDays(365);
+        String range = "?from=" + from + "&to=" + to;
+
+        // member -> minutes, billable minutes, cents
+        Map<String, long[]> exported = new HashMap<>();
+        String[] lines = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/exports/timesheets.csv" + range)
+                .then().statusCode(200).extract().asString().split("\r\n");
+        for (int i = 1; i < lines.length; i++) {
+            // The last five columns hold no commas: hours, billable, timesheet_status, rate, amount.
+            String[] cells = lines[i].split(",");
+            int minutes = new BigDecimal(cells[cells.length - 5]).multiply(BigDecimal.valueOf(60)).intValueExact();
+            long[] sums = exported.computeIfAbsent(cells[2], k -> new long[3]);
+            sums[0] += minutes;
+            sums[1] += cells[cells.length - 4].equals("yes") ? minutes : 0;
+            sums[2] += new BigDecimal(cells[cells.length - 1]).movePointRight(2).longValueExact();
+        }
+        assertThat(lines.length).isGreaterThan(1000);
+        assertThat(exported).hasSize(5);
+
+        var byMember = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/reports/time" + range + "&groupBy=member")
+                .then().statusCode(200).body("rows", hasSize(5)).extract().jsonPath();
+        long minutes = 0;
+        long billable = 0;
+        long cents = 0;
+        for (Map<String, Object> row : byMember.<Map<String, Object>>getList("rows")) {
+            long[] sums = exported.get((String) row.get("label"));
+            assertThat(((Number) row.get("minutes")).longValue()).as("minutes of %s", row.get("label")).isEqualTo(sums[0]);
+            assertThat(((Number) row.get("billableMinutes")).longValue()).isEqualTo(sums[1]);
+            assertThat(cents(row.get("billableAmount"))).as("amount of %s", row.get("label")).isEqualTo(sums[2]);
+            minutes += sums[0];
+            billable += sums[1];
+            cents += sums[2];
+        }
+        assertThat(byMember.getLong("total.minutes")).isEqualTo(minutes);
+        assertThat(byMember.getLong("total.billableMinutes")).isEqualTo(billable);
+        assertThat(cents(byMember.get("total.billableAmount"))).isEqualTo(cents).isPositive();
+
+        // Grouped another way the year comes to the same, and every total is the sum of its rows.
+        for (String groupBy : List.of("project", "client", "task")) {
+            var report = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/reports/time" + range + "&groupBy=" + groupBy)
+                    .then().statusCode(200).extract().jsonPath();
+            assertThat(report.getLong("total.minutes")).isEqualTo(minutes);
+            assertThat(cents(report.get("total.billableAmount"))).isEqualTo(cents);
+            assertThat(report.<Object>getList("rows.billableAmount").stream().mapToLong(DemoSeederTest::cents).sum()).isEqualTo(cents);
+            assertThat(report.<Number>getList("rows.minutes").stream().mapToLong(Number::longValue).sum()).isEqualTo(minutes);
+        }
+        var utilisation = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/reports/utilisation" + range)
+                .then().statusCode(200).body("rows", hasSize(5)).extract().jsonPath();
+        assertThat(utilisation.getLong("total.minutes")).isEqualTo(minutes);
+        assertThat(utilisation.getLong("total.billableMinutes")).isEqualTo(billable);
+
+        // The year reaches the report as groups, not as its entries.
+        QuarkusTransaction.requiringNew().run(() -> {
+            long entries = TimeEntry.count("organisationId = ?1 and entryDate between ?2 and ?3", orgId.longValue(), from, to);
+            int groups = reports.buckets(orgId.longValue(), new ReportRange(from, to), false, new Filter(null, null, null, null), null).size();
+            assertThat(entries).isGreaterThan(1000);
+            assertThat((long) groups * 3).as("%d groups for %d entries", groups, entries).isLessThan(entries);
+        });
+    }
+
+    private static long cents(Object amount) {
+        return new BigDecimal(amount.toString()).movePointRight(2).longValueExact();
     }
 }

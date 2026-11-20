@@ -73,6 +73,8 @@ tags:
     description: Weeks of time, submitted and reviewed.
   - name: Export
     description: Time as CSV.
+  - name: Reports
+    description: Logged time added up per project, client, person or task, and billable time against capacity.
   - name: Collaboration
     description: Comments, notifications and the activity log.
   - name: Dashboard

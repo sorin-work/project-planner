@@ -69,6 +69,7 @@ public class ApiReferenceFilter implements OASFilter {
     private static final Map<String, String> SCHEMA_NAMES = Map.of(
             "com.projectplanner.schedule.CriticalPath$Result", "CriticalPath",
             "com.projectplanner.schedule.ScheduleCheck$IssueType", "ScheduleIssueType",
+            "com.projectplanner.report.TimeReport$GroupBy", "TimeReportGroupBy",
             "com.projectplanner.time.MissingTimesheets$Missing", "MissingTimesheet",
             "com.projectplanner.time.MissingTimesheets$Skip", "ReminderSkipReason");
 

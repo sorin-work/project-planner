@@ -12,6 +12,9 @@ public final class WorkCalendar {
 
     public static final WorkCalendar DEFAULT = new WorkCalendar();
 
+    /** Monday to Friday. */
+    public static final int WORKING_DAYS_PER_WEEK = 5;
+
     public boolean isWorkingDay(LocalDate date) {
         DayOfWeek day = date.getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;

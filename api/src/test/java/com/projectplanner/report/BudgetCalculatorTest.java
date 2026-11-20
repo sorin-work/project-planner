@@ -41,6 +41,31 @@ class BudgetCalculatorTest {
     }
 
     @Test
+    void roundsEveryEntryOnItsOwn() {
+        // A minute at 100 an hour is 1.67. Three such entries are 5.01, three minutes in one entry are 5.00.
+        Budget three = calculator.calculate(null, bd("100"), List.of(
+                new TimeFacts(1, true, bd("100")), new TimeFacts(1, true, bd("100")), new TimeFacts(1, true, bd("100"))));
+        Budget one = calculator.calculate(null, bd("100"), List.of(new TimeFacts(3, true, bd("100"))));
+        assertThat(three.spentAmount()).isEqualByComparingTo("5.01");
+        assertThat(one.spentAmount()).isEqualByComparingTo("5.00");
+        assertThat(three.amountBurnPct()).isEqualTo(5.0);
+    }
+
+    @Test
+    void entriesOfTheSameLengthCanComeAsOneWithACount() {
+        // What the grouped query hands over: the same entries, counted instead of listed.
+        Budget counted = calculator.calculate(bd("10"), bd("100"), List.of(
+                new TimeFacts(1, true, bd("100"), 3), new TimeFacts(45, false, bd("100"), 2)));
+        Budget listed = calculator.calculate(bd("10"), bd("100"), List.of(
+                new TimeFacts(1, true, bd("100")), new TimeFacts(1, true, bd("100")), new TimeFacts(1, true, bd("100")),
+                new TimeFacts(45, false, bd("100")), new TimeFacts(45, false, bd("100"))));
+        assertThat(counted).isEqualTo(listed);
+        assertThat(counted.spentAmount()).isEqualByComparingTo("5.01");
+        assertThat(counted.loggedHours()).isEqualByComparingTo("1.55");
+        assertThat(counted.billableHours()).isEqualByComparingTo("0.05");
+    }
+
+    @Test
     void noBudgetMeansNoBurnPercentage() {
         Budget b = calculator.calculate(null, null, List.of(new TimeFacts(60, true, bd("50"))));
         assertThat(b.hoursBurnPct()).isNull();

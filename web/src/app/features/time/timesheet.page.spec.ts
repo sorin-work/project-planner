@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { AuthService } from '../../core/auth.service';
+import { OrgContext } from '../../core/org-context.service';
 import { TimeEntry, TimesheetStatus, Week } from '../../core/models';
 import { TimesheetPage } from './timesheet.page';
 
@@ -40,7 +41,10 @@ describe('TimesheetPage', () => {
     });
     TestBed.inject(AuthService).me.set({
       user: { id: 1, email: 'tom@example.com', name: 'Tom Becker', handle: 'tom' },
-      organisations: [{ organisationId: 7, organisationName: 'Brightline Studio', role: 'MEMBER', currency: 'EUR' }],
+      organisations: [
+        { organisationId: 7, organisationName: 'Brightline Studio', role: 'MEMBER', currency: 'EUR' },
+        { organisationId: 8, organisationName: 'Side Project', role: 'OWNER', currency: 'USD' },
+      ],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -543,6 +547,47 @@ describe('TimesheetPage', () => {
     expect(el.querySelector('[role=status]')?.textContent).toContain('Added 1 row from last week.');
     expect(cell(el, 'WEB, Design, Monday').value).toBe('');
     expect(el.querySelectorAll('.timesheet-grid tbody tr')).toHaveLength(2);
+    http.verify();
+  });
+
+  it('starts over in another organisation, and shows no week when the new one can not be loaded', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60)]);
+    const project = el.querySelector<HTMLSelectElement>('#te-project')!;
+    project.selectedIndex = 1;
+    project.dispatchEvent(new Event('change'));
+    http.expectOne('/api/projects/1/tasks').flush([{ id: 5, projectId: 1, title: 'Design', milestone: false }]);
+    await harness.fixture.whenStable();
+    fill(cell(el, 'WEB, Design, Tuesday'), 'abc');
+    await harness.fixture.whenStable();
+
+    // The switcher in the side bar changes the organisation without leaving the page.
+    TestBed.inject(OrgContext).select(8);
+    await harness.fixture.whenStable();
+    const projects = http.expectOne('/api/orgs/8/projects');
+    const week8 = http.expectOne((r) => r.url === '/api/orgs/8/timesheets/week');
+    // The week of the first organisation is off the screen at once, with what was typed into it.
+    expect(el.querySelector('.timesheet-grid')).toBeNull();
+    projects.flush([{ project: { id: 21, code: 'SIDE', name: 'Side', status: 'ACTIVE' } }]);
+    week8.flush(week(MONDAY, []));
+    await harness.fixture.whenStable();
+
+    // Its projects, the task list and the choice in the form went with it.
+    const options = (id: string) => [...el.querySelector<HTMLSelectElement>(id)!.options].map((o) => o.textContent.trim());
+    expect(options('#te-project')).toEqual(['Choose…', 'SIDE · Side']);
+    expect(options('#te-task')).toEqual(['No task']);
+    expect(el.querySelector<HTMLSelectElement>('#te-project')!.selectedIndex).toBe(0);
+    expect(el.querySelector('#grid-problems')).toBeNull();
+    expect(el.querySelectorAll('.cell-input')).toHaveLength(0);
+
+    // Another week that can not be loaded does not leave this one on screen under its name.
+    el.querySelector<HTMLButtonElement>('[aria-label="Previous week"]')!.click();
+    await harness.fixture.whenStable();
+    http
+      .expectOne((r) => r.url === '/api/orgs/8/timesheets/week')
+      .flush({ status: 500, code: 'internal_error', message: 'Something went wrong on our side' }, { status: 500, statusText: 'Server Error' });
+    await harness.fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Something went wrong on our side');
+    expect(el.querySelector('.timesheet-status')).toBeNull();
     http.verify();
   });
 

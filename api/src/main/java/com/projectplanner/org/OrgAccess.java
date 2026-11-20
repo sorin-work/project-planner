@@ -1,8 +1,10 @@
 package com.projectplanner.org;
 
 import com.projectplanner.auth.CurrentUser;
+import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.project.Project;
+import com.projectplanner.time.TimeEntry;
 import jakarta.enterprise.context.RequestScoped;
 
 import java.util.Objects;
@@ -84,6 +86,45 @@ public class OrgAccess {
         }
         viewProject(project);
         return project;
+    }
+
+    /**
+     * A project named in a filter: it has to belong to this organisation and be one the
+     * signed-in user can see. Anything else is a 404, so that a filter can't be used to find
+     * out which projects exist.
+     */
+    public Project projectIn(long organisationId, long projectId) {
+        Project project = Project.findById(projectId);
+        if (project == null || !Objects.equals(project.organisationId, organisationId)) {
+            throw ApiException.notFound("Project");
+        }
+        viewProject(project);
+        return project;
+    }
+
+    /** A client named in a filter. A client viewer only finds their own. */
+    public Client clientIn(long organisationId, long clientId) {
+        Membership membership = member(organisationId);
+        Client client = Client.findById(clientId);
+        if (client == null || !Objects.equals(client.organisationId, organisationId)
+                || (membership.role == Role.CLIENT && !Objects.equals(membership.clientId, clientId))) {
+            throw ApiException.notFound("Client");
+        }
+        return client;
+    }
+
+    /**
+     * Somebody whose time a filter asks for: a member of this organisation, or somebody who
+     * was one and has time logged in it. Their time is still in the reports, so it has to be
+     * possible to ask for it. An id that never had anything to do with the organisation is a 404.
+     */
+    public long personIn(long organisationId, long userId) {
+        member(organisationId);
+        if (Membership.find(organisationId, userId).isEmpty()
+                && TimeEntry.count("organisationId = ?1 and userId = ?2", organisationId, userId) == 0) {
+            throw ApiException.notFound("Member");
+        }
+        return userId;
     }
 
     public long userId() {
