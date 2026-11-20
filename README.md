@@ -115,6 +115,12 @@ the point is knowing whether a project will land on time and on budget.
   address so that they survive a reload and the back button.
 - **Comments with @mentions** (handles are the part of the email before the @, with
   autocomplete), in-app notifications, an activity log per project and organisation.
+  A mention only reaches people who can see the project: a client viewer of another
+  client is neither offered nor notified.
+- **Notification mails**: with mail set up, mentions, tasks assigned to you, timesheets
+  sent back and reminders are also mailed, several at a time in one mail. Each type can
+  be mailed, shown in the app only or switched off in the settings, and every mail has
+  a link that stops the mails of its types without signing in.
 - **Budget alerts**: when a project's hours burn or money burn reaches 80% of its
   budget, and again when it reaches 100%, every owner and manager gets a notification
   that opens the project's overview. Hours and money are announced separately, and the
@@ -279,11 +285,11 @@ All demo accounts use the password `demo-password`.
 
 ## Mail
 
-The app mails two things: invitations and links to reset a password. It sends them
+The app mails invitations, links to reset a password and notifications. It sends them
 by plain SMTP, to the server in `MAIL_HOST`. Without `MAIL_HOST` it sends nothing and
 works as it did before it had mail: there is no "Forgot your password?" link,
-invitations are not mailed and there is no "resend" beside them, and the reset
-endpoints answer 404 with the code `mail_off`.
+invitations are not mailed and there is no "resend" beside them, the reset
+endpoints answer 404 with the code `mail_off`, and notifications only show in the app.
 
 With `MAIL_HOST` set, `MAIL_FROM` and `APP_URL` have to be set too, or the API does not
 start. `APP_URL` is the address of the web app, such as `https://planner.example.com`.
@@ -341,6 +347,35 @@ never mailed and are still accepted by signing up with the address, as before.
 invitation, which closes the app to people nobody invited. It only has an effect with
 mail on, so that a fresh install without mail can still be joined, and it is off by
 default.
+
+### Notification mails
+
+`Notifier.notify` sends nothing itself: it runs inside the transaction of the request,
+so a slow mail server would hold the request up and a rollback would come too late to
+take a mail back. A notification that is to be mailed waits with no `emailed_at`, and
+a job (`NotificationMailer`, once a minute) mails what waits, one mail per person with
+everything of theirs that came in since. The job looks at every notification again
+before it mails it, and only marks it as done when it is read already, its type is no
+longer mailed to the person, they left the organisation, or they can no longer see
+what it is about (a project of another client, budgets or approvals after losing the
+manager role). A mail that fails is tried again after 1, 2, 4, 8 and 16 minutes and
+then given up, which the log says. The job runs on each instance of the API, so the
+app expects one.
+
+The mails say what happened in fixed words, one line per notification with a link to
+the task, the project, the week or the approvals page: never the title of a task or
+the words of a comment. They end with a link to the settings and, for each type in the
+mail, a link that stops the mails of that type. That link works without signing in:
+its token names the person and the type and is signed with a key of its own derived
+from `JWT_SECRET`, so it can do nothing else and cannot be bent to another person or
+type. The page it opens asks before it changes anything, so a mail scanner that opens
+links does not unsubscribe anybody.
+
+Defaults: mailed for mentions, tasks assigned to you, timesheets sent back and
+reminders; the app only for the rest. "Not at all" also leaves the notification out of
+the app. The choice holds for every organisation a person is in. Notifications from
+before the upgrade, made while mail was off, or seeded with the demo data are never
+mailed.
 
 A mail that cannot be sent is logged at WARN with the kind of mail and the type of the
 error, without the address or the link. The whole error, which can name the address,
