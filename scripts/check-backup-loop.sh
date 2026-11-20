@@ -1,9 +1,9 @@
 #!/bin/sh
 # Checks the parts of backup.sh that can lose data when they go wrong: the
-# daily loop, the pruning, and the one step of a restore that cannot be taken
-# back. No database is needed. pg_dump, psql and sleep are replaced by
-# stand-ins, so every case takes a moment, and dump files with made-up dates
-# stand for clocks that were wrong or were changed.
+# daily loop, the pruning, and the step of a restore in which the restored
+# copy takes the place of the database. No database is needed. pg_dump, psql
+# and sleep are replaced by stand-ins, so every case takes a moment, and dump
+# files with made-up dates stand for clocks that were wrong or were changed.
 #
 # For the loop: it runs for a number of rounds, makes at most one dump,
 # pauses after every attempt, and never leaves fewer dumps behind than
@@ -41,18 +41,28 @@ done
 STUB
 
 # The loop asks psql how many tables there are, and the case for a new stack
-# answers none. A restore uses it for the rename at the end, which the last
-# case lets fail.
+# answers none. A restore asks it whether there is a database to replace and
+# has it do the renames, which the last cases let fail. What a restore does
+# to databases is written down in $STATE/steps, in order.
 cat >"$work/bin/psql" <<'STUB'
 #!/bin/sh
 case "$*" in
-  *"RENAME TO"*) [ ! -e "$STATE/rename-fails" ] || exit 1 ;;
+  *"RENAME TO"*)
+    [ ! -e "$STATE/rename-fails" ] || exit 1
+    echo "psql $*" >>"$STATE/steps"
+    ;;
+  *"from pg_database"*) if [ -e "$STATE/no-database" ]; then echo 0; else echo 1; fi ;;
   *) if [ -e "$STATE/no-tables" ]; then echo 0; else echo 15; fi ;;
 esac
 STUB
 
+cat >"$work/bin/dropdb" <<'STUB'
+#!/bin/sh
+echo "dropdb $*" >>"$STATE/steps"
+STUB
+
 # The rest of what a restore calls. All of it works.
-for tool in pg_isready dropdb createdb pg_restore; do
+for tool in pg_isready createdb pg_restore; do
   printf '#!/bin/sh\nexit 0\n' >"$work/bin/$tool"
   chmod +x "$work/bin/$tool"
 done
@@ -65,7 +75,7 @@ if [ "$(wc -l <"$STATE/naps")" -ge "$ROUNDS" ]; then
   kill -TERM "$PPID"
 fi
 STUB
-chmod +x "$work/bin/pg_dump" "$work/bin/psql" "$work/bin/sleep"
+chmod +x "$work/bin/pg_dump" "$work/bin/psql" "$work/bin/dropdb" "$work/bin/sleep"
 
 fail() {
   echo "FAILED ($case_name): $*" >&2
@@ -91,6 +101,7 @@ begin() {
   mkdir "$STATE" "$BACKUP_DIR"
   : >"$STATE/attempts"
   : >"$STATE/naps"
+  : >"$STATE/steps"
   export STATE BACKUP_DIR ROUNDS AHEAD
   export BACKUP_KEEP=3 BACKUP_INTERVAL_SECONDS=$DAY PGDATABASE=planner
 }
@@ -201,15 +212,51 @@ PATH="$work/bin:$PATH" sh "$here/backup.sh" once >"$STATE/log" 2>&1 || fail "onc
 grep -lq new "$BACKUP_DIR"/*.dump || fail "the dump that was just written was pruned"
 echo "ok: $case_name"
 
-begin "restore: the rename fails after the drop"
+# Runs a restore of $1 and leaves its exit status in $status.
+run_restore() {
+  status=0
+  PATH="$work/bin:$PATH" PGUSER=planner sh "$here/backup.sh" restore "$1" >"$STATE/log" 2>&1 || status=$?
+}
+
+# The database itself must never be dropped, only the copy and what a swap
+# has already replaced.
+never_drops_the_database() {
+  if grep -q -x "dropdb --if-exists planner" "$STATE/steps"; then
+    fail "the database was dropped: $(tr '\n' ';' <"$STATE/steps")"
+  fi
+}
+
+begin "restore: both renames in one transaction, the old database dropped last"
+dump=$(old_dump -3600)
+run_restore "$dump"
+[ "$status" -eq 0 ] || fail "the restore failed"
+never_drops_the_database
+swap='BEGIN; ALTER DATABASE "planner" RENAME TO "planner_replaced"; ALTER DATABASE "planner_restoring" RENAME TO "planner"; COMMIT;'
+[ "$(grep -c "RENAME TO" "$STATE/steps")" -eq 1 ] || fail "the renames were not done in one call"
+grep -q -F "$swap" "$STATE/steps" || fail "the swap is not the two renames in one transaction"
+[ "$(tail -n 1 "$STATE/steps")" = "dropdb --if-exists planner_replaced" ] || fail "the old database was not dropped as the last step"
+echo "ok: $case_name"
+
+begin "restore: the api is still connected, so the swap fails and nothing changes"
 dump=$(old_dump -3600)
 touch "$STATE/rename-fails"
-status=0
-PATH="$work/bin:$PATH" PGUSER=planner sh "$here/backup.sh" restore "$dump" >"$STATE/log" 2>&1 || status=$?
+run_restore "$dump"
 [ "$status" -ne 0 ] || fail "the restore reported success"
+never_drops_the_database
+grep -q "planner, something is still connected to it. It was left as it was" "$STATE/log" || fail "it does not say that the database was left alone"
+[ "$(grep -c -x "dropdb --if-exists planner_restoring" "$STATE/steps")" -eq 2 ] || fail "the copy that was not used was left behind"
+echo "ok: $case_name"
+
+begin "restore on a new volume: nothing to replace, and naming the copy fails"
+dump=$(old_dump -3600)
+touch "$STATE/no-database" "$STATE/rename-fails"
+run_restore "$dump"
+[ "$status" -ne 0 ] || fail "the restore reported success"
+never_drops_the_database
 grep -q "the data from $dump is in the database planner_restoring" "$STATE/log" || fail "it does not say where the data is"
 finish="psql -U planner -d postgres -c 'ALTER DATABASE \"planner_restoring\" RENAME TO \"planner\"'"
 grep -q -F "$finish" "$STATE/log" || fail "it does not print the command that finishes the restore"
+[ "$(grep -c -x "dropdb --if-exists planner_restoring" "$STATE/steps")" -eq 1 ] || fail "the copy with the data in it was dropped"
 echo "ok: $case_name"
 
 echo "OK: the loop, the pruning and the restore held in every case"
