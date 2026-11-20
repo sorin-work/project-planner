@@ -1,4 +1,5 @@
 import { Phase, Task } from '../../core/models';
+import { linkKey } from '../project/schedule-issues';
 import { DAY_WIDTH, HEADER_HEIGHT, ROW_HEIGHT, barSpan, dateRange, dragDays, layoutGantt, linkPath, xOf } from './gantt-layout';
 
 function task(id: number, startDate?: string, dueDate?: string, extra: Partial<Task> = {}): Task {
@@ -55,6 +56,21 @@ describe('gantt layout', () => {
     expect(layout.links).toEqual([expect.objectContaining({ id: 50, critical: true })]);
     expect(layout.todayX).not.toBeNull();
     expect(layout.weekends.length).toBeGreaterThan(0);
+  });
+
+  it('marks a link as broken only when the issue list names it', () => {
+    // Task 2 starts before task 1 is due. The layout does not judge that itself.
+    const a = task(1, '2026-03-02', '2026-03-06');
+    const b = task(2, '2026-03-04', '2026-03-05', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }] });
+    const c = task(3, '2026-03-09', '2026-03-10', { predecessors: [{ id: 51, predecessorId: 1, successorId: 3, lagDays: 0 }] });
+    const options = { zoom: 'day' as const, critical: new Set([1, 2]), collapsed: new Set<number>(), today: '2026-03-04' };
+
+    expect(layoutGantt([a, b, c], [], options).links.map((l) => l.broken)).toEqual([false, false]);
+    const layout = layoutGantt([a, b, c], [], { ...options, broken: new Set([linkKey(1, 2)]) });
+    expect(layout.links).toEqual([
+      expect.objectContaining({ id: 50, broken: true, critical: true }),
+      expect.objectContaining({ id: 51, broken: false }),
+    ]);
   });
 
   it('hides the tasks of collapsed phases', () => {

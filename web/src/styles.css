@@ -1264,6 +1264,17 @@ select.compact {
   fill: var(--critical);
 }
 
+/* Dashed as well as red, so a broken link does not depend on colour alone. */
+.gantt-svg .link.broken {
+  stroke: var(--danger);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 3;
+}
+
+.gantt-svg .arrow-head.broken {
+  fill: var(--danger);
+}
+
 .gantt-svg .bar {
   cursor: pointer;
 }
