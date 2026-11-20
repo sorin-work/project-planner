@@ -181,6 +181,22 @@ export interface CriticalPath {
   tasks: TaskTiming[];
 }
 
+export type ScheduleIssueType = 'STARTS_TOO_EARLY' | 'WAITS_FOR_UNSCHEDULED' | 'AFTER_PROJECT_END' | 'OUTSIDE_PARENT';
+
+export interface ScheduleIssue {
+  type: ScheduleIssueType;
+  taskId: number;
+  /** The task it waits for, or the parent for OUTSIDE_PARENT. */
+  relatedTaskId?: number;
+  /** Working days too early, too late or outside the parent. */
+  days?: number;
+  /** Where to move the task to fix a STARTS_TOO_EARLY issue. The API works both dates out. */
+  suggestedStart?: string;
+  suggestedDue?: string;
+  /** What that move would get the task reported for instead: AFTER_PROJECT_END, OUTSIDE_PARENT or both. */
+  suggestionCauses?: ScheduleIssueType[];
+}
+
 export interface Progress {
   totalEstimateHours: number;
   doneEstimateHours: number;

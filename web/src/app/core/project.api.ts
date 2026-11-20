@@ -9,6 +9,7 @@ import {
   ProjectHealth,
   ProjectListItem,
   ProjectStatus,
+  ScheduleIssue,
 } from './models';
 
 export interface ProjectInput {
@@ -69,6 +70,10 @@ export class ProjectApi {
 
   criticalPath(id: number): Observable<CriticalPath> {
     return this.http.get<CriticalPath>(`/api/projects/${id}/critical-path`);
+  }
+
+  scheduleIssues(id: number): Observable<ScheduleIssue[]> {
+    return this.http.get<ScheduleIssue[]>(`/api/projects/${id}/schedule-issues`);
   }
 
   activity(id: number, limit = 50): Observable<ActivityEntry[]> {

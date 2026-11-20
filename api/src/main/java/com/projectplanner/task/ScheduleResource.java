@@ -1,21 +1,30 @@
 package com.projectplanner.task;
 
 import com.projectplanner.org.OrgAccess;
+import com.projectplanner.project.Project;
 import com.projectplanner.schedule.CriticalPath;
+import com.projectplanner.schedule.Link;
+import com.projectplanner.schedule.ScheduleCheck;
 import com.projectplanner.schedule.WorkCalendar;
+import com.projectplanner.task.TaskDtos.ScheduleIssueResponse;
 import io.quarkus.security.Authenticated;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-@Path("/api/projects/{projectId}/critical-path")
+@Path("/api")
 @Authenticated
 public class ScheduleResource {
 
     private final OrgAccess access;
     private final CriticalPath criticalPath = new CriticalPath(WorkCalendar.DEFAULT);
+    private final ScheduleCheck scheduleCheck = new ScheduleCheck(WorkCalendar.DEFAULT);
 
     public ScheduleResource(OrgAccess access) {
         this.access = access;
@@ -23,10 +32,39 @@ public class ScheduleResource {
 
     /** Critical path over every task in the project that has both a start and a due date. */
     @GET
-    public CriticalPath.Result get(@PathParam("projectId") long projectId) {
+    @Path("/projects/{projectId}/critical-path")
+    public CriticalPath.Result critical(@PathParam("projectId") long projectId) {
         access.project(projectId);
         List<Task> tasks = Task.forProject(projectId);
-        var links = TaskDependency.forProject(projectId).stream().map(TaskDependency::toLink).toList();
-        return criticalPath.calculate(tasks.stream().map(Task::toScheduled).toList(), links);
+        return criticalPath.calculate(tasks.stream().map(Task::toScheduled).toList(), links(projectId));
+    }
+
+    /**
+     * Where the plan contradicts itself: tasks that start before the tasks they wait
+     * for allow, links to tasks without dates, tasks due after the project's end and
+     * subtasks outside their parent. Nothing is rejected when a task moves, so this is
+     * where a broken dependency shows up.
+     */
+    @GET
+    @Path("/projects/{projectId}/schedule-issues")
+    public List<ScheduleIssueResponse> issues(@PathParam("projectId") long projectId) {
+        Project project = access.project(projectId);
+        List<Task> tasks = Task.forProject(projectId);
+        Map<Long, Long> parents = new HashMap<>();
+        Set<Long> done = new HashSet<>();
+        for (Task task : tasks) {
+            if (task.parentId != null) {
+                parents.put(task.id, task.parentId);
+            }
+            if (task.isDone()) {
+                done.add(task.id);
+            }
+        }
+        return scheduleCheck.check(tasks.stream().map(Task::toScheduled).toList(), links(projectId), parents, done, project.endDate)
+                .stream().map(ScheduleIssueResponse::of).toList();
+    }
+
+    private static List<Link> links(long projectId) {
+        return TaskDependency.forProject(projectId).stream().map(TaskDependency::toLink).toList();
     }
 }

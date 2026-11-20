@@ -20,6 +20,8 @@ export class Gantt {
   readonly tasks = input.required<Task[]>();
   readonly phases = input<Phase[]>([]);
   readonly critical = input<Set<number>>(new Set());
+  /** Link keys (see linkKey) of the dependencies to draw as broken. */
+  readonly broken = input<Set<string>>(new Set());
   readonly showCritical = input(true);
   readonly zoom = input<Zoom>('day');
   readonly editable = input(false);
@@ -38,6 +40,7 @@ export class Gantt {
       zoom: this.zoom(),
       critical: this.showCritical() ? this.critical() : new Set<number>(),
       collapsed: this.collapsed(),
+      broken: this.broken(),
     }),
   );
 

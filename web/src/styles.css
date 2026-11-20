@@ -1039,6 +1039,49 @@ select.compact {
   color: var(--muted);
 }
 
+/* Schedule issues: a line under the link or the dates it is about. */
+.issue-note {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0.25rem 0 0;
+}
+
+.deps li {
+  flex-wrap: wrap;
+}
+
+.deps .issue-note {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+
+.issue-fix {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.4rem 0 0;
+}
+
+.issue-fix .issue-note {
+  margin-top: 0;
+}
+
+.issues-card {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.issues-card .issue-note {
+  margin: 0;
+  font-size: inherit;
+}
+
+.plan-end-note {
+  margin: -0.4rem 0 0.75rem;
+  text-align: right;
+}
+
 .comments li {
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border);
@@ -1262,6 +1305,17 @@ select.compact {
 
 .gantt-svg .arrow-head.critical {
   fill: var(--critical);
+}
+
+/* Dashed as well as red, so a broken link does not depend on colour alone. */
+.gantt-svg .link.broken {
+  stroke: var(--danger);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 3;
+}
+
+.gantt-svg .arrow-head.broken {
+  fill: var(--danger);
 }
 
 .gantt-svg .bar {

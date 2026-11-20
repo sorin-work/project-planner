@@ -1,9 +1,11 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, forkJoin, map, tap } from 'rxjs';
-import { CriticalPath, Member, Phase, Project, Task, TaskChange } from '../../core/models';
+import { messageOf } from '../../core/errors';
+import { CriticalPath, Member, Phase, Project, ScheduleIssue, Task, TaskChange } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { ProjectApi } from '../../core/project.api';
 import { NewTask, TaskApi, TaskPatch } from '../../core/task.api';
+import { brokenLinks } from './schedule-issues';
 
 /** Everything the project tabs share: the project, its plan and the team. Provided per project page. */
 @Injectable()
@@ -17,6 +19,10 @@ export class ProjectStore {
   readonly phases = signal<Phase[]>([]);
   readonly members = signal<Member[]>([]);
   readonly criticalPath = signal<CriticalPath | null>(null);
+  /** Where the plan contradicts itself, as the API sees it. Refetched with the critical path. */
+  readonly issues = signal<ScheduleIssue[]>([]);
+  /** Why the critical path and the issues could not be refreshed after a change, or null when they are current. */
+  readonly scheduleError = signal<string | null>(null);
   readonly loading = signal(true);
   /** Bumped after every change so tabs with their own data (health, activity) can reload. */
   readonly version = signal(0);
@@ -25,6 +31,9 @@ export class ProjectStore {
   readonly topLevel = computed(() => this.tasks().filter((t) => !t.parentId));
   readonly criticalIds = computed(() => new Set(this.criticalPath()?.criticalTaskIds ?? []));
   readonly byId = computed(() => new Map(this.tasks().map((t) => [t.id, t])));
+  readonly brokenLinks = computed(() => brokenLinks(this.issues()));
+
+  private scheduleRequest = 0;
 
   load(projectId: number): Observable<void> {
     this.loading.set(true);
@@ -33,12 +42,17 @@ export class ProjectStore {
       tasks: this.tasksApi.list(projectId),
       phases: this.projects.phases(projectId),
       critical: this.projects.criticalPath(projectId),
+      issues: this.projects.scheduleIssues(projectId),
     }).pipe(
-      tap(({ project, tasks, phases, critical }) => {
+      tap(({ project, tasks, phases, critical, issues }) => {
         this.project.set(project);
         this.tasks.set(tasks);
         this.phases.set(phases);
+        // Answers still on their way for the plan as it was no longer count.
+        this.scheduleRequest++;
         this.criticalPath.set(critical);
+        this.issues.set(issues);
+        this.scheduleError.set(null);
         this.loading.set(false);
         this.orgApi.members(project.organisationId).subscribe({ next: (m) => this.members.set(m) });
       }),
@@ -48,6 +62,10 @@ export class ProjectStore {
 
   subtasks(parentId: number): Task[] {
     return this.tasks().filter((t) => t.parentId === parentId);
+  }
+
+  issuesOf(taskId: number): ScheduleIssue[] {
+    return this.issues().filter((i) => i.taskId === taskId);
   }
 
   createTask(body: NewTask): Observable<Task> {
@@ -117,10 +135,43 @@ export class ProjectStore {
 
   private changed(): void {
     this.version.update((v) => v + 1);
+    this.refreshSchedule();
+  }
+
+  /**
+   * Refetches what the API works out from the plan: the critical path and the
+   * schedule issues. Changes can follow each other quickly (arrow keys on a bar),
+   * so an answer is dropped when a newer request has gone out since.
+   *
+   * When the refresh fails, what was on screen is from before the change. It is
+   * dropped and the error kept for the tabs to show: an old "Move to" could pull a
+   * task back in front of a predecessor that has just been moved later.
+   */
+  refreshSchedule(): void {
     const project = this.project();
-    if (project) {
-      this.projects.criticalPath(project.id).subscribe({ next: (c) => this.criticalPath.set(c) });
+    if (!project) {
+      return;
     }
+    const request = ++this.scheduleRequest;
+    forkJoin({
+      critical: this.projects.criticalPath(project.id),
+      issues: this.projects.scheduleIssues(project.id),
+    }).subscribe({
+      next: ({ critical, issues }) => {
+        if (request === this.scheduleRequest) {
+          this.criticalPath.set(critical);
+          this.issues.set(issues);
+          this.scheduleError.set(null);
+        }
+      },
+      error: (err: unknown) => {
+        if (request === this.scheduleRequest) {
+          this.criticalPath.set(null);
+          this.issues.set([]);
+          this.scheduleError.set(messageOf(err));
+        }
+      },
+    });
   }
 
   reloadTasks(): void {
