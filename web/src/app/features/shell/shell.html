@@ -1,5 +1,6 @@
+<a class="skip-link" href="#content" (click)="skipToContent($event)">Skip to content</a>
 <div class="layout" [class.menu-open]="menuOpen()">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <a class="brand" routerLink="/">project-planner</a>
     @if (org.memberships().length > 1) {
       <label class="sr-only" for="org-switch">Organisation</label>
@@ -12,26 +13,27 @@
       <p class="org-name">{{ current.organisationName }}</p>
     }
     <nav aria-label="Main">
-      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
-      <a routerLink="/projects" routerLinkActive="active">Projects</a>
+      <a routerLink="/" routerLinkActive="active" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
+      <a routerLink="/projects" routerLinkActive="active" ariaCurrentWhenActive="page">Projects</a>
       @if (org.isTeam()) {
-        <a routerLink="/time" routerLinkActive="active">Timesheet</a>
-        <a routerLink="/workload" routerLinkActive="active">Workload</a>
+        <a routerLink="/time" routerLinkActive="active" ariaCurrentWhenActive="page">Timesheet</a>
+        <a routerLink="/workload" routerLinkActive="active" ariaCurrentWhenActive="page">Workload</a>
       }
       @if (org.canManage()) {
-        <a routerLink="/approvals" routerLinkActive="active">Approvals</a>
-        <a routerLink="/clients" routerLinkActive="active">Clients</a>
+        <a routerLink="/approvals" routerLinkActive="active" ariaCurrentWhenActive="page">Approvals</a>
+        <a routerLink="/clients" routerLinkActive="active" ariaCurrentWhenActive="page">Clients</a>
       }
       @if (org.isTeam()) {
-        <a routerLink="/team" routerLinkActive="active">Team</a>
-        <a routerLink="/reports" routerLinkActive="active">Reports</a>
+        <a routerLink="/team" routerLinkActive="active" ariaCurrentWhenActive="page">Team</a>
+        <a routerLink="/reports" routerLinkActive="active" ariaCurrentWhenActive="page">Reports</a>
       }
     </nav>
   </aside>
 
   <div class="main">
     <header class="topbar">
-      <button class="icon-button menu-toggle" type="button" aria-label="Menu" (click)="menuOpen.set(!menuOpen())">☰</button>
+      <button class="icon-button menu-toggle" type="button" aria-label="Menu" aria-controls="sidebar"
+        [attr.aria-expanded]="menuOpen()" (click)="menuOpen.set(!menuOpen())">☰</button>
       <button type="button" class="search-button" (click)="search().open()" (keydown)="ignoreRepeat($event)"
         [attr.aria-keyshortcuts]="searchShortcut">
         <span aria-hidden="true">🔍</span>
@@ -40,17 +42,19 @@
       </button>
       <div class="spacer"></div>
       @if (timer.running(); as running) {
-        <div class="timer-chip" role="status">
-          <span class="dot"></span>
+        <!-- No live region: the time changes every second. Starting and stopping are announced instead. -->
+        <div class="timer-chip">
+          <span class="dot" aria-hidden="true"></span>
           <span class="timer-label">{{ running.taskTitle || running.projectName }}</span>
           <span class="timer-time">{{ formatElapsed(timer.elapsed()) }}</span>
           <button type="button" class="small" (click)="stopTimer()">Stop</button>
         </div>
       }
-      <a class="icon-button bell" routerLink="/notifications" aria-label="Notifications">
-        🔔
+      <a class="icon-button bell" routerLink="/notifications" routerLinkActive="active" ariaCurrentWhenActive="page"
+        [attr.aria-label]="unread() > 0 ? 'Notifications, ' + unread() + ' unread' : 'Notifications'">
+        <span aria-hidden="true">🔔</span>
         @if (unread() > 0) {
-          <span class="count">{{ unread() > 99 ? '99+' : unread() }}</span>
+          <span class="count" aria-hidden="true">{{ unread() > 99 ? '99+' : unread() }}</span>
         }
       </a>
       @if (auth.user(); as user) {
@@ -65,7 +69,7 @@
       <button type="button" class="link" (click)="logout()">Sign out</button>
     </header>
 
-    <main class="content">
+    <main class="content" id="content" tabindex="-1">
       @if (loadError()) {
         <p class="alert error">{{ loadError() }}</p>
       } @else if (auth.me() && !org.current()) {
@@ -82,3 +86,6 @@
   </div>
   <app-search-dialog />
 </div>
+<!-- What a screen reader should hear about saves, moves and errors that happen out of sight. -->
+<div class="sr-only" aria-live="polite" aria-atomic="true">{{ announcer.polite() }}</div>
+<div class="sr-only" aria-live="assertive" aria-atomic="true">{{ announcer.assertive() }}</div>
