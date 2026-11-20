@@ -91,15 +91,18 @@ public class ProjectResource {
     @GET
     @Path("/orgs/{orgId}/projects/options")
     @Operation(summary = "List the projects for a select",
-            description = "Id, code, name, status and client of each project the caller can see, by name. "
+            description = "Id, code, name, status and client of each project the caller can see, in the order of the full list. "
                     + "Nothing is worked out, so this is what a form asks for to fill a project select.")
     public List<ProjectOption> options(@PathParam("orgId") long orgId) {
         Membership me = access.member(orgId);
         List<Project> found = me.role == Role.CLIENT
                 ? Project.list("organisationId = ?1 and clientId = ?2 order by name", orgId, me.clientId == null ? -1L : me.clientId)
                 : Project.list("organisationId = ?1 order by name", orgId);
-        Map<Long, String> clients = ProjectService.clientNames(found);
-        return found.stream()
+        // The same order as the full list: active work first, finished projects last, by name within.
+        List<Project> ordered = new ArrayList<>(found);
+        ordered.sort(Comparator.comparingInt(p -> LIST_ORDER.indexOf(p.status)));
+        Map<Long, String> clients = ProjectService.clientNames(ordered);
+        return ordered.stream()
                 .map(p -> new ProjectOption(p.id, p.code, p.name, p.status, p.clientId, p.clientId == null ? null : clients.get(p.clientId)))
                 .toList();
     }
