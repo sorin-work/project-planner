@@ -113,6 +113,76 @@ export interface DuplicateDefaults {
   dependencies: number;
 }
 
+/** A saved copy of a plan's dates. Only its name and whether it is the reference can change. */
+export interface Baseline {
+  id: number;
+  projectId: number;
+  name: string;
+  /** The baseline the project is compared against unless another one is picked. */
+  reference: boolean;
+  projectStart?: string;
+  projectEnd?: string;
+  createdBy?: number;
+  createdByName?: string;
+  createdAt: string;
+  /** How many tasks it holds. */
+  tasks: number;
+}
+
+/** How a task, a phase or a date compares with a baseline. The API decides it, in working days. */
+export type BaselineChange = 'UNCHANGED' | 'SLIPPED' | 'PULLED_IN' | 'ADDED' | 'REMOVED';
+
+export interface BaselineTaskChange {
+  taskId: number;
+  title: string;
+  milestone: boolean;
+  change: BaselineChange;
+  existedThen: boolean;
+  existsNow: boolean;
+  phaseName?: string;
+  baselineStart?: string;
+  baselineDue?: string;
+  currentStart?: string;
+  currentDue?: string;
+  /** Working days, later being positive. Only when the task has dates in both. */
+  startSlipDays?: number;
+  finishSlipDays?: number;
+}
+
+export interface BaselinePhaseChange {
+  phaseId: number;
+  name: string;
+  change: BaselineChange;
+  existedThen: boolean;
+  existsNow: boolean;
+  baselineStart?: string;
+  baselineEnd?: string;
+  currentStart?: string;
+  currentEnd?: string;
+  startSlipDays?: number;
+  finishSlipDays?: number;
+}
+
+export interface BaselineDateChange {
+  baseline?: string;
+  current?: string;
+  slipDays?: number;
+  change: BaselineChange;
+}
+
+export interface BaselineComparison {
+  baseline: Baseline;
+  tasks: BaselineTaskChange[];
+  phases: BaselinePhaseChange[];
+  /** The project's own end date, then and now. */
+  projectEnd: BaselineDateChange;
+  /** The latest due date of any task, then and now. */
+  planEnd: BaselineDateChange;
+  counts: { unchanged: number; slipped: number; pulledIn: number; added: number; removed: number };
+  baselineEstimateHours: number;
+  currentEstimateHours: number;
+}
+
 export interface HealthSummary {
   status: HealthStatus;
   progressPct: number;

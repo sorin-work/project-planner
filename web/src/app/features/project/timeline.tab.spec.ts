@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
-import { Project, ScheduleIssue, Task } from '../../core/models';
+import { BaselineComparison, Project, ScheduleIssue, Task } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { Gantt } from '../gantt/gantt';
 import { ProjectStore } from './project.store';
@@ -221,5 +221,87 @@ describe('TimelineTab edits', () => {
     await fixture.whenStable();
     expect(el.querySelector('[role=status]')?.textContent).toContain('Build no longer waits for Design.');
     expect(store.byId().get(2)?.predecessors).toHaveLength(0);
+  });
+});
+
+describe('TimelineTab with a baseline', () => {
+  const signedOff = { id: 31, projectId: 7, name: 'Signed off', reference: true, createdAt: '', tasks: 3 };
+  const comparison: BaselineComparison = {
+    baseline: signedOff,
+    tasks: [
+      { taskId: 1, title: 'Design', milestone: false, change: 'UNCHANGED', existedThen: true, existsNow: true,
+        baselineStart: '2026-03-02', baselineDue: '2026-03-06', currentStart: '2026-03-02', currentDue: '2026-03-06', startSlipDays: 0, finishSlipDays: 0 },
+      { taskId: 2, title: 'Build', milestone: false, change: 'SLIPPED', existedThen: true, existsNow: true,
+        baselineStart: '2026-03-09', baselineDue: '2026-03-10', currentStart: '2026-03-09', currentDue: '2026-03-11', startSlipDays: 0, finishSlipDays: 1 },
+      { taskId: 9, title: 'Old copy', milestone: false, change: 'REMOVED', existedThen: true, existsNow: false,
+        baselineStart: '2026-03-02', baselineDue: '2026-03-03' },
+    ],
+    phases: [],
+    projectEnd: { change: 'UNCHANGED' },
+    planEnd: { baseline: '2026-03-10', current: '2026-03-11', slipDays: 1, change: 'SLIPPED' },
+    counts: { unchanged: 1, slipped: 1, pulledIn: 0, added: 0, removed: 1 },
+    baselineEstimateHours: 0,
+    currentEstimateHours: 0,
+  };
+
+  let http: HttpTestingController;
+  let store: ProjectStore;
+  let fixture: ComponentFixture<TimelineTab>;
+  let el: HTMLElement;
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({
+      imports: [TimelineTab],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        ProjectStore,
+        { provide: OrgContext, useValue: { isTeam: () => false } },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    store = TestBed.inject(ProjectStore);
+    store.project.set({ id: 7, organisationId: 3 } as Project);
+    store.tasks.set([design, build]);
+    store.baselines.set([{ ...signedOff, id: 30, name: 'Agreed', reference: false }, signedOff]);
+    store.comparedId.set(31);
+    store.comparison.set(comparison);
+    fixture = TestBed.createComponent(TimelineTab);
+    await fixture.whenStable();
+    el = fixture.nativeElement as HTMLElement;
+  });
+
+  afterEach(() => http.verify());
+
+  it('draws a thin bar for every task that is still there and reads out how it compares', () => {
+    expect(el.querySelectorAll('rect.baseline-bar')).toHaveLength(2);
+    const bar = el.querySelector('g.bar[data-task="2"]')!;
+    expect(bar.getAttribute('aria-label')).toContain('Finishes 1 working day later than in the baseline');
+    expect(el.querySelector('.baseline-summary')!.textContent).toContain('Grey bars: Signed off. 1 slipped, 1 removed.');
+  });
+
+  it('lists the changes, a deleted task included, without the ones that stayed', async () => {
+    [...el.querySelectorAll<HTMLButtonElement>('.baseline-summary button')][0].click();
+    await fixture.whenStable();
+    const lines = [...el.querySelectorAll('[aria-label="Changes since the baseline"] li')].map((li) => li.textContent!.replace(/\s+/g, ' ').trim());
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^Build ?Finishes 1 working day later/);
+    expect(lines[1]).toMatch(/^Old copy ?Removed since the baseline/);
+  });
+
+  it('compares with another baseline or with none from the toolbar', async () => {
+    const select = el.querySelector<HTMLSelectElement>('.toolbar select')!;
+    expect([...select.options].map((o) => o.textContent!.trim())).toEqual(['No baseline', 'Agreed', 'Signed off (reference)']);
+    select.selectedIndex = 1;
+    select.dispatchEvent(new Event('change'));
+    http.expectOne('/api/baselines/30/comparison').flush({ ...comparison, baseline: { ...signedOff, id: 30, name: 'Agreed' } });
+    await fixture.whenStable();
+    expect(el.querySelector('.baseline-summary')!.textContent).toContain('Grey bars: Agreed.');
+    select.selectedIndex = 0;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    expect(el.querySelectorAll('rect.baseline-bar')).toHaveLength(0);
+    expect(el.querySelector('.baseline-summary')).toBeNull();
   });
 });

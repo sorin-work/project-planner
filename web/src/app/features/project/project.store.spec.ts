@@ -40,6 +40,7 @@ describe('ProjectStore schedule issues', () => {
     http.expectOne('/api/projects/7/schedule-issues').flush(issues);
     http.expectOne('/api/orgs/3/members').flush([]);
     http.expectOne('/api/orgs/3/holidays').flush([{ id: 1, date: '2026-03-04', name: 'Holiday' }]);
+    http.expectOne('/api/projects/7/baselines').flush([]);
   }
 
   it('loads the issues with the plan', () => {
@@ -119,3 +120,122 @@ describe('ProjectStore schedule issues', () => {
     expect(store.criticalPath()?.finish).toBe('2026-03-11');
   });
 });
+
+describe('ProjectStore baselines', () => {
+  let http: HttpTestingController;
+  let store: ProjectStore;
+
+  const agreed = { id: 30, projectId: 7, name: 'Agreed', reference: false, createdAt: '', tasks: 2 };
+  const signedOff = { id: 31, projectId: 7, name: 'Signed off', reference: true, createdAt: '', tasks: 2 };
+  const comparison = (id: number) => ({
+    baseline: id === 30 ? agreed : signedOff, tasks: [], phases: [], projectEnd: { change: 'UNCHANGED' }, planEnd: { change: 'UNCHANGED' },
+    counts: { unchanged: 2, slipped: 0, pulledIn: 0, added: 0, removed: 0 }, baselineEstimateHours: 0, currentEstimateHours: 0,
+  });
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting(), ProjectStore] });
+    http = TestBed.inject(HttpTestingController);
+    store = TestBed.inject(ProjectStore);
+    store.load(7).subscribe();
+    http.expectOne('/api/projects/7').flush({ id: 7, organisationId: 3, name: 'Site', code: 'SITE', status: 'ACTIVE' });
+    http.expectOne('/api/projects/7/tasks').flush([design, build]);
+    http.expectOne('/api/projects/7/phases').flush([]);
+    http.expectOne('/api/projects/7/critical-path').flush(noPath);
+    http.expectOne('/api/projects/7/schedule-issues').flush([]);
+    http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/projects/7/baselines').flush([agreed, signedOff]);
+  });
+
+  afterEach(() => http.verify());
+
+  it('compares with the reference baseline from the start', () => {
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    expect(store.comparedId()).toBe(31);
+    expect(store.comparison()?.baseline.name).toBe('Signed off');
+  });
+
+  it('asks for the comparison again after a change to the plan, so the thin bars follow a drag', () => {
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    store.shiftTask(1, 2).subscribe();
+    http.expectOne('/api/tasks/1/shift').flush({ task: { ...design, startDate: '2026-03-04', dueDate: '2026-03-10' }, rescheduled: [] });
+    http.expectOne('/api/projects/7/critical-path').flush(noPath);
+    http.expectOne('/api/projects/7/schedule-issues').flush([]);
+    http.expectOne('/api/baselines/31/comparison').flush({ ...comparison(31), counts: { unchanged: 1, slipped: 1, pulledIn: 0, added: 0, removed: 0 } });
+    expect(store.comparison()?.counts.slipped).toBe(1);
+  });
+
+  it('drops the comparison and keeps the reason when it cannot be fetched, and an older answer does not count', () => {
+    const first = http.expectOne('/api/baselines/31/comparison');
+    store.compareWith(30);
+    const second = http.expectOne('/api/baselines/30/comparison');
+    first.flush(comparison(31));
+    expect(store.comparison()).toBeNull();
+    second.flush('down', { status: 503, statusText: 'Service Unavailable' });
+    expect(store.comparison()).toBeNull();
+    expect(store.comparisonError()).toBeTruthy();
+
+    store.compareWith(null);
+    expect(store.comparisonError()).toBeNull();
+  });
+
+  it('stays on the baseline that was picked when the list is fetched again, unless it was deleted', () => {
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    store.compareWith(30);
+    http.expectOne('/api/baselines/30/comparison').flush(comparison(30));
+    store.loadBaselines();
+    http.expectOne('/api/projects/7/baselines').flush([agreed, signedOff]);
+    http.expectOne('/api/baselines/30/comparison').flush(comparison(30));
+    expect(store.comparedId()).toBe(30);
+    store.loadBaselines();
+    http.expectOne('/api/projects/7/baselines').flush([{ ...signedOff }]);
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    expect(store.comparedId()).toBe(31);
+  });
+
+  it('compares with the first baseline as soon as the project has one', () => {
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    store.baselines.set([]);
+    store.compareWith(null);
+    store.loadBaselines();
+    http.expectOne('/api/projects/7/baselines').flush([signedOff]);
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    expect(store.comparedId()).toBe(31);
+  });
+
+  it('forgets the baselines of the project before when another one loads, and keeps nothing when they cannot be fetched', () => {
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    expect(store.comparison()).not.toBeNull();
+
+    store.load(8).subscribe();
+    // Before anything of the new project has arrived, nothing of the old one is left.
+    expect(store.baselines()).toEqual([]);
+    expect(store.comparedId()).toBeNull();
+    expect(store.comparison()).toBeNull();
+    http.expectOne('/api/projects/8').flush({ id: 8, organisationId: 3, name: 'Other', code: 'OTHER', status: 'ACTIVE' });
+    http.expectOne('/api/projects/8/tasks').flush([]);
+    http.expectOne('/api/projects/8/phases').flush([]);
+    http.expectOne('/api/projects/8/critical-path').flush(noPath);
+    http.expectOne('/api/projects/8/schedule-issues').flush([]);
+    http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/projects/8/baselines').flush('down', { status: 503, statusText: 'Service Unavailable' });
+    expect(store.baselines()).toEqual([]);
+    expect(store.comparison()).toBeNull();
+    expect(store.comparisonError()).toBeTruthy();
+  });
+
+  it('drops a comparison of the project before that arrives after another one was loaded', () => {
+    const late = http.expectOne('/api/baselines/31/comparison');
+    store.load(8).subscribe();
+    late.flush(comparison(31));
+    expect(store.comparison()).toBeNull();
+    http.expectOne('/api/projects/8').flush({ id: 8, organisationId: 3, name: 'Other', code: 'OTHER', status: 'ACTIVE' });
+    http.expectOne('/api/projects/8/tasks').flush([]);
+    http.expectOne('/api/projects/8/phases').flush([]);
+    http.expectOne('/api/projects/8/critical-path').flush(noPath);
+    http.expectOne('/api/projects/8/schedule-issues').flush([]);
+    http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/projects/8/baselines').flush([]);
+    expect(store.comparison()).toBeNull();
+  });
+});
+

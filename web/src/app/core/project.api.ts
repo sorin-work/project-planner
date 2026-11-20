@@ -3,6 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
   ActivityEntry,
+  Baseline,
+  BaselineComparison,
   CriticalPath,
   DuplicateDefaults,
   Phase,
@@ -102,6 +104,26 @@ export class ProjectApi {
 
   activity(id: number, limit = 50): Observable<ActivityEntry[]> {
     return this.http.get<ActivityEntry[]>(`/api/projects/${id}/activity`, { params: { limit } });
+  }
+
+  baselines(projectId: number): Observable<Baseline[]> {
+    return this.http.get<Baseline[]>(`/api/projects/${projectId}/baselines`);
+  }
+
+  takeBaseline(projectId: number, name: string): Observable<Baseline> {
+    return this.http.post<Baseline>(`/api/projects/${projectId}/baselines`, { name });
+  }
+
+  updateBaseline(id: number, body: { name?: string; reference?: boolean }): Observable<Baseline> {
+    return this.http.patch<Baseline>(`/api/baselines/${id}`, body);
+  }
+
+  deleteBaseline(id: number): Observable<void> {
+    return this.http.delete<void>(`/api/baselines/${id}`);
+  }
+
+  baselineComparison(id: number): Observable<BaselineComparison> {
+    return this.http.get<BaselineComparison>(`/api/baselines/${id}/comparison`);
   }
 
   phases(id: number): Observable<Phase[]> {

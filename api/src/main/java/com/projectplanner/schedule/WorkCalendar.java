@@ -110,6 +110,18 @@ public final class WorkCalendar {
         return count - holidays.subSet(start, true, end, true).size();
     }
 
+    /**
+     * How far {@code actual} is from {@code planned} in working days: positive when it
+     * is later, negative when it is earlier, zero for the same day and when only days
+     * off lie in between.
+     */
+    public int slip(LocalDate planned, LocalDate actual) {
+        if (actual.isAfter(planned)) {
+            return workingDaysBetween(planned.plusDays(1), actual);
+        }
+        return actual.isBefore(planned) ? -workingDaysBetween(actual.plusDays(1), planned) : 0;
+    }
+
     /** Duration of a task in working days; a task always takes at least one day. */
     public int duration(LocalDate start, LocalDate end) {
         return Math.max(1, workingDaysBetween(start, end));

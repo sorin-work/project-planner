@@ -9,6 +9,7 @@ import { formatDate } from '../../shared/dates';
 import { Gantt } from '../gantt/gantt';
 import { resizeDates } from '../gantt/gantt-edit';
 import { Zoom } from '../gantt/gantt-layout';
+import { baselineDates, baselineLabels, changedItems, countsText, endText } from './baseline-text';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
 import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
@@ -24,6 +25,17 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
         }
       </div>
       <label><input type="checkbox" [(ngModel)]="showCritical" /> Highlight critical path</label>
+      @if (store.baselines().length) {
+        <label>
+          Compare with
+          <select [ngModel]="store.comparedId()" (ngModelChange)="store.compareWith($event)">
+            <option [ngValue]="null">No baseline</option>
+            @for (b of store.baselines(); track b.id) {
+              <option [ngValue]="b.id">{{ b.name }}{{ b.reference ? ' (reference)' : '' }}</option>
+            }
+          </select>
+        </label>
+      }
       @if (lines().length; as count) {
         <button type="button" class="link danger" [attr.aria-expanded]="showIssues()" (click)="showIssues.set(!showIssues())">
           {{ count }} schedule issue{{ count === 1 ? '' : 's' }}
@@ -44,6 +56,40 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
         The schedule could not be checked after the last change, so warnings are not shown: {{ problem }}
         <button type="button" class="link" (click)="store.refreshSchedule()">Try again</button>
       </p>
+    }
+    @if (store.comparisonError(); as problem) {
+      <p class="alert error" role="alert">
+        The comparison with the baseline could not be fetched, so the baseline bars are not shown: {{ problem }}
+        <button type="button" class="link" (click)="store.refreshComparison()">Try again</button>
+      </p>
+    }
+    @if (store.comparison(); as cmp) {
+      <p class="muted small baseline-summary">
+        Grey bars: {{ cmp.baseline.name }}. {{ countsText(cmp.counts) }}. {{ endText(cmp.planEnd, 'The plan ends') }}.
+        <button type="button" class="link" [attr.aria-expanded]="showChanges()" (click)="showChanges.set(!showChanges())">
+          {{ showChanges() ? 'Hide' : 'List' }} the changes
+        </button>
+      </p>
+      @if (showChanges()) {
+        <section class="card issues-card" aria-label="Changes since the baseline">
+          @if (changes().length) {
+            <ul class="task-lines">
+              @for (item of changes(); track item.key) {
+                <li>
+                  @if (item.kind === 'task' && !item.gone) {
+                    <button type="button" class="link" (click)="openTask(item.id)">{{ item.name }}</button>
+                  } @else {
+                    <span>{{ item.name }}</span>
+                  }
+                  <span class="grow baseline-change">{{ item.text }}</span>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="muted">Every task and phase is where it was in {{ cmp.baseline.name }}.</p>
+          }
+        </section>
+      }
     }
     @if (showIssues() && lines().length) {
       <section class="card issues-card" aria-label="Schedule issues">
@@ -79,7 +125,7 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
     }
     <div class="card gantt-card">
       <app-gantt [tasks]="store.tasks()" [phases]="store.phases()" [critical]="store.criticalIds()"
-        [broken]="store.brokenLinks()" [showCritical]="showCritical" [zoom]="zoom()" [editable]="org.isTeam()" [holidays]="store.holidays()"
+        [broken]="store.brokenLinks()" [baseline]="baselineBars()" [baselineLabels]="baselineTexts()" [showCritical]="showCritical" [zoom]="zoom()" [editable]="org.isTeam()" [holidays]="store.holidays()"
         (moved)="move($event.taskId, $event.days)" (resized)="resize($event)" (extended)="extend($event.taskId, $event.days)"
         (linked)="link($event)" (unlinked)="unlink($event)" (opened)="openTask($event)" />
     </div>
@@ -99,6 +145,12 @@ export class TimelineTab {
   protected readonly endNote = computed(() =>
     planEndNote(this.store.criticalPath()?.finish, this.store.tasks(), this.store.issues()),
   );
+  protected readonly showChanges = signal(false);
+  protected readonly baselineBars = computed(() => baselineDates(this.store.comparison()));
+  protected readonly baselineTexts = computed(() => baselineLabels(this.store.comparison()));
+  protected readonly changes = computed(() => changedItems(this.store.comparison()));
+  protected readonly countsText = countsText;
+  protected readonly endText = endText;
   protected readonly message = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly formatDate = formatDate;

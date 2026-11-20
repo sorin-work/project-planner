@@ -9,6 +9,9 @@ export const DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 12, month: 4 };
 export const ROW_HEIGHT = 32;
 export const HEADER_HEIGHT = 44;
 const BAR_HEIGHT = 18;
+/** The baseline's thin bar under a bar: between the bar's lower edge and the row line. */
+export const BASELINE_HEIGHT = 4;
+const BASELINE_GAP = 1;
 /** Half the width of a milestone's diamond. */
 export const MILESTONE_RADIUS = 8;
 
@@ -32,6 +35,8 @@ export interface GanttBar {
   done: boolean;
   /** 0-100, from the task's status (subtask share for parents). */
   progress: number;
+  /** Where the task was in the baseline being compared with, drawn as a thin bar under this one. */
+  baseline?: { x: number; y: number; width: number; height: number };
 }
 
 export interface GanttLink {
@@ -66,10 +71,39 @@ export interface GanttLayout {
   todayX: number | null;
 }
 
-/** Visible date range: the plan plus some breathing room, starting on a Monday. */
-export function dateRange(tasks: Task[], reference: string = today()): { start: string; end: string } {
-  const first = minDate(tasks.flatMap((t) => [t.startDate, t.dueDate])) ?? reference;
-  const last = maxDate(tasks.flatMap((t) => [t.dueDate, t.startDate])) ?? addDays(reference, 28);
+/** The room a month label takes in the header: "Sep 2027" in bold 11 pixel type, with its padding. */
+export const MONTH_LABEL_WIDTH = 64;
+
+/**
+ * The month labels of the header: one where each month begins, and one at the left
+ * edge for the month the chart begins in. That first month can be a single day (the
+ * chart begins on a Monday, which may be the 31st), and its label would then be
+ * printed over the next one. So it is left out when the next month begins before the
+ * label ends. Every month after it is whole and wide enough at every zoom.
+ */
+export function monthLabels(start: string, days: number, dayWidth: number): GanttTick[] {
+  const months: GanttTick[] = [];
+  for (let i = 0; i < days; i++) {
+    const date = addDays(start, i);
+    if (i === 0 || toDate(date).getUTCDate() === 1) {
+      months.push({ x: i * dayWidth, label: `${monthName(date)} ${date.slice(0, 4)}`, major: true });
+    }
+  }
+  if (months.length > 1 && months[1].x - months[0].x < MONTH_LABEL_WIDTH) {
+    months.shift();
+  }
+  return months;
+}
+
+/**
+ * Visible date range: the plan plus some breathing room, starting on a Monday. Any
+ * {@code extra} dates are in it too: those of a baseline, whose bars would otherwise
+ * fall off the left edge when the plan has slipped.
+ */
+export function dateRange(tasks: Task[], reference: string = today(), extra: string[] = []): { start: string; end: string } {
+  const dates = [...tasks.flatMap((t) => [t.startDate, t.dueDate]), ...extra];
+  const first = minDate(dates) ?? reference;
+  const last = maxDate(dates) ?? addDays(reference, 28);
   const start = weekStart(addDays(first, -3));
   const end = addDays(last, 14);
   return { start, end };
@@ -113,11 +147,21 @@ export function linkPath(fromX: number, fromY: number, toX: number, toY: number)
 export function layoutGantt(
   tasks: Task[],
   phases: Phase[],
-  options: { zoom: Zoom; critical: Set<number>; collapsed: Set<number>; today?: string; broken?: Set<string>; holidays?: Holidays },
+  options: {
+    zoom: Zoom;
+    critical: Set<number>;
+    collapsed: Set<number>;
+    today?: string;
+    broken?: Set<string>;
+    /** Baseline dates by task, from the API's comparison. A task without an entry has no thin bar. */
+    baseline?: Map<number, { start: string; due: string }>;
+    holidays?: Holidays;
+  },
 ): GanttLayout {
   const dayWidth = DAY_WIDTH[options.zoom];
   const now = options.today ?? today();
-  const { start, end } = dateRange(tasks, now);
+  const baseline = options.baseline ?? new Map<number, { start: string; due: string }>();
+  const { start, end } = dateRange(tasks, now, [...baseline.values()].flatMap((d) => [d.start, d.due]));
   const days = diffDays(start, end) + 1;
 
   const rows: GanttRow[] = [];
@@ -151,6 +195,11 @@ export function layoutGantt(
       rowOf.set(task.id, y);
       const from = task.startDate ?? task.dueDate;
       const to = task.dueDate ?? task.startDate;
+      const then = baseline.get(task.id);
+      const barY = y + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+      const thin = then
+        ? { ...barSpan(then.start, then.due, start, dayWidth), y: barY + BAR_HEIGHT + BASELINE_GAP, height: BASELINE_HEIGHT }
+        : undefined;
       if (from && to) {
         const span = barSpan(from, to, start, dayWidth);
         const counts = subtaskCounts.get(task.id);
@@ -159,13 +208,14 @@ export function layoutGantt(
         bars.push({
           task,
           x: span.x,
-          y: y + (ROW_HEIGHT - BAR_HEIGHT) / 2,
+          y: barY,
           width: task.milestone ? dayWidth : span.width,
           height: BAR_HEIGHT,
           milestone: task.milestone,
           critical: options.critical.has(task.id),
           done: task.status === 'DONE',
           progress,
+          baseline: thin,
         });
       }
       y += ROW_HEIGHT;
@@ -196,14 +246,11 @@ export function layoutGantt(
 
   const holidays = options.holidays ?? NO_HOLIDAYS;
   const ticks: GanttTick[] = [];
-  const months: GanttTick[] = [];
+  const months = monthLabels(start, days, dayWidth);
   const weekends: { x: number; width: number }[] = [];
   for (let i = 0; i < days; i++) {
     const date = addDays(start, i);
     const x = i * dayWidth;
-    if (toDate(date).getUTCDate() === 1 || i === 0) {
-      months.push({ x, label: `${monthName(date)} ${date.slice(0, 4)}`, major: true });
-    }
     if (options.zoom === 'day') {
       ticks.push({ x, label: String(toDate(date).getUTCDate()), major: isWorkingDay(date, holidays) });
     } else if (options.zoom === 'week' && i % 7 === 0) {

@@ -1065,6 +1065,16 @@ select.compact {
   flex-wrap: wrap;
 }
 
+/* How a task compares with a baseline: information, not a warning. */
+.baseline-change {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.toolbar label {
+  white-space: nowrap;
+}
+
 .deps .issue-note {
   flex-basis: 100%;
   margin-top: 0;
@@ -1367,6 +1377,13 @@ select.compact {
 .gantt-svg .bar.done .bar-bg,
 .gantt-svg .bar.done .bar-progress {
   fill: color-mix(in srgb, var(--good) 55%, var(--surface));
+}
+
+/* Where the task was in the baseline being compared with: grey, thin, under the bar. */
+.gantt-svg .baseline-bar {
+  fill: var(--muted);
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 .gantt-svg .milestone {

@@ -1,6 +1,9 @@
 import { Phase, Task } from '../../core/models';
 import { linkKey } from '../project/schedule-issues';
-import { DAY_WIDTH, HEADER_HEIGHT, ROW_HEIGHT, barSpan, dateRange, dragDays, layoutGantt, linkEnds, linkPath, xOf } from './gantt-layout';
+import { addDays } from '../../shared/dates';
+import {
+  BASELINE_HEIGHT, DAY_WIDTH, HEADER_HEIGHT, MONTH_LABEL_WIDTH, ROW_HEIGHT, barSpan, dateRange, dragDays, layoutGantt, linkEnds, linkPath, monthLabels, xOf,
+} from './gantt-layout';
 
 function task(id: number, startDate?: string, dueDate?: string, extra: Partial<Task> = {}): Task {
   return {
@@ -10,6 +13,27 @@ function task(id: number, startDate?: string, dueDate?: string, extra: Partial<T
 }
 
 describe('gantt layout', () => {
+  it('draws the baseline as a thin bar under the bar, inside its row', () => {
+    const baseline = new Map([[1, { start: '2026-03-02', due: '2026-03-04' }]]);
+    const layout = layoutGantt([task(1, '2026-03-04', '2026-03-10'), task(2, '2026-03-05', '2026-03-06')], [], {
+      zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-01', baseline,
+    });
+    const [moved, other] = layout.bars;
+    // Two days earlier and three days long, from the column of 2 March.
+    expect(moved.baseline).toEqual({ x: xOf('2026-03-02', layout.start, 28), y: moved.y + moved.height + 1, width: 3 * 28, height: BASELINE_HEIGHT });
+    expect(moved.baseline!.y + BASELINE_HEIGHT).toBeLessThanOrEqual(HEADER_HEIGHT + ROW_HEIGHT);
+    expect(other.baseline).toBeUndefined();
+  });
+
+  it('widens the range to the baseline, so a plan that slipped keeps its old bars on screen', () => {
+    const tasks = [task(1, '2026-04-06', '2026-04-10')];
+    const baseline = new Map([[1, { start: '2026-03-02', due: '2026-03-06' }]]);
+    const layout = layoutGantt(tasks, [], { zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-01', baseline });
+    expect(layout.start).toBe(dateRange([task(9, '2026-03-02', '2026-03-06')]).start);
+    expect(layout.bars[0].baseline!.x).toBeGreaterThanOrEqual(0);
+    expect(dateRange(tasks, '2026-03-01', ['2026-05-01']).end).toBe(addDays('2026-05-01', 14));
+  });
+
   it('starts the range on a Monday a few days before the first task', () => {
     const range = dateRange([task(1, '2026-03-04', '2026-03-10')]);
     expect(range.start).toBe('2026-02-23');
@@ -89,6 +113,37 @@ describe('gantt layout', () => {
       expect.objectContaining({ id: 50, broken: true, critical: true }),
       expect.objectContaining({ id: 51, broken: false }),
     ]);
+  });
+
+  it('labels the month the chart begins in and every month that begins in it', () => {
+    // Monday 24 May 2027: eight days of May at day zoom are plenty for its label.
+    expect(monthLabels('2027-05-24', 50, DAY_WIDTH.day).map((m) => `${m.label} at ${m.x}`)).toEqual([
+      'May 2027 at 0', 'Jun 2027 at 224', 'Jul 2027 at 1064',
+    ]);
+    expect(monthLabels('2027-06-01', 20, DAY_WIDTH.week).map((m) => m.label)).toEqual(['Jun 2027']);
+  });
+
+  it('leaves out the label of a first month that is too short to hold it', () => {
+    // The chart begins on Monday 31 May: "May 2027" would be printed over "Jun 2027" one column on.
+    expect(monthLabels('2027-05-31', 50, DAY_WIDTH.week).map((m) => `${m.label} at ${m.x}`)).toEqual([
+      'Jun 2027 at 12', 'Jul 2027 at 372',
+    ]);
+    expect(monthLabels('2027-05-31', 50, DAY_WIDTH.day)[0]).toEqual({ x: 28, label: 'Jun 2027', major: true });
+    // At month zoom a day is four pixels: two weeks are not enough, three are.
+    expect(monthLabels('2027-05-17', 90, DAY_WIDTH.month)[0].label).toBe('Jun 2027');
+    expect(monthLabels('2027-05-10', 90, DAY_WIDTH.month)[0].label).toBe('May 2027');
+  });
+
+  it('never prints two month labels into each other, whatever day the chart begins on', () => {
+    for (const dayWidth of Object.values(DAY_WIDTH)) {
+      for (let offset = 0; offset < 70; offset += 7) {
+        const labels = monthLabels(addDays('2027-05-03', offset), 200, dayWidth);
+        expect(labels.length).toBeGreaterThan(3);
+        for (let i = 1; i < labels.length; i++) {
+          expect(labels[i].x - labels[i - 1].x, `${labels[i - 1].label} at ${dayWidth} px`).toBeGreaterThanOrEqual(MONTH_LABEL_WIDTH);
+        }
+      }
+    }
   });
 
   it('hides the tasks of collapsed phases', () => {
