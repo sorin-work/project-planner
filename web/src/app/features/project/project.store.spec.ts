@@ -198,4 +198,41 @@ describe('ProjectStore baselines', () => {
     http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
     expect(store.comparedId()).toBe(31);
   });
+
+  it('forgets the baselines of the project before when another one loads, and keeps nothing when they cannot be fetched', () => {
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    expect(store.comparison()).not.toBeNull();
+
+    store.load(8).subscribe();
+    // Before anything of the new project has arrived, nothing of the old one is left.
+    expect(store.baselines()).toEqual([]);
+    expect(store.comparedId()).toBeNull();
+    expect(store.comparison()).toBeNull();
+    http.expectOne('/api/projects/8').flush({ id: 8, organisationId: 3, name: 'Other', code: 'OTHER', status: 'ACTIVE' });
+    http.expectOne('/api/projects/8/tasks').flush([]);
+    http.expectOne('/api/projects/8/phases').flush([]);
+    http.expectOne('/api/projects/8/critical-path').flush(noPath);
+    http.expectOne('/api/projects/8/schedule-issues').flush([]);
+    http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/projects/8/baselines').flush('down', { status: 503, statusText: 'Service Unavailable' });
+    expect(store.baselines()).toEqual([]);
+    expect(store.comparison()).toBeNull();
+    expect(store.comparisonError()).toBeTruthy();
+  });
+
+  it('drops a comparison of the project before that arrives after another one was loaded', () => {
+    const late = http.expectOne('/api/baselines/31/comparison');
+    store.load(8).subscribe();
+    late.flush(comparison(31));
+    expect(store.comparison()).toBeNull();
+    http.expectOne('/api/projects/8').flush({ id: 8, organisationId: 3, name: 'Other', code: 'OTHER', status: 'ACTIVE' });
+    http.expectOne('/api/projects/8/tasks').flush([]);
+    http.expectOne('/api/projects/8/phases').flush([]);
+    http.expectOne('/api/projects/8/critical-path').flush(noPath);
+    http.expectOne('/api/projects/8/schedule-issues').flush([]);
+    http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/projects/8/baselines').flush([]);
+    expect(store.comparison()).toBeNull();
+  });
 });
+

@@ -42,9 +42,12 @@ export class ProjectStore {
 
   private scheduleRequest = 0;
   private comparisonRequest = 0;
+  private baselinesRequest = 0;
 
   load(projectId: number): Observable<void> {
     this.loading.set(true);
+    // Nothing of the project shown before stays on screen while this one loads, or after it fails.
+    this.clearBaselines();
     return forkJoin({
       project: this.projects.get(projectId),
       tasks: this.tasksApi.list(projectId),
@@ -163,8 +166,12 @@ export class ProjectStore {
     if (!project) {
       return;
     }
+    const request = ++this.baselinesRequest;
     this.projects.baselines(project.id).subscribe({
       next: (baselines) => {
+        if (request !== this.baselinesRequest) {
+          return;
+        }
         // With no baselines before, "no baseline" was not a choice: the first one is compared with at once.
         const hadSome = this.baselines().length > 0;
         this.baselines.set(baselines);
@@ -172,8 +179,23 @@ export class ProjectStore {
         const keep = !pickReference && hadSome && (picked === null || baselines.some((b) => b.id === picked));
         this.compareWith(keep ? picked : (baselines.find((b) => b.reference)?.id ?? null));
       },
-      error: (err: unknown) => this.comparisonError.set(messageOf(err)),
+      error: (err: unknown) => {
+        if (request === this.baselinesRequest) {
+          this.clearBaselines();
+          this.comparisonError.set(messageOf(err));
+        }
+      },
     });
+  }
+
+  /** Forgets the baselines and the comparison, and drops any answer still on its way for them. */
+  private clearBaselines(): void {
+    this.baselinesRequest++;
+    this.comparisonRequest++;
+    this.baselines.set([]);
+    this.comparedId.set(null);
+    this.comparison.set(null);
+    this.comparisonError.set(null);
   }
 
   /** Compares the plan with another baseline, or with none. */
