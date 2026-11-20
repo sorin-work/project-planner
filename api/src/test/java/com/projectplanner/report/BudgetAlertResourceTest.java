@@ -4,6 +4,7 @@ import com.projectplanner.project.Project;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
+import com.projectplanner.support.LockLog;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
@@ -280,5 +281,60 @@ class BudgetAlertResourceTest {
         }
         // The one that was told came first and saw its own entry. The second saw both and a level that was announced.
         assertThat(alerts(owner)).hasSize(6).allMatch(message -> message.endsWith("has used 83% of its hours budget: 8.25 of 10 hours"));
+    }
+
+    @Test
+    void rowsAreTakenMembershipsFirstThenProjects() {
+        // A keyed create takes the person's membership and then the project. A rate change has to
+        // take them in the same order, or the two can wait for each other on PostgreSQL. H2 does
+        // not show that deadlock, so the order itself is what is checked.
+        Account owner = Api.signup("Vera");
+        Account member = Api.signup("Wim");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = project(owner, "ORDER", null, 1000);
+        log(member, owner, projectId, 60, true);
+        Number membershipId = owner.as().get("/api/orgs/" + owner.orgId() + "/members").then()
+                .extract().path("find { it.userId == " + member.userId() + " }.id");
+
+        LockLog.start();
+        owner.as().body(Map.of("hourlyRate", 80)).patch("/api/orgs/" + owner.orgId() + "/members/" + membershipId).then().statusCode(200);
+        assertThat(LockLog.stop()).containsExactly("memberships", "projects");
+
+        LockLog.start();
+        member.as().body(Map.of("projectId", projectId, "date", WEEK.toString(), "minutes", 30, "clientKey", "lock-order-key-1"))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201);
+        assertThat(LockLog.stop()).containsExactly("memberships", "projects");
+    }
+
+    @Test
+    void savingTheSameRatesAgainLocksNothing() {
+        Account owner = Api.signup("Xena");
+        owner.as().body(Map.of("defaultHourlyRate", 50)).patch("/api/orgs/" + owner.orgId()).then().statusCode(200);
+        owner.as().body(Map.of("rates", List.of(Map.of("role", "MEMBER", "hourlyRate", 70))))
+                .put("/api/orgs/" + owner.orgId() + "/role-rates").then().statusCode(200);
+        project(owner, "SAME", null, 1000);
+
+        // The settings page sends the rate with every save, here with a new name and the rate written differently.
+        LockLog.start();
+        owner.as().body(Map.of("name", "Renamed", "defaultHourlyRate", "50.00")).patch("/api/orgs/" + owner.orgId()).then().statusCode(200);
+        owner.as().body(Map.of("rates", List.of(Map.of("role", "MEMBER", "hourlyRate", 70))))
+                .put("/api/orgs/" + owner.orgId() + "/role-rates").then().statusCode(200);
+        assertThat(LockLog.stop()).doesNotContain("projects");
+    }
+
+    @Test
+    void aProjectOfAnotherOrganisationIsNeverLocked() {
+        Account owner = Api.signup("Yann");
+        Account stranger = Api.signup("Zoe");
+        long theirs = project(stranger, "THEIRS", 10, null);
+        long mine = project(owner, "MINE", 10, null);
+        long entry = log(owner, owner, mine, 60, false);
+
+        LockLog.start();
+        owner.as().body(Map.of("projectId", theirs, "date", WEEK.toString(), "minutes", 30))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(400).body("code", equalTo("unknown_project"));
+        owner.as().body(Map.of("projectId", theirs, "date", WEEK.toString(), "minutes", 30))
+                .put("/api/orgs/" + owner.orgId() + "/time-entries/" + entry).then().statusCode(400).body("code", equalTo("unknown_project"));
+        assertThat(LockLog.stop()).doesNotContain("projects");
     }
 }
