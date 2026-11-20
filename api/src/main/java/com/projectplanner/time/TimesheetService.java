@@ -22,6 +22,7 @@ import com.projectplanner.time.TimeDtos.RemindResponse;
 import com.projectplanner.time.TimeDtos.SkippedReminder;
 import com.projectplanner.time.TimeDtos.TimesheetSummary;
 import com.projectplanner.time.TimeDtos.WeekResponse;
+import io.quarkus.panache.common.Parameters;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;
 
@@ -276,14 +277,20 @@ public class TimesheetService {
         if (sheets.isEmpty()) {
             return result;
         }
-        // Everything at once: the entries of all the weeks in one query, then the projects they
-        // are on and the people, so that a long queue costs what a short one does.
+        // Everything at once: the entries of exactly the queued weeks in one query, then the projects
+        // they are on and the people, so that a long queue costs what a short one does, and a week
+        // between two queued ones is not read.
         Set<Long> userIds = sheets.stream().map(sheet -> sheet.userId).collect(Collectors.toSet());
-        LocalDate from = sheets.stream().map(sheet -> sheet.weekStart).min(LocalDate::compareTo).orElseThrow();
-        LocalDate to = sheets.stream().map(sheet -> sheet.weekStart).max(LocalDate::compareTo).orElseThrow().plusDays(6);
+        StringBuilder weeks = new StringBuilder();
+        Parameters params = Parameters.with("org", organisationId);
+        for (int i = 0; i < sheets.size(); i++) {
+            Timesheet sheet = sheets.get(i);
+            weeks.append(i == 0 ? "" : " or ").append("(userId = :u").append(i).append(" and entryDate between :f").append(i)
+                    .append(" and :t").append(i).append(')');
+            params.and("u" + i, sheet.userId).and("f" + i, sheet.weekStart).and("t" + i, sheet.weekStart.plusDays(6));
+        }
         Map<Long, Map<LocalDate, List<TimeEntry>>> byWeek = new HashMap<>();
-        TimeEntry.<TimeEntry>list("organisationId = ?1 and userId in ?2 and entryDate between ?3 and ?4",
-                        organisationId, userIds, from, to)
+        TimeEntry.<TimeEntry>list("organisationId = :org and (" + weeks + ")", params)
                 .forEach(e -> byWeek.computeIfAbsent(e.userId, id -> new HashMap<>())
                         .computeIfAbsent(WorkCalendar.weekStart(e.entryDate), week -> new ArrayList<>()).add(e));
         Set<Long> projectIds = byWeek.values().stream().flatMap(weeks -> weeks.values().stream()).flatMap(List::stream)
