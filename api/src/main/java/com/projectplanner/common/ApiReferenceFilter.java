@@ -13,18 +13,25 @@ import org.eclipse.microprofile.openapi.models.responses.APIResponse;
 import org.eclipse.microprofile.openapi.models.responses.APIResponses;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
+import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
 
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * Finishes the OpenAPI document when the API is built, after the resources have been
@@ -36,7 +43,9 @@ import java.util.TreeMap;
  * <li>the errors: the ones a method names with {@link Fails}, 401 wherever a token is
  * needed, and for everything else the one shared response from
  * {@code META-INF/openapi.yaml}. The body is an {@link ApiError} every time;</li>
- * <li>names for the records of the rule classes, which stay free of OpenAPI annotations.</li>
+ * <li>the names of the schemas, see {@link ApiSchemaNames}. That is also where the records
+ * of the rule classes get a name that says something outside their class, without the rule
+ * classes having to know about OpenAPI.</li>
  * </ul>
  */
 @OpenApiFilter(OpenApiFilter.RunStage.BUILD)
@@ -51,12 +60,17 @@ public class ApiReferenceFilter implements OASFilter {
     private static final DotName FAILS = DotName.createSimple(Fails.class.getName());
 
     private static final String SCHEMAS = "#/components/schemas/";
-    /** A schema is named after its record. For these, that says too little outside their class. */
+    private static final String APPLICATION = "com.projectplanner.";
+    /**
+     * A schema is named after its class, without the package. For these that says too
+     * little, or the same as another class. By the full name of the class, since only that
+     * tells two classes apart.
+     */
     private static final Map<String, String> SCHEMA_NAMES = Map.of(
-            "Result", "CriticalPath",
-            "IssueType", "ScheduleIssueType",
-            "Missing", "MissingTimesheet",
-            "Skip", "ReminderSkipReason");
+            "com.projectplanner.schedule.CriticalPath$Result", "CriticalPath",
+            "com.projectplanner.schedule.ScheduleCheck$IssueType", "ScheduleIssueType",
+            "com.projectplanner.time.MissingTimesheets$Missing", "MissingTimesheet",
+            "com.projectplanner.time.MissingTimesheets$Skip", "ReminderSkipReason");
 
     private final IndexView index;
 
@@ -64,28 +78,12 @@ public class ApiReferenceFilter implements OASFilter {
         this.index = index;
     }
 
-    /** Called for every schema in the document, wherever it is used, before {@link #filterOpenAPI}. */
-    @Override
-    public Schema filterSchema(Schema schema) {
-        String ref = schema.getRef();
-        if (ref != null && ref.startsWith(SCHEMAS) && SCHEMA_NAMES.containsKey(ref.substring(SCHEMAS.length()))) {
-            schema.setRef(SCHEMAS + SCHEMA_NAMES.get(ref.substring(SCHEMAS.length())));
-        }
-        return schema;
-    }
-
     @Override
     public void filterOpenAPI(OpenAPI document) {
         if (document.getPaths() == null || document.getPaths().getPathItems() == null) {
             return;
         }
-        SCHEMA_NAMES.forEach((scanned, name) -> {
-            Schema schema = document.getComponents().getSchemas().get(scanned);
-            if (schema != null) {
-                document.getComponents().removeSchema(scanned);
-                document.getComponents().addSchema(name, schema);
-            }
-        });
+        nameSchemas(document);
         Map<String, MethodInfo> methods = resourceMethods();
         for (PathItem path : document.getPaths().getPathItems().values()) {
             for (Operation operation : path.getOperations().values()) {
@@ -95,6 +93,84 @@ public class ApiReferenceFilter implements OASFilter {
                     documentFailures(operation, method);
                 }
                 documentCommonErrors(operation);
+            }
+        }
+    }
+
+    /** Gives every schema the name {@link ApiSchemaNames} decides on, wherever the document refers to it. */
+    private void nameSchemas(OpenAPI document) {
+        Map<String, Schema> schemas = document.getComponents().getSchemas();
+        Map<String, Set<String>> scanned = new TreeMap<>();
+        schemas.forEach((name, schema) -> scanned.put(name, schema.getProperties() != null ? schema.getProperties().keySet()
+                : schema.getEnumeration() != null ? schema.getEnumeration().stream().map(String::valueOf).collect(Collectors.toSet())
+                : Set.of()));
+        // By name: the index is made of several, and a class can be in more than one of them.
+        Map<String, ApiSchemaNames.Known> classes = new TreeMap<>();
+        index.getKnownClasses().stream()
+                .filter(info -> info.name().toString().startsWith(APPLICATION))
+                .forEach(info -> classes.put(info.name().toString(), known(info)));
+
+        Map<String, String> renames = ApiSchemaNames.renames(scanned, classes.values(), SCHEMA_NAMES);
+        if (renames.isEmpty()) {
+            return;
+        }
+        Map<String, Schema> named = new TreeMap<>();
+        schemas.forEach((name, schema) -> named.put(renames.getOrDefault(name, name), schema));
+        document.getComponents().setSchemas(named);
+
+        Map<String, String> references = new HashMap<>();
+        renames.forEach((from, to) -> references.put(SCHEMAS + from, SCHEMAS + to));
+        named.values().forEach(schema -> refer(schema, references));
+        if (document.getComponents().getResponses() != null) {
+            document.getComponents().getResponses().values().forEach(response -> refer(response.getContent(), references));
+        }
+        for (PathItem path : document.getPaths().getPathItems().values()) {
+            for (Operation operation : path.getOperations().values()) {
+                if (operation.getParameters() != null) {
+                    operation.getParameters().forEach(parameter -> refer(parameter.getSchema(), references));
+                }
+                if (operation.getRequestBody() != null) {
+                    refer(operation.getRequestBody().getContent(), references);
+                }
+                operation.getResponses().getAPIResponses().values().forEach(response -> refer(response.getContent(), references));
+            }
+        }
+    }
+
+    private static ApiSchemaNames.Known known(ClassInfo info) {
+        Set<String> members = new TreeSet<>();
+        if (info.isEnum()) {
+            info.enumConstants().forEach(constant -> members.add(constant.name()));
+        } else if (info.isRecord()) {
+            info.recordComponents().forEach(component -> members.add(component.name()));
+        } else {
+            info.fields().stream().filter(field -> !Modifier.isStatic(field.flags())).forEach(field -> members.add(field.name()));
+        }
+        return new ApiSchemaNames.Known(info.name().toString(), members);
+    }
+
+    private static void refer(Content content, Map<String, String> references) {
+        if (content != null && content.getMediaTypes() != null) {
+            content.getMediaTypes().values().forEach(media -> refer(media.getSchema(), references));
+        }
+    }
+
+    /** Points a schema, and every schema inside it, at the new names. */
+    private static void refer(Schema schema, Map<String, String> references) {
+        if (schema == null) {
+            return;
+        }
+        if (schema.getRef() != null && references.containsKey(schema.getRef())) {
+            schema.setRef(references.get(schema.getRef()));
+        }
+        refer(schema.getItems(), references);
+        refer(schema.getNot(), references);
+        refer(schema.getAdditionalPropertiesSchema(), references);
+        for (Collection<Schema> inside : Arrays.asList(
+                schema.getProperties() == null ? null : schema.getProperties().values(),
+                schema.getAllOf(), schema.getAnyOf(), schema.getOneOf())) {
+            if (inside != null) {
+                inside.forEach(part -> refer(part, references));
             }
         }
     }
