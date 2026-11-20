@@ -31,7 +31,7 @@ couple of weekends, **L** several weeks of spare time.
 | 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
 | 9   | Time and utilisation reports               | Later | both     | M    | -          |
 | 10  | Budget alerts                              | Later | both     | S    | -          |
-| 11  | Invitation and password reset emails       | Later | both     | M    | -          |
+| 11  | Invitation and password reset emails       | Shipped | both     | M    | -          |
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
 | 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
 | 14  | Performance on large projects              | Later | both     | M    | -          |
@@ -260,64 +260,6 @@ and that is the one thing of theirs I miss.
 - Undecided: alerts for the schedule (health turning off track, or the plan
   running past `Project.endDate` after a cascade). Those need hooks in
   `TaskService` as well. Not here.
-
-### 11. Invitation and password reset emails
-
-The app sends no email at all, and two things are broken without it. Inviting
-somebody who has no account stores an `Invitation` and tells the manager that
-the person "joins automatically when they sign up with that address", but the
-person is never told. And a forgotten password cannot be reset:
-`MeResource.changePassword` needs the current one, so the only way back in is
-editing the database.
-
-- Mail: add `quarkus-mailer`. Settings: `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`
-  and `APP_URL` (links need the web app's address, and the API does not know
-  it). Mailpit as a `mail` service in `docker-compose.yml`, with its inbox on
-  a host port listed with the other three in `.env.example`.
-- Without `MAIL_HOST` nothing is sent and the app behaves as it does today. In
-  dev and test `quarkus.mailer.mock` is on by default, and tests assert on the
-  injected `MockMailbox`.
-- Invitations: `OrgResource.invite` mails "Maya invited you to Brightline
-  Studio" with a link to `/signup?email=...`. `SignupPage` reads the
-  parameter. The router already binds query parameters to inputs
-  (`withComponentInputBinding`, used by `LoginPage.returnUrl`). People who
-  already have an account are added at once today. Mail them too. Add a
-  "Resend" link beside "cancel" in `team.page.html`.
-- Reset: `POST /api/auth/forgot` with an email always answers 204, whether the
-  account exists or not. `POST /api/auth/reset` takes the token and a new
-  password. A `password_resets` table holds the user, a SHA-256 of the token,
-  an expiry of one hour and a used-at time
-  (`V18__create_password_resets.sql`). New pages `/forgot` and `/reset` under
-  `guestGuard`, and a link on `LoginPage`.
-- Tricky: joining by typing an address. `AuthService.signup` accepts every
-  pending invitation for the email it is given, and nothing proves that the
-  person owns that address. Today that is the only way to join. Once
-  invitations are mailed, the link can carry a token (a `token_hash` on
-  `invitations`, in the same migration) and sign-up can insist on it. I lean
-  towards requiring the token when mail is configured and keeping the current
-  behaviour when it is not.
-- Tricky: a reset does not end other sessions. Logins are stateless JWTs valid
-  for `JWT_TTL` (seven days). Only `CurrentUser.get()` loads the user, and
-  only `MeResource` calls it. Everything else goes through `OrgAccess` or
-  `NotificationResource`, which ask `CurrentUser.id()` for the id in the token
-  and never look at the user. A check in `get()` would leave old tokens valid
-  on nearly every endpoint.
-- So the check goes into `CurrentUser.id()`, the one method every signed-in
-  request passes through (`get()` calls it too). Load the user there, once per
-  request (the bean is request-scoped), and answer 401 when the token was
-  issued before a new `password_changed_at` on `users` (same migration).
-  `TokenService.issue` already puts an issued-at time in the token. Compare in
-  whole seconds: issued-at has no fractions, and a login straight after the
-  change must not be thrown out. The price is one user lookup per request. I
-  would pay it, since `MeResource.changePassword` has the same hole.
-- Tricky: `/api/auth/forgot` can be used to flood somebody's inbox, and
-  nothing in the API is rate limited. One live token per user and a minimum
-  gap between mails covers it without new machinery.
-- Templates: plain text plus simple HTML, with Qute, which the mailer brings
-  along.
-- Undecided: verifying the address at sign-up. It would close the hole above
-  for everybody, but the first run of a fresh install would then depend on
-  working mail. I would not.
 
 ### 12. Notification emails and preferences
 
@@ -842,6 +784,29 @@ scroll while something is dragged (two bars that are not on screen together
 are linked at week zoom or in the task panel), a parent's subtasks do not
 follow when it is resized, and drawing a bar for a task without dates is the
 follow-up it was.
+
+### 11. Invitation and password reset emails
+
+Mail goes out by plain SMTP with `quarkus-mailer` when `MAIL_HOST` is set, and then
+`MAIL_FROM` and `APP_URL` are required, links being built from `APP_URL` and never
+from the Host header. TLS is required unless `MAIL_STARTTLS=DISABLED`, which
+`.env.example` sets for Mailpit, the optional `mail` service (page on 127.0.0.1, SMTP
+not published). Without mail the app behaves as before, the reset endpoints answer
+`mail_off` and the web app hides the links. `POST /api/auth/forgot` always answers
+204, does its work on a mail thread after the answer, is limited per client and per
+account (one a minute, three live links, never cancelling an earlier one), and
+`POST /api/auth/reset` uses a link with one conditional update. Invitations get a
+hashed, single-use link for seven days, a "resend" that replaces it and
+`POST /api/invitations/accept` for an existing account with the invited address.
+`V18` adds `password_resets`, `users.password_changed_at` (checked in
+`CurrentUser.id()`, in whole seconds) and the link columns on `invitations`. Different
+from the design: the mails carry no names, not "Maya invited you to Brightline
+Studio", the token travels after the `#` instead of `/signup?email=`, the links go to
+new `/invite` and `/reset` pages, and requiring the invitation link at sign-up is a
+setting, `INVITE_LINK_REQUIRED`, off by default. A password change now answers with a
+new token, since it ends the session it was made in too. Still open: verifying the
+address at sign-up (not done, as the roadmap leaned), and the per-client limit is kept
+in memory, so it resets on restart and is per API instance.
 
 ### 13. Duplicate a project as a template
 
