@@ -48,6 +48,9 @@ the point is knowing whether a project will land on time and on budget.
   autocomplete), in-app notifications, an activity log per project and organisation.
 - **CSV export** of timesheets (rate and amount columns for managers), safe to open in
   a spreadsheet.
+- **Backups**: with Docker, an optional service dumps the whole database once a day
+  and keeps the last seven dumps, and the same script puts one back. See
+  [Backup and restore](#backup-and-restore).
 
 Ideas for what could come next are in [ROADMAP.md](ROADMAP.md).
 
@@ -129,10 +132,12 @@ mentions and some notifications. All dates are relative to the day it runs. Set
 | web     | 5191      | http://localhost:5191                               | nginx; proxies `/api` to the API  |
 | api     | 4411      | http://localhost:4411/q/health                      | Quarkus                           |
 | db      | 5451      | `postgresql://planner:planner@localhost:5451/planner` | Postgres 17                     |
+| backup  | none      |                                                     | optional, daily dumps to `./backups` |
 
 Ports can be changed with `WEB_PORT`, `API_PORT` and `DB_PORT` (in `.env` or inline,
 e.g. `WEB_PORT=8081 docker compose up`). Data lives in the `db-data` volume;
-`docker compose down -v` removes it.
+`docker compose down -v` removes it. The dumps of the backup service are files in
+`./backups` and stay.
 
 Quick check from the command line:
 
@@ -155,6 +160,93 @@ All demo accounts use the password `demo-password`.
 | `lena@example.com`         | Lena Novak    | Member, 32 h/week                 |
 | `samir@example.com`        | Samir Haddad  | Member                            |
 | `jordan@northwind.example` | Jordan Reyes  | Client viewer for Northwind Traders |
+
+## Backup and restore
+
+Everything is in the `db-data` volume, and the timesheet CSV is the only export. For a
+full copy there is a `backup` service that dumps the whole database with `pg_dump`. It
+is behind a Compose profile, so it only runs when asked for:
+
+```bash
+docker compose --profile backup up -d
+```
+
+To have it start with every `docker compose up`, put `COMPOSE_PROFILES=backup` in
+`.env`.
+
+Dumps land in `./backups` as `planner-<UTC date and time>.dump`, in `pg_dump`'s custom
+format. When the service starts it makes one, unless the newest dump is less than a day
+old, so restarting the stack does not add dumps. On a new stack it first waits for the
+API to create the tables. After that it makes one dump a day. It looks at the clock once
+a minute instead of sleeping for a whole day, so a machine that was suspended or
+switched off catches up when it is back.
+
+After each dump only the newest seven are kept. Files with any other name are left
+alone: rename a dump to keep it for good. How old a dump is, and which ones are the
+oldest, is read from the time in the file name and never from the file's modification
+time. A dump dated in the future, which is what a clock that was set back leaves behind,
+counts as made now and not as overdue.
+
+The folder, the number of dumps and the time between two of them are `BACKUP_DIR`,
+`BACKUP_KEEP` and `BACKUP_INTERVAL_SECONDS` (see [Configuration](#configuration)).
+
+A dump right now, for example before an upgrade:
+
+```bash
+docker compose --profile backup run --rm backup once
+```
+
+To restore, stop the API, name the dump and start the API again:
+
+```bash
+docker compose stop api
+docker compose --profile backup run --rm backup restore planner-20261120T030000Z.dump
+docker compose start api
+```
+
+`restore` without a file name lists the dumps. The restore replaces the whole database,
+so everything written after the dump is gone. The dump is loaded into a new database
+first, and that one takes the place of the old one only when the load worked: a damaged
+file, or an API that is still running, leaves the data as it was. Should the very last
+step fail, giving the new database its name, the script says where the restored data is
+and prints the command that finishes the job.
+
+After losing the volume, or on another machine, it is the same command: put the dump in
+`./backups`, run the `restore` line (it starts the database by itself), then
+`docker compose up -d`.
+
+### Dumps and versions of the API
+
+A dump carries the schema and Flyway's list of the migrations that built it
+(`flyway_schema_history`), so it belongs to the version of the API that was running
+when it was made.
+
+- **An older dump under a newer API works.** When the API starts it applies the
+  migrations the dump does not have. That includes one with a lower number than the
+  newest in the dump, because Flyway runs out of order here.
+- **A newer dump under an older API is refused.** Flyway finds a migration in the dump
+  that the API has no file for, and the API stops during startup with
+  `Detected applied migration not resolved locally`. The data is not harmed by that.
+  Start the version the dump came from, or a newer one.
+
+So restore into the same version or a newer one. Before an upgrade, make a dump with
+`once`. If the upgrade has to be taken back, restore that dump under the old version:
+a dump made after the upgrade will not start there.
+
+Good to know:
+
+- A dump holds the password hashes, the rates and every hour that was logged, and it is
+  not encrypted. The files can only be read by their owner.
+- The service runs as root inside its container, like everything in the postgres image
+  except the server, and gives each dump to the owner of the folder it is written to.
+  `./backups` comes with the repository, so on Linux the dumps are yours and not
+  root's. If `BACKUP_DIR` names a folder that does not exist, Docker creates it as root
+  and the dumps belong to root as well: create the folder yourself first.
+- The dumps sit on the same disk as the database unless `BACKUP_DIR` points somewhere
+  else. Copying them to another machine is up to you.
+- Nothing warns you when a dump fails. `docker compose logs backup` shows every dump and
+  every failure, and a failed dump is tried again a minute later.
+- `docker compose down -v` removes the database volume, not the dumps.
 
 ## Running without Docker
 
@@ -196,6 +288,13 @@ npm start
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5191` | api     |
 | `PORT`                 | `8080`                                        | api     |
 | `WEB_PORT`, `API_PORT`, `DB_PORT` | `5191`, `4411`, `5451`             | compose |
+| `BACKUP_DIR`           | `./backups`                                   | backup  |
+| `BACKUP_KEEP`          | `7`                                           | backup  |
+| `BACKUP_INTERVAL_SECONDS` | `86400` (one day)                          | backup  |
+
+`BACKUP_DIR` is the folder on the host the dumps go to, `BACKUP_KEEP` how many of them
+are kept and `BACKUP_INTERVAL_SECONDS` the time from one dump to the next. See
+[Backup and restore](#backup-and-restore).
 
 ## Tests and lint
 
@@ -209,6 +308,32 @@ The scheduling, critical path, cycle detection, budget, progress and workload te
 are plain JUnit tests and need no database. The `@QuarkusTest` API tests start the
 application against H2 in PostgreSQL mode and run the same Flyway migrations as
 production.
+
+A restore that is never tested is not a backup, so CI also runs
+`scripts/check-restore.sh` once the images are built. It is the only check that starts
+the stack on PostgreSQL. On a Compose project of its own, with its own volume, it:
+
+1. starts `db` and `api` with the demo data and waits for the health checks and the
+   seed;
+2. runs `scripts/check-backup.sh` in the backup service: three dumps while keeping two,
+   a restore of the newest into a scratch database, and the row count of every table
+   compared between the two (`users`, `tasks`, `time_entries` and `timesheets` must not
+   be empty);
+3. takes one migration back by hand, dumps, removes the volume, restores the dump with
+   the commands from above and starts the API, which has to apply the missing migration
+   and come back with the same row counts;
+4. checks that the API refuses to start on a database from a newer version.
+
+```bash
+sh scripts/check-restore.sh       # needs Docker; stop your stack first, or set DB_PORT and API_PORT
+sh scripts/check-backup-loop.sh   # needs nothing
+```
+
+`check-backup.sh` starts with `scripts/check-backup-loop.sh`, which needs neither Docker
+nor a database. It drives the daily loop with stand-ins for `pg_dump` and `sleep` and
+with dump files dated in the past and in the future, and fails if the loop makes more
+than one dump, makes two without a pause, keeps a dump that was cut short, or leaves
+fewer dumps behind than it should.
 
 ## API overview
 
