@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
@@ -25,10 +27,16 @@ import { messageOf } from '../../core/errors';
           <p class="field-error">Enter your password</p>
         }
 
+        @if (reset() === 'done') {
+          <p class="alert success" role="status">Your password was changed. Sign in with the new one.</p>
+        }
         @if (error()) {
           <p class="alert error" role="alert">{{ error() }}</p>
         }
         <button class="primary wide" type="submit" [disabled]="busy()">{{ busy() ? 'Signing in…' : 'Sign in' }}</button>
+        @if (mail()) {
+          <p class="muted small"><a routerLink="/forgot">Forgot your password?</a></p>
+        }
         <p class="muted small">No account yet? <a routerLink="/signup">Create one</a></p>
         <p class="muted small demo-hint">Demo: demo&#64;example.com / demo-password</p>
       </form>
@@ -41,6 +49,11 @@ export class LoginPage {
   private readonly router = inject(Router);
 
   readonly returnUrl = input<string>();
+  /** Set by the reset page after a new password was saved. */
+  readonly reset = input<string>();
+
+  /** The link to reset a password only shows when the server sends mail. */
+  protected readonly mail = toSignal(this.auth.options$.pipe(map((options) => options.mail)), { initialValue: false });
 
   protected readonly form = inject(FormBuilder).nonNullable.group({
     email: ['', [Validators.required, Validators.email]],
