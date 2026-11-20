@@ -20,6 +20,11 @@ npm-debug.log*
 .env.*
 !.env.example
 
+# Database dumps from the backup service. The folder itself is in the
+# repository so that it belongs to you and not to root.
+backups/*
+!backups/.gitkeep
+
 # Logs
 logs/
 *.log

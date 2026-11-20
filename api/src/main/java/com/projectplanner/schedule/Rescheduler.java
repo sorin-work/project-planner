@@ -59,6 +59,25 @@ public final class Rescheduler {
         return moved;
     }
 
+    /**
+     * {@code task} moved by a number of working days, later or (when negative) earlier.
+     * The start moves that many working days and the due date keeps the length, so a
+     * Thursday to Friday task moved one day later runs Friday to Monday. The result is
+     * not pulled onto a working day afterwards: a Monday start moved one day earlier is
+     * the Friday before. A task with only one date moves that date, and zero changes nothing.
+     */
+    public ScheduledTask shift(ScheduledTask task, int workingDays) {
+        if (workingDays == 0) {
+            return task;
+        }
+        if (task.isScheduled()) {
+            return startingOn(task, calendar.addWorkingDays(task.start(), workingDays));
+        }
+        return new ScheduledTask(task.id(),
+                task.start() == null ? null : calendar.addWorkingDays(task.start(), workingDays),
+                task.due() == null ? null : calendar.addWorkingDays(task.due(), workingDays));
+    }
+
     /** The first day {@code id} may start given all of its predecessors, or null if none constrain it. */
     LocalDate earliestStart(DependencyGraph graph, Map<Long, ScheduledTask> tasks, long id) {
         LocalDate earliest = null;

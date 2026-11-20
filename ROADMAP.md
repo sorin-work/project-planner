@@ -26,9 +26,9 @@ couple of weekends, **L** several weeks of spare time.
 | 3   | Missing timesheets and reminders           | Shipped | both     | S    | -          |
 | 4   | Search and quick switcher                  | Next  | both     | M    | -          |
 | 5   | Accessibility pass                         | Next  | frontend | M    | -          |
-| 6   | Scheduled backups and a tested restore     | Next  | infra    | S    | -          |
+| 6   | Scheduled backups and a tested restore     | Shipped | infra    | S    | -          |
 | 7   | API reference built from the code          | Next  | backend  | S    | -          |
-| 8   | Resize bars and draw links on the timeline | Later | both     | M    | -          |
+| 8   | Resize bars and draw links on the timeline | Shipped | both     | M    | -          |
 | 9   | Time and utilisation reports               | Later | both     | M    | -          |
 | 10  | Budget alerts                              | Later | both     | S    | -          |
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
@@ -78,10 +78,13 @@ A few things hold for every item:
   jsdom, so layout, real drag and drop and colours cannot be asserted.
 - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify`, `npm run lint`
   (which includes the angular-eslint template accessibility rules),
-  `npm test`, `npm run build` and `docker compose build`. The production build
-  has bundle budgets in `angular.json` (a warning at 700 kB and an error at
-  1 MB for the initial bundle), which is a reason to think twice before adding
-  a library.
+  `npm test`, `npm run build`, `docker compose build` and
+  `scripts/check-restore.sh`. The last one is the only place where the stack
+  is started: `db` and `api` with the demo data. A migration that H2 accepts
+  and PostgreSQL does not, or a seed that no longer runs, shows up there. The
+  production build has bundle budgets in `angular.json` (a warning at 700 kB
+  and an error at 1 MB for the initial bundle), which is a reason to think
+  twice before adding a library.
 - On the web side `core/models.ts` mirrors the API's JSON by hand, the HTTP
   clients are the `core/*.api.ts` files, and everything inside a project page
   shares one `ProjectStore`.
@@ -187,49 +190,6 @@ only a keyboard or with a screen reader. Gaps I already know about:
   drop that works from the keyboard, at the price of a dependency. I lean
   towards a small live-region service of my own and plain key handlers.
 
-### 6. Scheduled backups and a tested restore
-
-Everything lives in the `db-data` volume and there is no backup of any kind.
-The only export is the timesheet CSV. For a tool that holds a year of billable
-hours, that is the first thing anyone hosting it should ask about.
-
-- A `backup` service in `docker-compose.yml` behind a compose profile, on the
-  same `postgres:17-alpine` image as `db` so that `pg_dump` matches the
-  server. It dumps once a day in custom format into a mounted folder and keeps
-  the last N files. The folder goes into `.gitignore`, the settings (how many
-  to keep, how often) into `.env.example` and the configuration table in the
-  README.
-- The same script should run once on demand
-  (`docker compose run --rm backup ...`), for a dump before an upgrade and for
-  the CI check below.
-- A "Backup and restore" section in the README with the restore steps: stop
-  `api`, `pg_restore --clean --if-exists`, start `api`.
-- Tricky: Flyway. The dump contains `flyway_schema_history`. An older dump
-  under a newer API is fine: the migrations it lacks run at start
-  (`quarkus.flyway.migrate-at-start=true`), and since out-of-order is on that
-  includes one with a lower number than the dump's latest. Cover that case in
-  the CI check if it is cheap. A newer dump under an older API is
-  the risky direction: as far as I know Flyway only warns about applied
-  versions it has no file for, and the old code then runs against a newer
-  schema. Try it, and have the README say to restore into the same version or
-  a newer one.
-- A restore that is never tested is not a backup. The `docker` job in CI only
-  runs `docker compose build`, so nothing ever starts the stack. Add a step
-  that starts `db` and `api` with `SEED_DEMO=true`, waits for the health
-  check, takes one backup, restores it into a scratch database and compares
-  row counts for `users`, `tasks`, `time_entries` and `timesheets`. That is
-  also the first check that the compose stack boots at all.
-- Tricky: who owns the dump files. The postgres image only drops to its own
-  user for the server itself, so a script run in it writes as root, and the
-  files in a mounted host folder end up owned by root. Set a user for the
-  service or say in the README what to expect.
-- The extra CI time should be small. The Maven build inside `api/Dockerfile`
-  is the slow part and `docker compose build` already pays for it.
-- Undecided: cron inside a container is clumsy. A shell loop with `sleep` is
-  probably enough for one dump a day.
-- Undecided: if item 18 exists, its files belong in the same backup, and a
-  restore of one without the other leaves dangling rows.
-
 ### 7. API reference built from the code
 
 The README has a table of endpoints and nothing more: no request or response
@@ -274,65 +234,6 @@ Quarkus can build an OpenAPI document from the resources.
   it adds a build step and a dependency. Not in this item.
 
 ## Later
-
-### 8. Resize bars and draw links on the timeline
-
-On the timeline a bar can only be moved as a whole. Making a task longer, or
-saying "this waits for that", means opening the task panel and using date
-fields and a select. Every Gantt tool lets you drag the end of a bar and draw
-an arrow from one bar to another.
-
-- Resize: handles at both ends of a bar in `gantt.html`. `Gantt` keeps one
-  drag state (`Drag` with `taskId`, `startX`, `dx`). Give it a mode: move,
-  start or end. A resize ends in a new output with the new start or due date,
-  which `TimelineTab` sends through `store.updateTask`. That already cascades
-  and returns a `TaskChange`. Milestones cannot be resized
-  (`TaskService.setDates` forces start and due to the same day).
-- Link: a small connector at the right end of a bar. Dropping it on another
-  bar calls `store.addDependency(successorId, predecessorId, 0)`. The API
-  answers `409 dependency_cycle` with the chain in the message, or
-  `409 dependency_exists`. Show both in the tab's existing error line.
-- Remove a link: the arrows are thin paths. Add a wide transparent path to
-  click on, make the arrow focusable, and delete with a button or the Delete
-  key through `store.removeDependency(successorId, dependencyId)`. `GanttLink`
-  only has the dependency id, so add the successor.
-- Keyboard: the arrow keys move a focused bar today. `Shift` plus the arrow
-  keys should change the due date. Linking by keyboard stays in the task
-  panel.
-- Put the arithmetic in `gantt-layout.ts` next to `dragDays` (new dates from a
-  resize, never letting due pass start) and test it there. jsdom has pointer
-  events but no layout and no `setPointerCapture` (the code already calls it
-  with `?.`), so a component spec can only send events with made-up
-  coordinates.
-- Tricky: weekends. `TaskService.shift` moves by calendar days (`plusDays`).
-  Drag a Thursday to Friday task one column to the right and it becomes Friday
-  to Saturday, which `WorkCalendar.duration` counts as one working day: the
-  task quietly got shorter. Resizing makes that easier to hit.
-- So `shift` changes to N working days, in either direction. The new start is
-  `addWorkingDays(start, n)`, which takes negative numbers, and the due date
-  keeps the length in working days, the way `Rescheduler` treats dependants.
-  Do not snap the result with `onOrAfter`: a Monday bar moved left by one or
-  two days would land on the weekend, snap back to Monday and never move.
-- The timeline then sends working days. One arrow key press is one working
-  day. For a drag, take the day the bar was dropped on, go on to the next
-  working day in the direction of the drag if that day is a weekend, and
-  count the working days from the old start (`workingDaysBetween` in
-  `shared/dates.ts` exists and nothing uses it yet). A resize snaps its end
-  the same way, in the direction of the drag.
-- `movingATaskCascadesThroughItsDependants` in `TaskResourceTest` shifts by 7
-  and expects a week later. With working days that request becomes 5.
-- Tricky: at month zoom a day is 4 pixels wide (`DAY_WIDTH.month`), too small
-  for handles. Edit only at day and week zoom. On touch screens the bars need
-  `touch-action: none`, or the drag scrolls `.gantt-scroll` instead.
-- Tricky: a parent with subtasks. Nothing ties their dates together today, so
-  resizing the parent leaves the subtasks where they were. Leave that as it
-  is.
-- So the pull request is: resize handles, drawing and removing links, `Shift`
-  plus the arrow keys, and `shift` in working days with the timeline sending
-  them.
-- Follow-up, not in this pull request: drawing a bar on the empty row of a
-  task without dates, to give it dates. Cheap once resize exists, but easy to
-  trigger by accident, so it wants a look of its own.
 
 ### 9. Time and utilisation reports
 
@@ -713,7 +614,8 @@ its capacity view on leave and public holidays.
   in item 1, the working-day shift in item 8, capacity in item 9, the date
   shift in item 13 and the slip in item 16. Whichever lands second switches to
   the organisation's calendar. The timeline's own count of working days for a
-  drag (item 8) needs the holiday dates too.
+  drag (item 8: `snapToWorkingDay` and `moveWorkingDays` in `gantt-edit.ts`)
+  needs the holiday dates too.
 - Undecided, with my leaning in brackets: approval for time off (no, this is a
   planner and not an HR tool), half days (no), importing public holidays (a
   typed list of dates is enough), and one calendar per country for spread-out
@@ -941,3 +843,53 @@ otherwise be chased one by one. The dashboard count leaves out weeks without
 time, as "Remind all" does. Still open: automatic reminders (they belong to
 the daily summary in item 12), "Approve all", and people who were away, who
 stay under "No time logged" until item 15 knows about time off.
+
+### 6. Scheduled backups and a tested restore
+
+A `backup` service in `docker-compose.yml`, behind the `backup` profile, runs
+`scripts/backup.sh` in the `postgres:17-alpine` image: a `pg_dump` in custom
+format into `./backups` once a day, keeping the newest seven, and
+`backup once` for a dump on demand. It is a shell loop with `sleep`, not cron.
+It reads the age of the newest dump from the file names, never from
+modification times, and looks at the clock every minute. Different from the
+design: a restore is `backup restore <file>` and not `pg_restore --clean`. It
+loads the dump into a new database that replaces the old one only when the
+load worked. Cleaning the old one in place would keep the tables of
+migrations newer than the dump, and the API would fail on them at its next
+start. The script runs as root and gives each dump to the owner of the
+folder. CI runs `scripts/check-restore.sh`: the loop and the pruning against
+clocks that are wrong, row counts of a restored copy, and an older dump (with
+`V15` and without `V14`) restored onto a new volume and migrated by the API.
+The risky direction turned out safer than I thought: Flyway does not just
+warn, the API refuses to start on a database with a migration it has no file
+for, and the check pins that. Still open: the dumps are not encrypted, they
+stay on the same machine unless `BACKUP_DIR` points elsewhere, nothing warns
+when a dump fails apart from the service log, and the files of item 18 would
+not be in them. The check undoes `V14` by dropping `tasks.position`, so it
+needs another migration to undo if a later one builds on that column.
+
+### 8. Resize bars and draw links on the timeline
+
+At day and week zoom a bar has a grab strip at each end and a dot after it.
+Dragging an end saves the new start or due date through `store.updateTask`.
+Dragging the dot onto another bar calls `store.addDependency`, the same
+endpoint and loop check as the form in the task panel. An arrow can be clicked
+or focused and removed with a button or the Delete key, and `Shift` plus the
+arrow keys moves the due date of the focused bar, one working day per press.
+`POST /api/tasks/{id}/shift` now moves by working days in either direction and
+keeps the length in working days (`Rescheduler.shift`), and the timeline sends
+working days. A dragged bar is drawn where it will land, with the length the
+API will give it. A refused edit leaves the bar where it was, because the
+timeline only draws what the API answered. Different from the design: the
+arithmetic of a drag is in its own file, `gantt-edit.ts`, next to
+`gantt-layout.ts`; a press only becomes a drag after four pixels, and one
+that does not opens the task, on a handle too; Escape gives up a drag; and Tab
+goes from a bar to the arrows that leave it, through stand-ins that follow the
+bar in the page while the arrows themselves stay drawn under the bars. At
+month zoom the timeline is read-only, keys included. Still open: the start
+date has no key of its own on the bar (the Start field in the task panel does
+that), linking by keyboard stays in the task panel, the timeline does not
+scroll while something is dragged (two bars that are not on screen together
+are linked at week zoom or in the task panel), a parent's subtasks do not
+follow when it is resized, and drawing a bar for a task without dates is the
+follow-up it was.

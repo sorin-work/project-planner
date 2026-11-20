@@ -146,15 +146,17 @@ public class TaskService {
         return new TaskChange(mapper.toResponse(task), mapper.toResponses(moved));
     }
 
-    /** Moves a task by {@code days} calendar days, keeping its length, and pushes its dependants. */
+    /**
+     * Moves a task by {@code days} working days, later or earlier, keeping its length
+     * in working days, and pushes its dependants.
+     */
     public TaskChange shift(Membership me, Project project, Task task, int days) {
         if (task.startDate == null && task.dueDate == null) {
             throw ApiException.badRequest("unscheduled", "Give the task dates before moving it on the timeline");
         }
+        ScheduledTask moved = rescheduler.shift(task.toScheduled(), days);
         UpdateTaskRequest request = new UpdateTaskRequest(null, null, null, false, null, null, null,
-                task.startDate == null ? null : task.startDate.plusDays(days),
-                task.dueDate == null ? null : task.dueDate.plusDays(days),
-                false, null, false, null, null);
+                moved.start(), moved.due(), false, null, false, null, null);
         return update(me, project, task, request);
     }
 
