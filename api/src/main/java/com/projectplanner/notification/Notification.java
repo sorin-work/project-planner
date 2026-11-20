@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "notifications")
@@ -41,6 +42,10 @@ public class Notification extends PanacheEntityBase {
 
     @Column(name = "task_id")
     public Long taskId;
+
+    /** Monday of the week a timesheet notification is about. */
+    @Column(name = "week_start")
+    public LocalDate weekStart;
 
     @Column(name = "read_at")
     public Instant readAt;

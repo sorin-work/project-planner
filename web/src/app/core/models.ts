@@ -258,6 +258,8 @@ export interface Notification {
   actorName?: string;
   projectId?: number;
   taskId?: number;
+  /** Monday of the week a timesheet notification is about. */
+  weekStart?: string;
   read: boolean;
   createdAt: string;
 }
@@ -309,6 +311,31 @@ export interface TimesheetSummary {
   billableAmount: number;
 }
 
+/** Somebody whose week is still a draft or was sent back. */
+export interface MissingTimesheet {
+  userId: number;
+  userName: string;
+  status: TimesheetStatus;
+  totalMinutes: number;
+  weeklyCapacityHours: number;
+  remindedToday: boolean;
+}
+
+export interface MissingTimesheets {
+  weekStart: string;
+  /** The most recent week that is over by the organisation's date. */
+  latestWeekStart: string;
+  people: MissingTimesheet[];
+}
+
+export type ReminderSkip = 'NOT_MISSING' | 'YOURSELF' | 'ALREADY_REMINDED' | 'DAILY_LIMIT';
+
+export interface RemindResult {
+  weekStart: string;
+  reminded: number[];
+  skipped: { userId: number; reason: ReminderSkip }[];
+}
+
 export interface WeekLoad {
   weekStart: string;
   allocatedHours: number;
@@ -352,5 +379,7 @@ export interface Dashboard {
   minutesThisWeek: number;
   billableMinutesThisWeek: number;
   pendingApprovals: number;
+  /** Last week's timesheets that have time in them and were not submitted. Zero unless you manage. */
+  missingTimesheets: number;
   lastWeekTimesheet?: TimesheetStatus;
 }

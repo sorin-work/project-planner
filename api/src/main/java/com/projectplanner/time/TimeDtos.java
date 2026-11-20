@@ -51,4 +51,18 @@ public final class TimeDtos {
     public record TimesheetSummary(long id, long userId, String userName, LocalDate weekStart, TimesheetStatus status,
                                    Instant submittedAt, int totalMinutes, int billableMinutes, BigDecimal billableAmount) {
     }
+
+    /** {@code latestWeekStart} is the most recent week that is over, so the newest one that can be asked for. */
+    public record MissingResponse(LocalDate weekStart, LocalDate latestWeekStart, List<MissingTimesheets.Missing> people) {
+    }
+
+    public record RemindRequest(@NotNull LocalDate weekStart,
+                                @NotNull @Size(min = 1, max = 200) List<@NotNull Long> userIds) {
+    }
+
+    public record SkippedReminder(long userId, MissingTimesheets.Skip reason) {
+    }
+
+    public record RemindResponse(LocalDate weekStart, List<Long> reminded, List<SkippedReminder> skipped) {
+    }
 }

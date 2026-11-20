@@ -17,6 +17,7 @@ import com.projectplanner.task.TaskMapper;
 import com.projectplanner.task.TaskStatus;
 import com.projectplanner.time.TimeEntry;
 import com.projectplanner.time.Timesheet;
+import com.projectplanner.time.TimesheetService;
 import com.projectplanner.time.TimesheetStatus;
 import io.quarkus.security.Authenticated;
 import jakarta.ws.rs.GET;
@@ -37,12 +38,15 @@ public class DashboardResource {
     private final OrgAccess access;
     private final ProjectHealthService health;
     private final TaskMapper mapper;
+    private final TimesheetService timesheets;
     private final Clock clock;
 
-    public DashboardResource(OrgAccess access, ProjectHealthService health, TaskMapper mapper, Clock clock) {
+    public DashboardResource(OrgAccess access, ProjectHealthService health, TaskMapper mapper, TimesheetService timesheets,
+                             Clock clock) {
         this.access = access;
         this.health = health;
         this.mapper = mapper;
+        this.timesheets = timesheets;
         this.clock = clock;
     }
 
@@ -84,11 +88,15 @@ public class DashboardResource {
         long pendingApprovals = me.role.canManage()
                 ? Timesheet.count("organisationId = ?1 and status = ?2", orgId, TimesheetStatus.SUBMITTED)
                 : 0;
+        // A week without any time can't be submitted, so it is not counted as late here.
+        long missingTimesheets = me.role.canManage()
+                ? timesheets.missing(orgId, weekStart.minusWeeks(1)).people().stream().filter(p -> p.totalMinutes() > 0).count()
+                : 0;
         TimesheetStatus lastWeek = Timesheet.statusOf(orgId, me.userId, weekStart.minusWeeks(1));
 
         return new Dashboard(today, mapper.toResponses(overdue), mapper.toResponses(dueSoon),
                 mapper.toResponses(inProgress), cards, minutesThisWeek, billableThisWeek, pendingApprovals,
-                me.role.isTeam() ? lastWeek : null);
+                missingTimesheets, me.role.isTeam() ? lastWeek : null);
     }
 
     public record ProjectCard(ProjectResponse project, HealthSummary health) {
@@ -97,6 +105,6 @@ public class DashboardResource {
     public record Dashboard(LocalDate today, List<TaskResponse> overdue, List<TaskResponse> dueSoon,
                             List<TaskResponse> inProgress, List<ProjectCard> activeProjects,
                             long minutesThisWeek, long billableMinutesThisWeek, long pendingApprovals,
-                            TimesheetStatus lastWeekTimesheet) {
+                            long missingTimesheets, TimesheetStatus lastWeekTimesheet) {
     }
 }

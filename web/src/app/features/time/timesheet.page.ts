@@ -1,5 +1,8 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
+import { map } from 'rxjs';
 import { messageOf } from '../../core/errors';
 import { Task, TimeEntry, Week } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
@@ -8,7 +11,7 @@ import { TaskApi } from '../../core/task.api';
 import { TimeApi } from '../../core/time.api';
 import { addDays, dayName, formatDate, today, weekStart } from '../../shared/dates';
 import { TIMESHEET_LABELS, formatMinutes, parseDuration } from '../../shared/format';
-import { buildGrid } from './timesheet-grid';
+import { buildGrid, weekOfParam } from './timesheet-grid';
 import { TimerService } from './timer.service';
 
 interface ProjectOption {
@@ -29,8 +32,14 @@ export class TimesheetPage {
   private readonly taskApi = inject(TaskApi);
   protected readonly org = inject(OrgContext);
   protected readonly timer = inject(TimerService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
-  protected readonly weekOf = signal(weekStart(today()));
+  /** The week lives in ?week= so that a notification can link to the week it is about. */
+  private readonly weekParam = toSignal(this.route.queryParamMap.pipe(map((q) => q.get('week'))), {
+    initialValue: this.route.snapshot.queryParamMap.get('week'),
+  });
+  protected readonly weekOf = computed(() => weekOfParam(this.weekParam(), today()));
   protected readonly week = signal<Week | null>(null);
   protected readonly projects = signal<ProjectOption[]>([]);
   protected readonly tasks = signal<Task[]>([]);
@@ -69,6 +78,13 @@ export class TimesheetPage {
         });
       }
     });
+    // A new entry belongs to the week on screen, also after moving to another week.
+    effect(() => {
+      const start = this.weekOf();
+      if (!untracked(this.editing) && (this.form.date < start || this.form.date > addDays(start, 6))) {
+        this.form.date = this.emptyForm().date;
+      }
+    });
     // Also reloads when a timer starts or stops elsewhere (top bar, task panel).
     effect(() => {
       this.timer.running();
@@ -81,11 +97,20 @@ export class TimesheetPage {
   }
 
   shiftWeek(weeks: number): void {
-    this.weekOf.update((d) => addDays(d, weeks * 7));
+    this.showWeek(addDays(this.weekOf(), weeks * 7));
   }
 
   thisWeek(): void {
-    this.weekOf.set(weekStart(today()));
+    this.showWeek(weekStart(today()));
+  }
+
+  /** The current week has no parameter, so a plain /time link keeps meaning "this week". */
+  private showWeek(week: string): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { week: week === weekStart(today()) ? null : week },
+      queryParamsHandling: 'merge',
+    });
   }
 
   projectChanged(projectId: number | null): void {

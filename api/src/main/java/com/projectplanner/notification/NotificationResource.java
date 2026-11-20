@@ -17,6 +17,7 @@ import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,7 +59,8 @@ public class NotificationResource {
             User.<User>list("id in ?1", actorIds).forEach(u -> names.put(u.id, u.name));
         }
         return items.stream().map(n -> new NotificationResponse(n.id, n.organisationId, n.type, n.message,
-                n.actorId == null ? null : names.get(n.actorId), n.projectId, n.taskId, n.readAt != null, n.createdAt)).toList();
+                n.actorId == null ? null : names.get(n.actorId), n.projectId, n.taskId, n.weekStart, n.readAt != null,
+                n.createdAt)).toList();
     }
 
     @GET
@@ -98,7 +100,8 @@ public class NotificationResource {
     }
 
     public record NotificationResponse(long id, long organisationId, NotificationType type, String message,
-                                       String actorName, Long projectId, Long taskId, boolean read, Instant createdAt) {
+                                       String actorName, Long projectId, Long taskId, LocalDate weekStart, boolean read,
+                                       Instant createdAt) {
     }
 
     public record UnreadCount(long count) {
