@@ -1,14 +1,18 @@
 package com.projectplanner.org;
 
 import com.projectplanner.activity.ActivityLog;
+import com.projectplanner.auth.CurrentUser;
 import com.projectplanner.auth.User;
 import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Fails;
+import com.projectplanner.mail.MailSettings;
+import com.projectplanner.org.OrgDtos.InvitationLinkRequest;
 import com.projectplanner.org.OrgDtos.InvitationResponse;
 import com.projectplanner.org.OrgDtos.InviteRequest;
 import com.projectplanner.org.OrgDtos.InviteResult;
 import com.projectplanner.org.OrgDtos.MemberResponse;
+import com.projectplanner.org.OrgDtos.MembershipSummary;
 import com.projectplanner.org.OrgDtos.OrganisationResponse;
 import com.projectplanner.org.OrgDtos.RoleRateEntry;
 import com.projectplanner.org.OrgDtos.RoleRatesRequest;
@@ -46,11 +50,18 @@ public class OrgResource {
 
     private final OrgAccess access;
     private final ActivityLog activity;
+    private final Invitations invitations;
+    private final MailSettings mail;
+    private final CurrentUser currentUser;
     private final Clock clock;
 
-    public OrgResource(OrgAccess access, ActivityLog activity, Clock clock) {
+    public OrgResource(OrgAccess access, ActivityLog activity, Invitations invitations, MailSettings mail,
+                       CurrentUser currentUser, Clock clock) {
         this.access = access;
         this.activity = activity;
+        this.invitations = invitations;
+        this.mail = mail;
+        this.currentUser = currentUser;
         this.clock = clock;
     }
 
@@ -180,7 +191,7 @@ public class OrgResource {
     @Transactional
     @ResponseStatus(201)
     @Operation(summary = "Invite someone by email",
-            description = "For owners and managers. Someone who already has an account is added straight away and comes back as member. Anyone else gets an invitation and joins when they sign up with that email.")
+            description = "For owners and managers. Someone who already has an account is added straight away and comes back as member. Anyone else gets an invitation. When the server sends mail, it is mailed with a link that works for seven days; the mails carry no names, only fixed wording and the link.")
     @Fails(status = 400, code = "invalid_role", when = "the role is OWNER")
     @Fails(status = 400, code = "client_required", when = "the role is CLIENT and clientId is missing")
     @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
@@ -209,6 +220,7 @@ public class OrgResource {
             Membership membership = Membership.create(orgId, user.id, request.role(), now);
             membership.clientId = clientId;
             activity.record(orgId, null, null, me.userId, "member.added", "Added " + user.name + " as " + request.role().label());
+            invitations.mailAdded(user.email);
             return new InviteResult(MemberResponse.of(membership, user, true), null);
         }
         boolean pending = Invitation.pendingIn(orgId).stream().anyMatch(i -> i.email.equals(email));
@@ -223,8 +235,26 @@ public class OrgResource {
         invitation.invitedBy = me.userId;
         invitation.createdAt = now;
         invitation.persist();
+        invitations.mailLink(invitation, now);
         activity.record(orgId, null, null, me.userId, "member.invited", "Invited " + email + " as " + request.role().label());
         return new InviteResult(null, InvitationResponse.of(invitation));
+    }
+
+    @POST
+    @Path("/orgs/{orgId}/invitations/{invitationId}/resend")
+    @Transactional
+    @Operation(summary = "Mail an invitation again",
+            description = "For owners and managers. The mail has a new link for seven days, and the link sent before stops working.")
+    @Fails(status = 404, code = "mail_off", when = "the server sends no mail")
+    @Fails(status = 409, code = "resend_too_soon", when = "the invitation was mailed less than a minute ago")
+    public InvitationResponse resendInvitation(@PathParam("orgId") long orgId, @PathParam("invitationId") long invitationId) {
+        access.manager(orgId);
+        mail.requireEnabled();
+        Invitation invitation = pendingInvitation(orgId, invitationId);
+        Instant now = clock.instant();
+        invitations.checkResend(invitation, now);
+        invitations.mailLink(invitation, now);
+        return InvitationResponse.of(invitation);
     }
 
     @DELETE
@@ -232,14 +262,29 @@ public class OrgResource {
     @Transactional
     @ResponseStatus(204)
     @Operation(summary = "Cancel an invitation",
-            description = "For owners and managers.")
+            description = "For owners and managers. Its link stops working at once.")
     public void cancelInvitation(@PathParam("orgId") long orgId, @PathParam("invitationId") long invitationId) {
         access.manager(orgId);
-        Invitation invitation = Invitation.findById(invitationId);
-        if (invitation == null || invitation.organisationId != orgId || invitation.acceptedAt != null) {
-            throw ApiException.notFound("Invitation");
+        pendingInvitation(orgId, invitationId).delete();
+    }
+
+    @POST
+    @Path("/invitations/accept")
+    @Transactional
+    @Operation(summary = "Accept an invitation link with the account you are signed in with",
+            description = "The invitation has to be for the address of your account. You join its organisation with its role.")
+    @Fails(status = 400, code = "invalid_link", when = "the link expired, was cancelled, was already used or is for another address")
+    public MembershipSummary acceptInvitation(@Valid @NotNull InvitationLinkRequest request) {
+        User user = currentUser.get();
+        Instant now = clock.instant();
+        Invitation invitation = invitations.open(request.token(), now, user.email);
+        boolean wasMember = Membership.find(invitation.organisationId, user.id).isPresent();
+        invitations.acceptByLink(invitation, user, now);
+        if (!wasMember) {
+            activity.record(invitation.organisationId, null, null, user.id, "member.joined",
+                    user.name + " joined as " + invitation.role.label());
         }
-        invitation.delete();
+        return MembershipSummary.of(Membership.find(invitation.organisationId, user.id).orElseThrow());
     }
 
     @GET
@@ -271,6 +316,14 @@ public class OrgResource {
             rate.persist();
         });
         return roleRates(orgId);
+    }
+
+    private static Invitation pendingInvitation(long orgId, long invitationId) {
+        Invitation invitation = Invitation.findById(invitationId);
+        if (invitation == null || invitation.organisationId != orgId || invitation.acceptedAt != null) {
+            throw ApiException.notFound("Invitation");
+        }
+        return invitation;
     }
 
     private long countOwners(long orgId) {

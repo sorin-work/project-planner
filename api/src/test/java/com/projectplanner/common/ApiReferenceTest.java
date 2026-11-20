@@ -48,7 +48,8 @@ class ApiReferenceTest {
     private static final Path PINNED_SHAPE = Path.of("src/test/resources/api-shape.txt");
     private static final String REFRESH = "./mvnw -q test -Dtest=ApiReferenceTest -Dapi.shape=update";
 
-    private static final Set<String> PUBLIC = Set.of("AuthResource_signup", "AuthResource_login");
+    private static final Set<String> PUBLIC = Set.of("AuthResource_signup", "AuthResource_login", "AuthResource_options",
+            "AuthResource_forgot", "AuthResource_reset", "AuthResource_invitation");
     private static final String ERROR_BODY = "#/components/schemas/ApiError";
     private static final String ERROR_RESPONSE = "#/components/responses/Error";
 
@@ -118,7 +119,7 @@ class ApiReferenceTest {
     }
 
     @Test
-    void everythingButSignupAndLoginAsksForTheToken() {
+    void everythingButSigningInAsksForTheToken() {
         JsonNode scheme = document().at("/components/securitySchemes/bearer");
         assertThat(scheme.path("type").asText()).isEqualTo("http");
         assertThat(scheme.path("scheme").asText()).isEqualTo("bearer");

@@ -15,8 +15,10 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * An invitation for someone who doesn't have an account yet. It is accepted
- * automatically when they sign up with the invited email address.
+ * An invitation for someone who doesn't have an account yet. When the app sends mail,
+ * the invitation is mailed with a link, see {@link Invitations}. Without mail, or unless
+ * INVITE_LINK_REQUIRED is on, it is also accepted when they sign up with the invited
+ * email address.
  */
 @Entity
 @Table(name = "invitations")
@@ -47,6 +49,16 @@ public class Invitation extends PanacheEntityBase {
 
     @Column(name = "accepted_at")
     public Instant acceptedAt;
+
+    /** SHA-256 of the token in the link that was mailed last. Null when none was mailed. */
+    @Column(name = "token_hash")
+    public String tokenHash;
+
+    @Column(name = "token_expires_at")
+    public Instant tokenExpiresAt;
+
+    @Column(name = "sent_at")
+    public Instant sentAt;
 
     public static List<Invitation> pendingFor(String email) {
         return list("email = ?1 and acceptedAt is null order by id", User.normalizeEmail(email));

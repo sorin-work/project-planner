@@ -6,7 +6,9 @@ import com.projectplanner.auth.AuthDtos.LoginRequest;
 import com.projectplanner.auth.AuthDtos.SignupRequest;
 import com.projectplanner.auth.AuthDtos.UserResponse;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.mail.MailSettings;
 import com.projectplanner.org.Invitation;
+import com.projectplanner.org.Invitations;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
 import com.projectplanner.org.Role;
@@ -15,6 +17,7 @@ import jakarta.transaction.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @ApplicationScoped
@@ -23,18 +26,26 @@ public class AuthService {
     private final PasswordHasher hasher;
     private final TokenService tokens;
     private final ActivityLog activity;
+    private final Invitations invitations;
+    private final MailSettings mail;
     private final Clock clock;
 
-    public AuthService(PasswordHasher hasher, TokenService tokens, ActivityLog activity, Clock clock) {
+    public AuthService(PasswordHasher hasher, TokenService tokens, ActivityLog activity, Invitations invitations,
+                       MailSettings mail, Clock clock) {
         this.hasher = hasher;
         this.tokens = tokens;
         this.activity = activity;
+        this.invitations = invitations;
+        this.mail = mail;
         this.clock = clock;
     }
 
     /**
-     * Creates the account. Pending invitations for the email are accepted straight
-     * away; without any, the user gets a new organisation of their own as owner.
+     * Creates the account. With an invitation link, the organisation of that invitation is
+     * joined with its role, and the email has to be the invited address. Other invitations
+     * waiting for the address are accepted too, unless joining needs the link
+     * ({@link MailSettings#inviteLinkRequired()}) and none came with the request. Without any
+     * invitation, the user gets a new organisation of their own as owner.
      */
     @Transactional
     public AuthResponse signup(SignupRequest request) {
@@ -43,6 +54,8 @@ public class AuthService {
             throw ApiException.conflict("email_taken", "An account with this email already exists");
         }
         Instant now = clock.instant();
+        String token = request.invitationToken();
+        Invitation linked = token == null || token.isBlank() ? null : invitations.open(token, now, email);
         User user = new User();
         user.email = email;
         user.name = request.name().trim();
@@ -50,14 +63,23 @@ public class AuthService {
         user.createdAt = now;
         user.persist();
 
-        List<Invitation> invitations = Invitation.pendingFor(email);
-        for (Invitation invitation : invitations) {
-            invitation.accept(user, now);
+        List<Invitation> accepted = new ArrayList<>();
+        if (linked != null) {
+            invitations.acceptByLink(linked, user, now);
+            accepted.add(linked);
+        }
+        if (linked != null || !mail.inviteLinkRequired()) {
+            for (Invitation invitation : Invitation.pendingFor(email)) {
+                invitation.accept(user, now);
+                accepted.add(invitation);
+            }
+        }
+        for (Invitation invitation : accepted) {
             activity.record(invitation.organisationId, null, null, user.id, "member.joined",
                     user.name + " joined as " + invitation.role.label());
         }
         boolean wantsOwnOrg = request.organisationName() != null && !request.organisationName().isBlank();
-        if (invitations.isEmpty() || wantsOwnOrg) {
+        if (accepted.isEmpty() || wantsOwnOrg) {
             Organisation org = new Organisation();
             org.name = wantsOwnOrg ? request.organisationName().trim() : user.name + "'s workspace";
             org.createdAt = now;
@@ -74,7 +96,8 @@ public class AuthService {
         return respond(user);
     }
 
-    private AuthResponse respond(User user) {
+    /** A new token for the user, with the user. What signing in answers with. */
+    public AuthResponse respond(User user) {
         TokenService.Token token = tokens.issue(user);
         return new AuthResponse(token.value(), token.expiresAt(), UserResponse.of(user));
     }

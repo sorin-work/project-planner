@@ -13,7 +13,10 @@ info:
     **Signing in.** `POST /api/auth/signup` and `POST /api/auth/login` answer
     with a `token`. Send it with every other request as
     `Authorization: Bearer <token>`. It is good for seven days unless the
-    server is set up differently, and there is no refresh: log in again.
+    server is set up differently, and there is no refresh: log in again. A
+    change of password, or a reset, revokes every token issued before it. The
+    other `/api/auth` operations, for a forgotten password and for reading an
+    invitation link, need no token either.
 
     **Who may do what.** Roles are per organisation: owner, manager, member
     and client viewer. An organisation you are not in answers 404, not 403. A
@@ -29,7 +32,7 @@ info:
     | ------ | ------------------------ | ----------------------------------------------------------- |
     | 400    | `validation_failed`      | a field is missing or out of range, `errors` names each one |
     | 400    | `malformed_json`         | the body is not JSON                                        |
-    | 401    | `unauthorized`           | no token, or one that has expired or is not valid           |
+    | 401    | `unauthorized`           | no token, or one that expired, is not valid or was revoked  |
     | 403    | `forbidden`              | your role does not allow it                                 |
     | 404    | `not_found`              | there is no such thing, or none that you can see            |
     | 405    | `method_not_allowed`     | the path exists, but not with this method                   |

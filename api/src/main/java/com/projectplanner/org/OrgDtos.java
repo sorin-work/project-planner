@@ -73,10 +73,24 @@ public final class OrgDtos {
             Long clientId) {
     }
 
-    public record InvitationResponse(long id, String email, Role role, Long clientId, Instant createdAt) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record InvitationResponse(long id, String email, Role role, Long clientId, Instant createdAt,
+                                     @Schema(description = "When the link in the last invitation mail stops working. Left out when no mail was sent.") Instant linkExpiresAt) {
         public static InvitationResponse of(Invitation i) {
-            return new InvitationResponse(i.id, i.email, i.role, i.clientId, i.createdAt);
+            return new InvitationResponse(i.id, i.email, i.role, i.clientId, i.createdAt, i.tokenExpiresAt);
         }
+    }
+
+    @Schema(description = "The token from the link in an invitation mail: the part after #token=.")
+    public record InvitationLinkRequest(@NotBlank @Size(max = 100) String token) {
+    }
+
+    @Schema(description = "What an invitation link is for, so that the page can ask the right thing.")
+    public record InvitationLinkResponse(
+            @Schema(description = "The invited address. Only that account can accept.") String email,
+            String organisationName,
+            Role role,
+            @Schema(description = "Whether the invited address already has an account. Then it signs in to accept, otherwise it signs up.") boolean hasAccount) {
     }
 
     /** Result of inviting someone: existing users are added straight away. */
@@ -84,7 +98,7 @@ public final class OrgDtos {
     @Schema(description = "One of the two, never both.")
     public record InviteResult(
             @Schema(description = "The person already had an account and is in the organisation now.") MemberResponse member,
-            @Schema(description = "Nobody has an account with that email yet. They join when they sign up with it.") InvitationResponse invitation) {
+            @Schema(description = "Nobody has an account with that email yet. When the server sends mail, they get a link; see GET /api/auth/options.") InvitationResponse invitation) {
     }
 
     public record RoleRateEntry(@NotNull Role role, @NotNull @DecimalMin("0") @DecimalMax("100000") BigDecimal hourlyRate) {
