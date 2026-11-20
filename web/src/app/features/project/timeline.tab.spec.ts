@@ -83,6 +83,76 @@ describe('TimelineTab edits', () => {
     expect(el.querySelector('path.link.broken')).not.toBeNull();
   });
 
+  it('counts every Shift and arrow press, also when they come faster than the answers', async () => {
+    // Build is due on Wednesday 11 March. Three presses before anything has come back.
+    gantt.extended.emit({ taskId: 2, days: 1 });
+    gantt.extended.emit({ taskId: 2, days: 1 });
+    gantt.extended.emit({ taskId: 2, days: 1 });
+
+    // One request is out. The others wait, and what goes next is the latest date: Monday, past the weekend.
+    const first = http.expectOne('/api/tasks/2');
+    expect(first.request.body).toEqual({ dueDate: '2026-03-12' });
+    first.flush({ task: { ...build, dueDate: '2026-03-12' }, rescheduled: [] });
+    refetch([]);
+    const second = http.expectOne('/api/tasks/2');
+    expect(second.request.body).toEqual({ dueDate: '2026-03-16' });
+    second.flush({ task: { ...build, dueDate: '2026-03-16' }, rescheduled: [] });
+    refetch([]);
+    await fixture.whenStable();
+    expect(store.byId().get(2)?.dueDate).toBe('2026-03-16');
+
+    // With nothing on its way the next press counts from what the API answered.
+    gantt.extended.emit({ taskId: 2, days: -1 });
+    const third = http.expectOne('/api/tasks/2');
+    expect(third.request.body).toEqual({ dueDate: '2026-03-13' });
+    third.flush({ task: { ...build, dueDate: '2026-03-13' }, rescheduled: [] });
+    refetch([]);
+  });
+
+  it('does not count on from a due date the API refused', async () => {
+    gantt.extended.emit({ taskId: 2, days: 1 });
+    http.expectOne('/api/tasks/2').flush(
+      { status: 409, code: 'project_done', message: 'This project is finished' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('This project is finished');
+
+    gantt.extended.emit({ taskId: 2, days: 1 });
+    const again = http.expectOne('/api/tasks/2');
+    expect(again.request.body).toEqual({ dueDate: '2026-03-12' });
+    again.flush({ task: { ...build, dueDate: '2026-03-12' }, rescheduled: [] });
+    refetch([]);
+  });
+
+  it('stops the due date at the start, however often the key is pressed', async () => {
+    // Build runs Monday 9 to Wednesday 11: two presses back and it is a one-day task. The rest do nothing.
+    for (let press = 0; press < 5; press++) {
+      gantt.extended.emit({ taskId: 2, days: -1 });
+    }
+    const first = http.expectOne('/api/tasks/2');
+    expect(first.request.body).toEqual({ dueDate: '2026-03-10' });
+    first.flush({ task: { ...build, dueDate: '2026-03-10' }, rescheduled: [] });
+    refetch([]);
+    const second = http.expectOne('/api/tasks/2');
+    expect(second.request.body).toEqual({ dueDate: '2026-03-09' });
+    second.flush({ task: { ...build, dueDate: '2026-03-09' }, rescheduled: [] });
+    refetch([]);
+  });
+
+  it('sends two quick drags on one task one after the other', async () => {
+    gantt.resized.emit({ taskId: 2, dueDate: '2026-03-13' });
+    gantt.resized.emit({ taskId: 2, startDate: '2026-03-10' });
+    const first = http.expectOne('/api/tasks/2');
+    expect(first.request.body).toEqual({ dueDate: '2026-03-13' });
+    first.flush({ task: { ...build, dueDate: '2026-03-13' }, rescheduled: [] });
+    refetch([]);
+    const second = http.expectOne('/api/tasks/2');
+    expect(second.request.body).toEqual({ startDate: '2026-03-10' });
+    second.flush({ task: { ...build, startDate: '2026-03-10', dueDate: '2026-03-13' }, rescheduled: [] });
+    refetch([]);
+  });
+
   it('shows no warnings rather than old ones when they cannot be refreshed after a drag', async () => {
     store.issues.set([{ type: 'STARTS_TOO_EARLY', taskId: 2, relatedTaskId: 1, days: 3, suggestedStart: '2026-03-09', suggestedDue: '2026-03-11' }]);
     await fixture.whenStable();
