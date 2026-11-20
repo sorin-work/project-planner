@@ -67,3 +67,13 @@ export class SaveQueue<T> {
     }
   }
 }
+
+/**
+ * A key for one create, random enough to be unique per person. The API returns the entry
+ * it already made when a create comes again with the same key, which is what makes it safe
+ * to send a create a second time after an answer that never arrived.
+ */
+export function newClientKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}

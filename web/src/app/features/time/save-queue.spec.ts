@@ -1,5 +1,5 @@
 import { Observable, Subject } from 'rxjs';
-import { SaveQueue } from './save-queue';
+import { SaveQueue, newClientKey } from './save-queue';
 
 describe('SaveQueue', () => {
   /** A save that records when it starts, and with what, and finishes when the test says so. */
@@ -107,5 +107,15 @@ describe('SaveQueue', () => {
     expect(log).toEqual(['idle at once', 'first', 'other', 'second after a']);
     second.succeed('c');
     expect(log).toEqual(['idle at once', 'first', 'other', 'second after a', 'idle']);
+  });
+});
+
+describe('newClientKey', () => {
+  it('makes a key the API accepts, and another one every time', () => {
+    const keys = new Set(Array.from({ length: 50 }, () => newClientKey()));
+    expect(keys.size).toBe(50);
+    for (const key of keys) {
+      expect(key).toMatch(/^[0-9a-f]{32}$/);
+    }
   });
 });

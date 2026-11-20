@@ -10,6 +10,8 @@ export interface TimeEntryInput {
   minutes: number;
   description?: string | null;
   billable?: boolean;
+  /** Only for a create: made up here, so that the API makes one entry when the same create is sent again. */
+  clientKey?: string;
 }
 
 export interface TimeQuery {

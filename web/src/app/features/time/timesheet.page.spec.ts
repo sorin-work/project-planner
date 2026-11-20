@@ -95,7 +95,7 @@ describe('TimesheetPage', () => {
     const created = http.expectOne(ENTRIES_URL);
     // No billable flag and no note: the server decides whether client work is billable.
     expect(created.request.method).toBe('POST');
-    expect(created.request.body).toEqual({ projectId: 1, taskId: 5, date: '2026-03-03', minutes: 90 });
+    expect(created.request.body).toEqual({ projectId: 1, taskId: 5, date: '2026-03-03', minutes: 90, clientKey: expect.stringMatching(/^[0-9a-f]{32}$/) });
     created.flush(entry(2, '2026-03-03', 90));
     await harness.fixture.whenStable();
 
@@ -128,6 +128,76 @@ describe('TimesheetPage', () => {
 
     expect(tuesday.value).toBe('3h');
     expect(el.querySelectorAll('.entries li')).toHaveLength(2);
+    http.verify();
+  });
+
+  it('sends a create again with the same key when its answer never came, and gets the same entry', async () => {
+    const { harness, el } = await open([entry(1, MONDAY, 60)]);
+    const tuesday = cell(el, 'WEB, Design, Tuesday');
+    const wednesday = cell(el, 'WEB, Design, Wednesday');
+
+    fill(tuesday, '1.5');
+    const lost = http.expectOne(ENTRIES_URL);
+    const key = (lost.request.body as { clientKey: string }).clientKey;
+    // The API stored the entry, but the browser only saw the connection drop.
+    lost.error(new ProgressEvent('error'));
+    await harness.fixture.whenStable();
+    expect(tuesday.value).toBe('');
+    expect(el.querySelector('.card [role=alert]')?.textContent).toContain('Cannot reach the server');
+
+    // Typed again, this time as two hours: the same key, so the API answers with the entry it made before.
+    fill(tuesday, '2');
+    const again = http.expectOne(ENTRIES_URL);
+    expect(again.request.body).toMatchObject({ date: '2026-03-03', minutes: 120, clientKey: key });
+    again.flush(entry(2, '2026-03-03', 90));
+    // That entry still has the time of the first try, so it is brought up to what was typed now.
+    const updated = http.expectOne(`${ENTRIES_URL}/2`);
+    expect(updated.request.method).toBe('PUT');
+    expect(updated.request.body).toMatchObject({ minutes: 120 });
+    updated.flush(entry(2, '2026-03-03', 120));
+    await harness.fixture.whenStable();
+    expect(tuesday.value).toBe('2h');
+    expect(el.querySelectorAll('.entries li')).toHaveLength(2);
+
+    // Another cell is another entry and has a key of its own.
+    fill(wednesday, '1');
+    const other = http.expectOne(ENTRIES_URL);
+    expect((other.request.body as { clientKey: string }).clientKey).not.toBe(key);
+    other.flush(entry(3, '2026-03-04', 60));
+    await harness.fixture.whenStable();
+    http.verify();
+  });
+
+  it('gives the form a key per new entry as well, the same one when the same entry is sent again', async () => {
+    const { harness, el } = await open([]);
+    const project = el.querySelector<HTMLSelectElement>('#te-project')!;
+    project.selectedIndex = 1;
+    project.dispatchEvent(new Event('change'));
+    http.expectOne('/api/projects/1/tasks').flush([]);
+    const duration = el.querySelector<HTMLInputElement>('#te-duration')!;
+    const send = async (text: string) => {
+      type(duration, text);
+      el.querySelector('form')!.dispatchEvent(new Event('submit'));
+      await harness.fixture.whenStable();
+      return http.expectOne(ENTRIES_URL);
+    };
+
+    const lost = await send('1h');
+    const key = (lost.request.body as { clientKey: string }).clientKey;
+    expect(key).toMatch(/^[0-9a-f]{32}$/);
+    lost.error(new ProgressEvent('error'));
+    const again = await send('1h');
+    expect((again.request.body as { clientKey: string }).clientKey).toBe(key);
+    again.flush(entry(4, MONDAY, 60, { taskId: undefined, taskTitle: undefined }));
+    await harness.fixture.whenStable();
+    expect(el.querySelectorAll('.entries li')).toHaveLength(1);
+
+    // The same hour once more is a second entry that is meant, and gets a key of its own.
+    const second = await send('1h');
+    expect((second.request.body as { clientKey: string }).clientKey).not.toBe(key);
+    second.flush(entry(5, MONDAY, 60, { taskId: undefined, taskTitle: undefined }));
+    await harness.fixture.whenStable();
+    expect(el.querySelector('.cell-several')).not.toBeNull();
     http.verify();
   });
 
@@ -274,7 +344,7 @@ describe('TimesheetPage', () => {
     // The blur that the move causes must not save the cell a second time.
     adminTuesday.dispatchEvent(new Event('blur'));
     const created = http.expectOne(ENTRIES_URL);
-    expect(created.request.body).toEqual({ projectId: 2, taskId: null, date: '2026-03-03', minutes: 90 });
+    expect(created.request.body).toMatchObject({ projectId: 2, taskId: null, date: '2026-03-03', minutes: 90 });
     created.flush(entry(3, '2026-03-03', 90, admin));
     await harness.fixture.whenStable();
     expect(adminTuesday.value).toBe('1h 30m');

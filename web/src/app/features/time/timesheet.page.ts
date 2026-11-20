@@ -11,10 +11,11 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Observable, map, tap } from 'rxjs';
+import { Observable, map, of, switchMap, tap } from 'rxjs';
 import { messageOf } from '../../core/errors';
 import { Task, TimeEntry, Week } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
@@ -23,7 +24,7 @@ import { TaskApi } from '../../core/task.api';
 import { TimeApi } from '../../core/time.api';
 import { addDays, dayName, diffDays, formatDate, today, weekStart } from '../../shared/dates';
 import { TIMESHEET_LABELS, formatMinutes, parseDuration } from '../../shared/format';
-import { SaveQueue } from './save-queue';
+import { SaveQueue, newClientKey } from './save-queue';
 import {
   ArrowKey,
   CellView,
@@ -121,6 +122,14 @@ export class TimesheetPage {
   private readonly queue = new SaveQueue<TimeEntry[]>();
   /** The text last sent off per cell, so that Enter followed by the blur it causes saves once. */
   private readonly asked = new Map<string, string>();
+  /**
+   * The key of the create a cell has sent, kept until the API has answered it. A create whose
+   * answer never arrived may have been stored all the same, so the next try for that cell
+   * goes out with the same key and gets that entry back instead of making a second one.
+   */
+  private readonly createKeys = new Map<string, string>();
+  /** The same for the form: a key and what it was made for. */
+  private formKey: { body: string; key: string } | null = null;
   /** The organisation the loaded week belongs to. */
   private weekOrg: number | null = null;
   private loads = 0;
@@ -287,6 +296,10 @@ export class TimesheetPage {
       return null;
     }
     const refused = (err: unknown) => {
+      if (err instanceof HttpErrorResponse && (err.error as { code?: string } | null)?.code === 'client_key_reused') {
+        // The key stands for another entry by now. The next try makes a new one.
+        this.createKeys.delete(key);
+      }
       this.gridError.set(`${cellLabel(row, date)}: ${messageOf(err)}`);
       settle();
     };
@@ -307,19 +320,35 @@ export class TimesheetPage {
         }),
       );
     }
-    // A new entry leaves the billable flag to the server (client work yes, internal no). An
-    // update replaces the whole entry, so the note and the flag are sent back as they are.
-    const request =
-      action.kind === 'create'
-        ? this.api.create(orgId, { projectId: row.projectId, taskId: row.taskId, date, minutes: action.minutes })
-        : this.api.update(orgId, action.entry.id, {
-            projectId: row.projectId,
-            taskId: row.taskId,
-            date,
-            minutes: action.minutes,
-            description: action.entry.description ?? null,
-            billable: action.entry.billable,
-          });
+    // An update replaces the whole entry, so the note and the flag are sent back as they are.
+    const update = (entry: TimeEntry) =>
+      this.api.update(orgId, entry.id, {
+        projectId: row.projectId,
+        taskId: row.taskId,
+        date,
+        minutes: action.minutes,
+        description: entry.description ?? null,
+        billable: entry.billable,
+      });
+    let request: Observable<TimeEntry>;
+    if (action.kind === 'update') {
+      request = update(action.entry);
+    } else {
+      const clientKey = this.createKeys.get(key) ?? newClientKey();
+      this.createKeys.set(key, clientKey);
+      // A new entry leaves the billable flag to the server (client work yes, internal no).
+      request = this.api.create(orgId, { projectId: row.projectId, taskId: row.taskId, date, minutes: action.minutes, clientKey }).pipe(
+        switchMap((entry) => {
+          this.createKeys.delete(key);
+          if (entry.minutes === action.minutes) {
+            return of(entry);
+          }
+          // The entry of an earlier try whose answer got lost, with the time typed back then.
+          this.putEntry(orgId, entry);
+          return update(entry);
+        }),
+      );
+    }
     return request.pipe(
       tap({
         next: (entry) => {
@@ -522,10 +551,16 @@ export class TimesheetPage {
     };
     const orgId = this.org.id();
     const editing = this.editing();
-    const request = editing ? this.api.update(orgId, editing.id, body) : this.api.create(orgId, body);
+    // Sending the very same new entry again (after an answer that never came) must not make a second one.
+    const sent = JSON.stringify([orgId, body]);
+    if (!editing && this.formKey?.body !== sent) {
+      this.formKey = { body: sent, key: newClientKey() };
+    }
+    const request = editing ? this.api.update(orgId, editing.id, body) : this.api.create(orgId, { ...body, clientKey: this.formKey?.key });
     request.subscribe({
       next: (entry) => {
         const keep = { projectId: this.form.projectId, taskId: this.form.taskId, billable: this.form.billable };
+        this.formKey = null;
         this.editing.set(null);
         this.form = { ...this.emptyForm(), ...keep, date: this.form.date };
         this.putEntry(orgId, entry);
@@ -623,6 +658,8 @@ export class TimesheetPage {
       this.shownCell.set(null);
     }
     this.weekOrg = orgId;
+    // What the API says now is what there is: a create from here on is a new one.
+    this.createKeys.clear();
     this.rows.set(readRows(localStorage, orgId, week.weekStart));
     this.week.set(week);
   }
