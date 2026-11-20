@@ -522,12 +522,18 @@ and that is the one thing of theirs I miss.
 
 - When: after time changes on a project, which is `TimeService.create`,
   `update`, `delete` and `finish` (a stopped timer). Compare the hours burn
-  and the money burn with two thresholds (80 and 100) and notify when one is
-  crossed for the first time.
-- State: `budget_alert_pct` on `projects`, an integer that defaults to 0
-  (`V17__add_project_budget_alert.sql`). It holds the highest threshold
-  already announced. Reset it when the burn falls back under a threshold
-  (entries deleted) or the budget changes in `ProjectService`.
+  and the money burn with the thresholds and notify when either burn crosses
+  one for the first time.
+- One threshold setting, two alert states. The thresholds (80 and 100) are the
+  same for hours and for money, kept as constants next to
+  `HealthStatus.BURN_AHEAD_TOLERANCE`. What has been announced is kept per
+  burn: two integer columns on `projects`, `hours_alert_pct` and
+  `amount_alert_pct`, both defaulting to 0
+  (`V17__add_project_budget_alert.sql`). Each holds the highest threshold
+  already announced for its own burn. With a single column, hours reaching
+  100 would swallow the later message that money passed 80.
+- Reset each state on its own: when its burn falls back under a threshold
+  (entries deleted) or its budget changes in `ProjectService`.
 - Who: every owner and manager of the organisation, with the loop
   `TimesheetService.submit` uses. A new `NotificationType.BUDGET_ALERT` with
   the project set and no actor. Pass `null` as the actor: `Notifier.notify`
@@ -547,8 +553,9 @@ and that is the one thing of theirs I miss.
 - Web: an icon in `ICONS`. `NotificationsPage.open` does nothing for a
   notification that has a project but no task, so add that case (to the
   project's overview tab).
-- Keep the thresholds as constants next to
-  `HealthStatus.BURN_AHEAD_TOLERANCE`.
+- Tricky: a changed rate (on the project, a member, a role or the
+  organisation) moves the money burn without any time being logged. Nothing
+  fires at that moment. The next entry on the project picks it up.
 - Undecided: who a project belongs to. There is no project lead, so every
   manager is told about every project, which is noise in a bigger team. A lead
   on `projects` would fix that and would help item 12 too.
