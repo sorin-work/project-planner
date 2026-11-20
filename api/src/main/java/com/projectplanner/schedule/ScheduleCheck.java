@@ -26,7 +26,11 @@ import java.util.Set;
 public final class ScheduleCheck {
 
     public enum IssueType {
-        /** The task starts before {@code relatedTaskId}, which it waits for, is due (plus the lag). */
+        /**
+         * The task is earlier than its link to {@code relatedTaskId} allows: it starts before the
+         * predecessor is due (finish-to-start) or starts (start-to-start), or is due before the
+         * predecessor is due (finish-to-finish) or starts (start-to-finish), plus the lag.
+         */
         STARTS_TOO_EARLY,
         /** The task waits for {@code relatedTaskId}, which has no due date, so the link is not enforced. */
         WAITS_FOR_UNSCHEDULED,
@@ -58,10 +62,12 @@ public final class ScheduleCheck {
 
     private final WorkCalendar calendar;
     private final Rescheduler rescheduler;
+    private final LinkRule rule;
 
     public ScheduleCheck(WorkCalendar calendar) {
         this.calendar = calendar;
         this.rescheduler = new Rescheduler(calendar);
+        this.rule = new LinkRule(calendar);
     }
 
     /**
@@ -115,7 +121,7 @@ public final class ScheduleCheck {
             if (predecessor == null) {
                 continue;
             }
-            LocalDate allowed = rescheduler.earliestStart(link, predecessor);
+            LocalDate allowed = rule.earliestStart(link, predecessor, task);
             if (allowed == null) {
                 if (!done.contains(predecessor.id())) {
                     issues.add(new Issue(IssueType.WAITS_FOR_UNSCHEDULED, task.id(), predecessor.id(), null, null, null));

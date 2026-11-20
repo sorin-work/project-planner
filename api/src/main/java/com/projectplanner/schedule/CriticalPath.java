@@ -47,7 +47,7 @@ public final class CriticalPath {
             int d = calendar.duration(task.start(), task.due());
             int start = offset(origin, task.start());
             for (Link link : graph.predecessors(id)) {
-                start = Math.max(start, ef.get(link.predecessorId()) + 1 + link.lagDays());
+                start = Math.max(start, LinkRule.earliestStartOffset(link, es.get(link.predecessorId()), ef.get(link.predecessorId()), d));
             }
             duration.put(id, d);
             es.put(id, start);
@@ -61,7 +61,8 @@ public final class CriticalPath {
         for (long id : order.reversed()) {
             int latestFinish = finish;
             for (Link link : graph.successors(id)) {
-                latestFinish = Math.min(latestFinish, ls.get(link.successorId()) - 1 - link.lagDays());
+                latestFinish = Math.min(latestFinish,
+                        LinkRule.latestFinishOffset(link, ls.get(link.successorId()), lf.get(link.successorId()), duration.get(id)));
             }
             lf.put(id, latestFinish);
             ls.put(id, latestFinish - duration.get(id) + 1);
