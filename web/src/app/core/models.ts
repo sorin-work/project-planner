@@ -193,6 +193,8 @@ export interface ScheduleIssue {
   /** Where to move the task to fix a STARTS_TOO_EARLY issue. The API works both dates out. */
   suggestedStart?: string;
   suggestedDue?: string;
+  /** What that move would get the task reported for instead: AFTER_PROJECT_END, OUTSIDE_PARENT or both. */
+  suggestionCauses?: ScheduleIssueType[];
 }
 
 export interface Progress {

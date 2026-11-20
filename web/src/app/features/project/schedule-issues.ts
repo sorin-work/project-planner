@@ -1,4 +1,4 @@
-import { ScheduleIssue, Task } from '../../core/models';
+import { ScheduleIssue, ScheduleIssueType, Task } from '../../core/models';
 import { formatDate, maxDate } from '../../shared/dates';
 
 /** The two dates the API suggests for a task that starts too early. */
@@ -6,6 +6,8 @@ export interface MoveTo {
   taskId: number;
   startDate: string;
   dueDate: string;
+  /** What the API says the move would get the task reported for instead. Empty when it costs nothing. */
+  causes: ScheduleIssueType[];
 }
 
 /** One row of the issue list. */
@@ -74,7 +76,25 @@ export function linkIssue(issues: ScheduleIssue[], predecessorId: number): Sched
 /** The move that fixes a task's broken links, or null if none of these issues comes with one. */
 export function moveTo(issues: ScheduleIssue[]): MoveTo | null {
   const issue = issues.find((i) => i.suggestedStart && i.suggestedDue);
-  return issue ? { taskId: issue.taskId, startDate: issue.suggestedStart!, dueDate: issue.suggestedDue! } : null;
+  return issue
+    ? { taskId: issue.taskId, startDate: issue.suggestedStart!, dueDate: issue.suggestedDue!, causes: issue.suggestionCauses ?? [] }
+    : null;
+}
+
+/**
+ * What the move would cost, to show next to the button: the suggested dates only
+ * look at the dependencies, and the API says when they break something else.
+ * Null when they do not.
+ */
+export function moveCost(fix: MoveTo): string | null {
+  const where: string[] = [];
+  if (fix.causes.includes('AFTER_PROJECT_END')) {
+    where.push("after the project's end date");
+  }
+  if (fix.causes.includes('OUTSIDE_PARENT')) {
+    where.push('outside the dates of its parent');
+  }
+  return where.length ? `That puts it ${where.join(' and ')}.` : null;
 }
 
 export function issueLines(issues: ScheduleIssue[], titleOf: TitleOf): IssueLine[] {

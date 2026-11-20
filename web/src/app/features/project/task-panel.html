@@ -142,7 +142,10 @@
           @if (canEdit()) {
             <button type="button" class="small" (click)="applyFix()">Move to {{ formatDate(f.startDate) }}</button>
           }
-          <span class="muted small">Earliest dates that fit, at the same length: {{ formatRange(f.startDate, f.dueDate) }}</span>
+          <span class="muted small">Earliest dates that fit, at the same length: {{ formatRange(f.startDate, f.dueDate) }}.</span>
+          @if (moveCost(f); as cost) {
+            <span class="issue-note">{{ cost }}</span>
+          }
         </p>
       }
       @if (canEdit()) {

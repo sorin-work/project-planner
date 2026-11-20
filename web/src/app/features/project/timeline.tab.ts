@@ -9,7 +9,7 @@ import { Gantt } from '../gantt/gantt';
 import { Zoom } from '../gantt/gantt-layout';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
-import { MoveTo, issueLines, planEndNote } from './schedule-issues';
+import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
 
 @Component({
   selector: 'app-timeline-tab',
@@ -45,6 +45,9 @@ import { MoveTo, issueLines, planEndNote } from './schedule-issues';
               <button type="button" class="link" (click)="openTask(line.taskId)">{{ line.title }}</button>
               <span class="grow issue-note">{{ line.text }}</span>
               @if (org.isTeam() && line.fix; as fix) {
+                @if (moveCost(fix); as cost) {
+                  <span class="muted small">{{ cost }}</span>
+                }
                 <button type="button" class="small" (click)="applyFix(fix)">Move to {{ formatDate(fix.startDate) }}</button>
               }
             </li>
@@ -87,6 +90,7 @@ export class TimelineTab {
   protected readonly message = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly formatDate = formatDate;
+  protected readonly moveCost = moveCost;
 
   move(taskId: number, days: number): void {
     this.apply(this.store.shiftTask(taskId, days));

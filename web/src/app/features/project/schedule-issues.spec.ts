@@ -1,6 +1,8 @@
 import { ScheduleIssue, Task } from '../../core/models';
 import { formatDate } from '../../shared/dates';
-import { brokenLinks, issueLines, issueText, linkIssue, linkKey, linkNote, moveTo, planEndNote } from './schedule-issues';
+import {
+  brokenLinks, issueLines, issueText, linkIssue, linkKey, linkNote, moveCost, moveTo, planEndNote,
+} from './schedule-issues';
 
 const titles: Record<number, string> = { 1: 'Design', 2: 'Build', 3: 'Endpoints', 4: 'Copy' };
 const titleOf = (id: number) => titles[id] ?? `#${id}`;
@@ -13,12 +15,13 @@ const undated: ScheduleIssue = { type: 'WAITS_FOR_UNSCHEDULED', taskId: 2, relat
 const late: ScheduleIssue = { type: 'AFTER_PROJECT_END', taskId: 2, days: 1 };
 const outside: ScheduleIssue = { type: 'OUTSIDE_PARENT', taskId: 3, relatedTaskId: 2, days: 2 };
 
-function task(id: number, dueDate?: string): Task {
+function task(id: number, dueDate?: string, extra: Partial<Task> = {}): Task {
   return {
     id, projectId: 1, title: titleOf(id), status: 'TODO', priority: 'MEDIUM', milestone: false, position: 0,
-    createdAt: '', updatedAt: '', predecessors: [], subtaskCount: 0, loggedHours: 0, dueDate,
+    createdAt: '', updatedAt: '', predecessors: [], subtaskCount: 0, loggedHours: 0, dueDate, ...extra,
   };
 }
+
 
 describe('schedule issues', () => {
   it('says what is wrong in a sentence', () => {
@@ -47,8 +50,19 @@ describe('schedule issues', () => {
   });
 
   it('takes the move from the issue as it came', () => {
-    expect(moveTo([late, undated, early])).toEqual({ taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11' });
+    expect(moveTo([late, undated, early])).toEqual({ taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11', causes: [] });
     expect(moveTo([late, undated, outside])).toBeNull();
+    expect(moveTo([{ ...early, suggestionCauses: ['AFTER_PROJECT_END'] }])?.causes).toEqual(['AFTER_PROJECT_END']);
+  });
+
+  it('says what the move would cost when the API reports that it breaks something else', () => {
+    const fix = { taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11' };
+    expect(moveCost({ ...fix, causes: [] })).toBeNull();
+    expect(moveCost({ ...fix, causes: ['AFTER_PROJECT_END'] })).toBe("That puts it after the project's end date.");
+    expect(moveCost({ ...fix, causes: ['OUTSIDE_PARENT'] })).toBe('That puts it outside the dates of its parent.');
+    expect(moveCost({ ...fix, causes: ['AFTER_PROJECT_END', 'OUTSIDE_PARENT'] })).toBe(
+      "That puts it after the project's end date and outside the dates of its parent.",
+    );
   });
 
   it('lists one row per issue and offers the move once per task', () => {
@@ -60,7 +74,7 @@ describe('schedule issues', () => {
       'Endpoints: Has 2 working days outside the dates of Build',
     ]);
     expect(lines.map((l) => l.fix)).toEqual([
-      { taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11' },
+      { taskId: 2, startDate: '2026-03-09', dueDate: '2026-03-11', causes: [] },
       undefined,
       undefined,
       undefined,
