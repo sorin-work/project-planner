@@ -18,6 +18,7 @@ import jakarta.persistence.LockModeType;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Tells owners and managers when a project reaches 80 percent of a budget, and
@@ -41,40 +42,56 @@ public class BudgetAlerts {
     }
 
     void timeChanged(@Observes TimeChanged event) {
-        check(Project.findById(event.projectId()), null, true);
+        check(Project.findById(event.projectId()), true);
     }
 
     void budgetChanged(@Observes BudgetChanged event) {
-        check(Project.findById(event.projectId()), null, true);
+        check(Project.findById(event.projectId()), true);
     }
 
-    /** A rate moves the money burn of every project that has a money budget, without any time being logged. */
+    /**
+     * A rate moves the money burn of every project that has a money budget, without any time
+     * being logged. All of them are looked at with one grouped query.
+     *
+     * <p>Rows are locked in one order everywhere: memberships before projects, each by id. A
+     * keyed time create locks the person's membership and then the project, so here the
+     * membership that changed is written and locked before the first project is. Otherwise
+     * the write would wait for the first query below, with the projects already held.
+     */
     void ratesChanged(@Observes RatesChanged event) {
+        Project.getEntityManager().flush();
+        if (event.membershipId() != null) {
+            Membership.findById(event.membershipId(), LockModeType.PESSIMISTIC_WRITE);
+        }
         List<Project> projects = Project.<Project>find("organisationId = ?1 and budgetAmount is not null order by id",
                 event.organisationId()).withLock(LockModeType.PESSIMISTIC_WRITE).list();
-        if (!projects.isEmpty()) {
-            RateBook rates = RateBook.load(event.organisationId());
-            projects.forEach(project -> check(project, rates, true));
+        if (projects.isEmpty()) {
+            return;
         }
+        Map<Long, Budget> budgets = health.budgets(projects, RateBook.load(event.organisationId()));
+        projects.forEach(project -> announce(project, budgets.get(project.id), true));
     }
 
     /** Looks at one project now. The caller has made sure nobody else is changing its time meanwhile. */
     public void check(Project project) {
-        check(project, null, true);
+        check(project, true);
     }
 
     /** Takes the levels of a project to where its burn is now, without telling anybody. For data that arrives with a history. */
     public void settle(Project project) {
-        check(project, null, false);
+        check(project, false);
     }
 
-    private void check(Project project, RateBook rates, boolean tell) {
+    private void check(Project project, boolean tell) {
         if (project.budgetHours == null && project.budgetAmount == null && project.hoursAlertPct == 0 && project.amountAlertPct == 0) {
             // No budget and nothing to take back: not worth a single query.
             return;
         }
         boolean money = project.budgetAmount != null;
-        Budget budget = health.budget(project, !money ? null : rates != null ? rates : RateBook.load(project.organisationId));
+        announce(project, health.budget(project, money ? RateBook.load(project.organisationId) : null), tell);
+    }
+
+    private void announce(Project project, Budget budget, boolean tell) {
         Step hours = BudgetThresholds.step(project.hoursAlertPct, budget.hoursBurnPct());
         Step amount = BudgetThresholds.step(project.amountAlertPct, budget.amountBurnPct());
         project.hoursAlertPct = hours.level();
