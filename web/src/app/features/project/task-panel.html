@@ -148,6 +148,9 @@
           }
         </p>
       }
+      @if (store.scheduleError(); as problem) {
+        <p class="issue-note">The schedule could not be checked after the last change, so warnings are not shown: {{ problem }}</p>
+      }
       @if (canEdit()) {
         <form class="dep-form" (ngSubmit)="addDependency()">
           <select name="predecessor" [(ngModel)]="newPredecessor" aria-label="Task to wait for">

@@ -81,13 +81,20 @@ describe('TaskPanel schedule issues', () => {
     expect(el.querySelector('.deps .issue-note')).toBeNull();
   });
 
-  it('says next to the button what the move would cost', async () => {
+  it('says next to the button what the move would cost, and why warnings are missing when they are', async () => {
     const { fixture, store, el } = await render(true);
     expect(el.querySelector('.issue-fix .issue-note')).toBeNull();
 
     store.issues.set([{ ...early, suggestionCauses: ['AFTER_PROJECT_END'] }]);
     await fixture.whenStable();
     expect(el.querySelector('.issue-fix')?.textContent).toContain("That puts it after the project's end date.");
+
+    store.issues.set([]);
+    store.scheduleError.set('Cannot reach the server. Check your connection and try again.');
+    await fixture.whenStable();
+    expect(moveButton(el)).toBeUndefined();
+    expect(el.textContent).toContain('The schedule could not be checked after the last change');
+    expect(el.textContent).toContain('Cannot reach the server.');
   });
 
   it('shows the issue to client viewers without the button', async () => {

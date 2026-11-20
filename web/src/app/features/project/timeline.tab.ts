@@ -37,6 +37,12 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
     @if (endNote(); as note) {
       <p class="muted small plan-end-note">{{ note }}</p>
     }
+    @if (store.scheduleError(); as problem) {
+      <p class="alert error" role="alert">
+        The schedule could not be checked after the last change, so warnings are not shown: {{ problem }}
+        <button type="button" class="link" (click)="store.refreshSchedule()">Try again</button>
+      </p>
+    }
     @if (showIssues() && lines().length) {
       <section class="card issues-card" aria-label="Schedule issues">
         <ul class="task-lines">
