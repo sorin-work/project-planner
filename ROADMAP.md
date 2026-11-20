@@ -60,9 +60,9 @@ A few things hold for every item:
   partial indexes or Postgres-only functions. Where an item needs a migration
   I have written down a version number for it, so that two items in progress
   at the same time do not both take `V16`. Gaps are fine. The numbers run up
-  to `V24`. Item 2 had none and took `V25` for the key on time entries, and
-  item 13 took `V26` for the second project of an activity entry, so the next
-  free one is `V27`.
+  to `V24`. Item 2 had none and took `V25` for the key on time entries,
+  item 13 took `V26` for the second project of an activity entry, and the
+  claim on notification mails took `V27`, so the next free one is `V28`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -499,7 +499,9 @@ only a fixed sentence per type and a link; every mail has a signed stop link per
 that works without signing in, through a page at `/unsubscribe` that asks first.
 Still open: the daily summary and the automatic timesheet reminders, which stay the
 follow-up the roadmap planned; links in a mail open in whichever organisation the
-browser has selected; and the job expects one API instance.
+browser has selected. In a follow-up the rows are claimed with `FOR UPDATE SKIP LOCKED`
+and `email_claimed_until` (`V27`), so several API instances can run the job, and the
+job writes its outcome with bulk updates of its own columns.
 
 ### 13. Duplicate a project as a template
 

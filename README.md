@@ -386,8 +386,14 @@ before it mails it, and only marks it as done when it is read already, its type 
 longer mailed to the person, they left the organisation, or they can no longer see
 what it is about (a project of another client, budgets or approvals after losing the
 manager role). A mail that fails is tried again after 1, 2, 4, 8 and 16 minutes and
-then given up, which the log says. The job runs on each instance of the API, so the
-app expects one.
+then given up, which the log says. Several instances of the API can run the job at
+the same time: a run reads what waits with `FOR UPDATE SKIP LOCKED` and claims it for
+five minutes (`email_claimed_until`, `V27`) before it sends anything, so no two runs mail
+the same notification, and a run that dies in the middle of a mail leaves its rows to be
+taken on again once the claim has run out. One case still sends twice: a mail that the
+mail server took but whose answer never came back counts as failed and is sent again.
+The job only ever writes its own columns, so reading a notification while its mail is
+on the way is never undone.
 
 The mails say what happened in fixed words, one line per notification with a link to
 the task, the project, the week or the approvals page: never the title of a task or
