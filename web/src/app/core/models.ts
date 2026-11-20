@@ -352,6 +352,48 @@ export interface RemindResult {
   skipped: { userId: number; reason: ReminderSkip }[];
 }
 
+export type ReportGroupBy = 'PROJECT' | 'CLIENT' | 'MEMBER' | 'TASK';
+/** A range the API works out from the organisation's date. */
+export type ReportPreset = 'this_week' | 'last_week' | 'this_month' | 'last_month';
+
+/** Time is in whole minutes and money has two decimals, so a column adds up to its total. */
+export interface TimeReportRow {
+  key: string;
+  label: string;
+  minutes: number;
+  billableMinutes: number;
+  /** Only for owners and managers. */
+  billableAmount?: number | null;
+}
+
+export interface TimeReport {
+  from: string;
+  to: string;
+  groupBy: ReportGroupBy;
+  rows: TimeReportRow[];
+  total: TimeReportRow;
+}
+
+export interface UtilisationRow {
+  userId?: number | null;
+  name: string;
+  minutes: number;
+  billableMinutes: number;
+  capacityMinutes: number;
+  /** Billable time as a share of capacity. Missing when there is no capacity to compare with. */
+  utilisationPct?: number | null;
+}
+
+export interface UtilisationReport {
+  from: string;
+  to: string;
+  /** The last day capacity was counted for: the end of the range, or today when it runs into the future. */
+  capacityTo?: string | null;
+  workingDays: number;
+  rows: UtilisationRow[];
+  total: UtilisationRow;
+}
+
 export interface WeekLoad {
   weekStart: string;
   allocatedHours: number;
