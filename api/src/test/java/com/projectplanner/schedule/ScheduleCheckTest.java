@@ -246,4 +246,31 @@ class ScheduleCheckTest {
                 tuple(2L, IssueType.STARTS_TOO_EARLY),
                 tuple(2L, IssueType.AFTER_PROJECT_END));
     }
+
+    @Test
+    void aStartToStartLinkThatHoldsIsNotReportedThoughTheTasksOverlap() {
+        var design = new ScheduledTask(1, day(0), day(4));
+        var build = new ScheduledTask(2, day(1), day(3));
+        assertThat(links(List.of(design, build), List.of(new Link(1, 2, 1, DependencyType.SS)))).isEmpty();
+        // Design is due on Friday; four days of lead put the earliest start on Tuesday, where Build starts.
+        assertThat(links(List.of(design, build), List.of(new Link(1, 2, -4)))).isEmpty();
+        assertThat(links(List.of(design, build), List.of(new Link(1, 2, -3)))).extracting(Issue::days).containsExactly(1);
+    }
+
+    @Test
+    void eachTypeIsReportedByItsOwnRuleWithTheDatesTheReschedulerWouldGive() {
+        var design = new ScheduledTask(1, day(2), day(8));
+        var build = new ScheduledTask(2, day(0), day(1));
+        for (DependencyType type : DependencyType.values()) {
+            Link link = new Link(1, 2, 0, type);
+            List<Issue> issues = links(List.of(design, build), List.of(link));
+            assertThat(issues).as(type.name()).hasSize(1);
+            Issue issue = issues.getFirst();
+            ScheduledTask fix = rescheduler.propagate(List.of(design, build), List.of(link), Set.of(1L)).get(2L);
+            assertThat(issue.suggestedStart()).as(type.name()).isEqualTo(fix.start());
+            assertThat(issue.suggestedDue()).as(type.name()).isEqualTo(fix.due());
+            // After the move the link holds.
+            assertThat(links(List.of(design, fix), List.of(link))).as(type.name()).isEmpty();
+        }
+    }
 }

@@ -133,4 +133,65 @@ class ReschedulerTest {
                 List.of(new Link(1, 2), new Link(3, 4)), Set.of(1L));
         assertThat(moved).isEmpty();
     }
+
+    @Test
+    void startToStartPushesTheSuccessorWhenThePredecessorStartsLater() {
+        // A moved to start on Wednesday; B, which starts with it plus one day, started on Tuesday.
+        var a = new ScheduledTask(1, day(2), day(9));
+        var b = new ScheduledTask(2, day(1), day(2));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b), List.of(new Link(1, 2, 1, DependencyType.SS)), Set.of(1L));
+        assertThat(moved.get(2L)).isEqualTo(new ScheduledTask(2, day(3), day(4)));
+    }
+
+    @Test
+    void startToStartLeavesASuccessorAloneThatOverlapsOnPurpose() {
+        // B runs alongside A, which is what start-to-start is for: nothing to push.
+        var a = new ScheduledTask(1, day(0), day(4));
+        var b = new ScheduledTask(2, day(1), day(3));
+        assertThat(rescheduler.propagate(List.of(a, b), List.of(new Link(1, 2, 0, DependencyType.SS)), Set.of(1L))).isEmpty();
+    }
+
+    @Test
+    void finishToFinishMovesTheSuccessorWholeSoThatItsFinishFits() {
+        // A now ends on Tuesday the 10th. B (Mon - Wed, three days) may not end before it: Friday to Tuesday.
+        var a = new ScheduledTask(1, day(0), day(8));
+        var b = new ScheduledTask(2, day(0), day(2));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b), List.of(new Link(1, 2, 0, DependencyType.FF)), Set.of(1L));
+        assertThat(moved.get(2L)).isEqualTo(new ScheduledTask(2, day(4), day(8)));
+    }
+
+    @Test
+    void startToFinishHoldsTheFinishAgainstTheStart() {
+        // A starts on Thursday; B may not end before then, so the two-day B runs Wednesday to Thursday.
+        var a = new ScheduledTask(1, day(3), day(9));
+        var b = new ScheduledTask(2, day(0), day(1));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b), List.of(new Link(1, 2, 0, DependencyType.SF)), Set.of(1L));
+        assertThat(moved.get(2L)).isEqualTo(new ScheduledTask(2, day(2), day(3)));
+    }
+
+    @Test
+    void aLeadLetsTheSuccessorStartBeforeThePredecessorEnds() {
+        // A ends on Friday. With two days of lead B may start on Thursday, so a Tuesday start is pushed to Thursday only.
+        var a = new ScheduledTask(1, day(0), day(4));
+        var b = new ScheduledTask(2, day(1), day(2));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b), List.of(new Link(1, 2, -2)), Set.of(1L));
+        assertThat(moved.get(2L)).isEqualTo(new ScheduledTask(2, day(3), day(4)));
+        // Already on Thursday: left alone.
+        var later = new ScheduledTask(2, day(3), day(4));
+        assertThat(rescheduler.propagate(List.of(a, later), List.of(new Link(1, 2, -2)), Set.of(1L))).isEmpty();
+    }
+
+    @Test
+    void cascadesThroughAChainOfMixedTypes() {
+        // A -FS-> B -SS+1-> C -FF-> D. A slips a week and everything follows.
+        var a = new ScheduledTask(1, day(7), day(11));
+        var b = new ScheduledTask(2, day(7), day(8));
+        var c = new ScheduledTask(3, day(8), day(9));
+        var d = new ScheduledTask(4, day(8), day(9));
+        List<Link> links = List.of(new Link(1, 2), new Link(2, 3, 1, DependencyType.SS), new Link(3, 4, 0, DependencyType.FF));
+        Map<Long, ScheduledTask> moved = rescheduler.propagate(List.of(a, b, c, d), links, Set.of(1L));
+        assertThat(moved.get(2L)).isEqualTo(new ScheduledTask(2, day(14), day(15)));
+        assertThat(moved.get(3L)).isEqualTo(new ScheduledTask(3, day(15), day(16)));
+        assertThat(moved.get(4L)).isEqualTo(new ScheduledTask(4, day(15), day(16)));
+    }
 }
