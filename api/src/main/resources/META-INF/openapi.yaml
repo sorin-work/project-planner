@@ -74,6 +74,8 @@ tags:
     description: Comments, notifications and the activity log.
   - name: Dashboard
     description: The start page.
+  - name: Search
+    description: Finding projects, tasks and comments by text.
 components:
   responses:
     Error:

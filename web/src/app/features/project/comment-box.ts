@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, computed, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Member } from '../../core/models';
+import { moveHighlight } from '../../shared/list-keys';
 import { ActiveMention, activeMention, insertMention } from '../../shared/mentions';
 
 const MAX_SUGGESTIONS = 6;
@@ -64,12 +65,10 @@ export class CommentBox {
       }
       return;
     }
-    if (event.key === 'ArrowDown') {
+    const moved = moveHighlight(event.key, this.highlighted(), list.length);
+    if (moved !== null) {
       event.preventDefault();
-      this.highlighted.set((this.highlighted() + 1) % list.length);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      this.highlighted.set((this.highlighted() + list.length - 1) % list.length);
+      this.highlighted.set(moved);
     } else if (event.key === 'Enter' || event.key === 'Tab') {
       event.preventDefault();
       this.choose(list[this.highlighted()]);

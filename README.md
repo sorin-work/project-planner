@@ -101,6 +101,13 @@ the point is knowing whether a project will land on time and on budget.
 - **Project health**: progress by estimate, planned vs earned hours (schedule variance
   and SPI), forecast end against the planned end, hours and money burn, overdue tasks,
   and an on track / at risk / off track status.
+- **Search**: `Ctrl+K` (`⌘K` on a Mac), or the Search button in the top bar, opens a
+  dialog that finds projects by name, code or client, tasks by title or description and
+  comments by their text. Arrow keys and Enter open a hit, and the last five picks are
+  there before anything is typed, with their current titles. Only what you can open is
+  found, among the recent picks too. The List tab of a
+  project has filters of its own: text, assignee, status and priority, kept in the
+  address so that they survive a reload and the back button.
 - **Comments with @mentions** (handles are the part of the email before the @, with
   autocomplete), in-app notifications, an activity log per project and organisation.
 - **CSV export** of timesheets (rate and amount columns for managers), safe to open in
@@ -139,7 +146,7 @@ The API is organised by feature under `api/src/main/java/com/projectplanner`:
 (projects and phases), `task` (tasks, dependencies, critical path and schedule
 issue endpoints), `time`
 (entries, timers, timesheets, CSV export), `workload`, `report` (project health),
-`baseline`, `comment`, `notification`, `activity`, `dashboard` and `seed`. Resources are thin;
+`baseline`, `comment`, `notification`, `activity`, `dashboard`, `search` and `seed`. Resources are thin;
 permission checks live in `OrgAccess`.
 
 The scheduling and reporting rules are plain Java classes without any framework
@@ -500,6 +507,17 @@ The rules that hold for every endpoint:
   viewers.
 
 The rest of this section is what the reference only mentions in passing.
+
+`GET /orgs/{org}/search?q=&limit=` matches the text as it is, wherever it occurs and
+without regard to case: a `%` or `_` in it stands for itself, and there are no words,
+no stemming and no ranking beyond "the start of a name first, open tasks before done
+ones". It answers with at most `limit` projects, tasks and comments each (8 unless
+asked, 20 at most), and with nothing for less than two characters. Underneath it is
+`lower(...) like '%text%'` over the projects, tasks and comments of the organisation,
+because that is what PostgreSQL and the H2 database of the tests have in common. No
+index helps a search for text in the middle, so every search reads all of the
+organisation's tasks and comments. That is fine for a few thousand tasks, and it is
+not a search engine. On PostgreSQL alone a trigram index would be the next step.
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
