@@ -8,6 +8,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
@@ -65,4 +66,22 @@ public class Project extends PanacheEntityBase {
 
     @Column(name = "updated_at", nullable = false)
     public Instant updatedAt;
+
+    /** The highest threshold of the hours budget that has been announced: 0, 80 or 100. */
+    @Column(name = "hours_alert_pct", nullable = false)
+    public int hoursAlertPct;
+
+    /** The same for the money budget. The two are kept apart so that one does not hide the other. */
+    @Column(name = "amount_alert_pct", nullable = false)
+    public int amountAlertPct;
+
+    /**
+     * The project with its row locked until the transaction ends. Whatever changes the time
+     * or the budget of a project takes this first, so that two changes at the same moment
+     * happen one after the other and the second one sees what the first one left: the burn,
+     * and the alert that may already have gone out for it.
+     */
+    public static Project locked(long id) {
+        return findById(id, LockModeType.PESSIMISTIC_WRITE);
+    }
 }
