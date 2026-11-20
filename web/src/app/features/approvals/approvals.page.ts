@@ -1,22 +1,47 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { map } from 'rxjs';
+import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
-import { TimesheetStatus, TimesheetSummary, Week } from '../../core/models';
+import { MissingTimesheet, MissingTimesheets, TimesheetSummary, Week } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { TimeApi } from '../../core/time.api';
-import { dayName, formatDate } from '../../shared/dates';
+import { addDays, dayName, formatDate } from '../../shared/dates';
 import { TIMESHEET_LABELS, formatMinutes, formatMoney } from '../../shared/format';
 import { buildGrid } from '../time/timesheet-grid';
+import {
+  APPROVALS_TABS,
+  ApprovalsTab,
+  canRemind,
+  groupMissing,
+  loggedOfCapacity,
+  paramOfTab,
+  remindAllIds,
+  remindSummary,
+  tabOfParam,
+} from './missing-timesheets';
+
+interface MissingSection {
+  key: 'late' | 'noTime';
+  title: string;
+  hint: string | null;
+  empty: string;
+  people: MissingTimesheet[];
+}
 
 @Component({
   selector: 'app-approvals-page',
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="page-header">
       <h1>Timesheet approvals</h1>
       <div class="segmented" role="group" aria-label="Status">
-        @for (s of tabs; track s) {
-          <button type="button" [class.active]="status() === s" (click)="setStatus(s)">{{ labels[s] }}</button>
+        @for (t of tabs; track t) {
+          <button type="button" [class.active]="tab() === t" [attr.aria-pressed]="tab() === t" (click)="setTab(t)">
+            {{ tabLabels[t] }}
+          </button>
         }
       </div>
     </div>
@@ -25,19 +50,63 @@ import { buildGrid } from '../time/timesheet-grid';
     }
     <div class="grid-2 wide-right">
       <section class="card">
-        <ul class="sheet-list">
-          @for (s of sheets(); track s.id) {
-            <li>
-              <button type="button" class="row-button" [class.selected]="selected()?.timesheetId === s.id" (click)="open(s)">
-                <span class="grow"><strong>{{ s.userName }}</strong><br /><span class="muted small">Week of {{ formatDate(s.weekStart) }}</span></span>
-                <span class="right">{{ formatMinutes(s.totalMinutes) }}<br />
-                  <span class="muted small">{{ money(s.billableAmount) }} billable</span></span>
-              </button>
-            </li>
-          } @empty {
-            <li class="muted">{{ status() === 'SUBMITTED' ? 'Nothing waiting for approval.' : 'No timesheets.' }}</li>
+        @if (tab() !== 'MISSING') {
+          <ul class="sheet-list">
+            @for (s of sheets(); track s.id) {
+              <li>
+                <button type="button" class="row-button" [class.selected]="selected()?.timesheetId === s.id" (click)="open(s)">
+                  <span class="grow"><strong>{{ s.userName }}</strong><br /><span class="muted small">Week of {{ formatDate(s.weekStart) }}</span></span>
+                  <span class="right">{{ formatMinutes(s.totalMinutes) }}<br />
+                    <span class="muted small">{{ money(s.billableAmount) }} billable</span></span>
+                </button>
+              </li>
+            } @empty {
+              <li class="muted">{{ tab() === 'SUBMITTED' ? 'Nothing waiting for approval.' : 'No timesheets.' }}</li>
+            }
+          </ul>
+        } @else if (missing(); as m) {
+          <div class="week-nav missing-nav">
+            <button type="button" (click)="shiftWeek(-1)" aria-label="Previous week">‹</button>
+            <span class="week-label">Week of {{ formatDate(m.weekStart) }}</span>
+            <button type="button" (click)="shiftWeek(1)" [disabled]="m.weekStart >= m.latestWeekStart" aria-label="Next week">›</button>
+          </div>
+          @if (notice()) {
+            <p class="alert info" role="status">{{ notice() }}</p>
           }
-        </ul>
+          @for (section of sections(); track section.key) {
+            <div class="list-header">
+              <h2>{{ section.title }}</h2>
+              @if (section.key === 'late') {
+                <button type="button" class="small" [disabled]="!remindAll().length || sending()" (click)="remind(remindAll())">
+                  Remind all
+                </button>
+              }
+            </div>
+            @if (section.hint) {
+              <p class="muted small">{{ section.hint }}</p>
+            }
+            <ul class="sheet-list">
+              @for (p of section.people; track p.userId) {
+                <li class="missing-row">
+                  <button type="button" class="row-button" [class.selected]="selected()?.userId === p.userId" (click)="openWeek(p)">
+                    <span class="grow"><strong>{{ p.userName }}</strong><br /><span class="muted small">{{ labels[p.status] }}</span></span>
+                    <span class="right">{{ loggedOfCapacity(p) }}</span>
+                  </button>
+                  @if (p.userId === myId()) {
+                    <a class="small" routerLink="/time" [queryParams]="{ week: m.weekStart }">Your week</a>
+                  } @else {
+                    <button type="button" class="small" [disabled]="!canRemind(p, myId()) || sending()" (click)="remind([p.userId])"
+                      [attr.aria-label]="(p.remindedToday ? 'Reminded today: ' : 'Remind ') + p.userName">
+                      {{ p.remindedToday ? 'Reminded today' : 'Remind' }}
+                    </button>
+                  }
+                </li>
+              } @empty {
+                <li class="muted">{{ section.empty }}</li>
+              }
+            </ul>
+          }
+        }
       </section>
       <section class="card">
         @if (selected(); as w) {
@@ -56,6 +125,8 @@ import { buildGrid } from '../time/timesheet-grid';
                       @for (m of row.days; track $index) { <td class="num">{{ m ? formatMinutes(m) : '' }}</td> }
                       <td class="num">{{ formatMinutes(row.total) }}</td>
                     </tr>
+                  } @empty {
+                    <tr><td colspan="9" class="muted">No time logged this week.</td></tr>
                   }
                 </tbody>
               </table>
@@ -72,7 +143,7 @@ import { buildGrid } from '../time/timesheet-grid';
             </div>
           }
         } @else {
-          <p class="muted">Choose a timesheet to review.</p>
+          <p class="muted">{{ tab() === 'MISSING' ? 'Choose a person to see their week.' : 'Choose a timesheet to review.' }}</p>
         }
       </section>
     </div>
@@ -81,27 +152,70 @@ import { buildGrid } from '../time/timesheet-grid';
 })
 export class ApprovalsPage {
   private readonly api = inject(TimeApi);
+  private readonly auth = inject(AuthService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   protected readonly org = inject(OrgContext);
 
-  protected readonly tabs: TimesheetStatus[] = ['SUBMITTED', 'APPROVED', 'REJECTED'];
-  protected readonly status = signal<TimesheetStatus>('SUBMITTED');
+  protected readonly tabs = APPROVALS_TABS;
+  protected readonly tabLabels: Record<ApprovalsTab, string> = { ...TIMESHEET_LABELS, MISSING: 'Not submitted' };
+  /** The tab lives in ?tab= so that the dashboard can link to the people who have not submitted. */
+  protected readonly tab = toSignal(this.route.queryParamMap.pipe(map((q) => tabOfParam(q.get('tab')))), {
+    initialValue: tabOfParam(this.route.snapshot.queryParamMap.get('tab')),
+  });
   protected readonly sheets = signal<TimesheetSummary[]>([]);
+  /** The week of the "Not submitted" tab; null is the last week that is over, which only the API knows. */
+  protected readonly missingWeek = signal<string | null>(null);
+  protected readonly missing = signal<MissingTimesheets | null>(null);
+  protected readonly notice = signal<string | null>(null);
+  protected readonly sending = signal(false);
   protected readonly selected = signal<Week | null>(null);
   protected readonly grid = signal<ReturnType<typeof buildGrid> | null>(null);
   protected readonly error = signal<string | null>(null);
   protected note = '';
 
+  protected readonly myId = computed(() => this.auth.user()?.id ?? null);
+  protected readonly remindAll = computed(() => remindAllIds(this.missing()?.people ?? [], this.myId()));
+  protected readonly sections = computed<MissingSection[]>(() => {
+    const groups = groupMissing(this.missing()?.people ?? []);
+    const late: MissingSection = {
+      key: 'late',
+      title: 'Not submitted',
+      hint: null,
+      empty: 'Everybody who logged time in this week has submitted it.',
+      people: groups.late,
+    };
+    const noTime: MissingSection = {
+      key: 'noTime',
+      title: 'No time logged',
+      hint: 'They may have been away. "Remind all" leaves them out.',
+      empty: '',
+      people: groups.noTime,
+    };
+    return groups.noTime.length ? [late, noTime] : [late];
+  });
+
   protected readonly labels = TIMESHEET_LABELS;
   protected readonly formatDate = formatDate;
   protected readonly formatMinutes = formatMinutes;
   protected readonly dayName = dayName;
+  protected readonly loggedOfCapacity = loggedOfCapacity;
+  protected readonly canRemind = canRemind;
 
   constructor() {
     effect(() => {
       const orgId = this.org.orgId();
-      const status = this.status();
-      if (orgId !== null) {
-        this.api.timesheets(orgId, status).subscribe({
+      const tab = this.tab();
+      const week = this.missingWeek();
+      this.selected.set(null);
+      this.notice.set(null);
+      if (orgId === null) {
+        return;
+      }
+      if (tab === 'MISSING') {
+        this.loadMissing(orgId, week);
+      } else {
+        this.api.timesheets(orgId, tab).subscribe({
           next: (s) => this.sheets.set(s),
           error: (err: unknown) => this.error.set(messageOf(err)),
         });
@@ -113,9 +227,15 @@ export class ApprovalsPage {
     return formatMoney(amount, this.org.currency());
   }
 
-  setStatus(status: TimesheetStatus): void {
-    this.selected.set(null);
-    this.status.set(status);
+  setTab(tab: ApprovalsTab): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { tab: paramOfTab(tab) }, queryParamsHandling: 'merge' });
+  }
+
+  shiftWeek(weeks: number): void {
+    const shown = this.missing();
+    if (shown) {
+      this.missingWeek.set(addDays(shown.weekStart, weeks * 7));
+    }
   }
 
   open(sheet: TimesheetSummary): void {
@@ -123,6 +243,39 @@ export class ApprovalsPage {
     this.api.timesheet(this.org.id(), sheet.id).subscribe({
       next: (w) => this.show(w),
       error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  /** Shows what somebody has logged so far in the week they have not submitted. */
+  openWeek(person: MissingTimesheet): void {
+    const shown = this.missing();
+    if (!shown) {
+      return;
+    }
+    this.api.week(this.org.id(), shown.weekStart, person.userId).subscribe({
+      next: (w) => this.show(w),
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  remind(userIds: number[]): void {
+    const shown = this.missing();
+    if (!shown || !userIds.length || this.sending()) {
+      return;
+    }
+    const orgId = this.org.id();
+    this.sending.set(true);
+    this.error.set(null);
+    this.api.remind(orgId, shown.weekStart, userIds).subscribe({
+      next: (result) => {
+        this.sending.set(false);
+        this.notice.set(remindSummary(result, shown.people));
+        this.loadMissing(orgId, this.missingWeek());
+      },
+      error: (err: unknown) => {
+        this.sending.set(false);
+        this.error.set(messageOf(err));
+      },
     });
   }
 
@@ -145,6 +298,18 @@ export class ApprovalsPage {
       next: (week) => {
         this.show(week);
         this.sheets.update((all) => all.filter((s) => s.id !== w.timesheetId));
+      },
+      error: (err: unknown) => this.error.set(messageOf(err)),
+    });
+  }
+
+  private loadMissing(orgId: number, week: string | null): void {
+    this.api.missing(orgId, week).subscribe({
+      next: (m) => {
+        // An answer for a week that is no longer the one asked for would put the wrong people on screen.
+        if (this.missingWeek() === week) {
+          this.missing.set(m);
+        }
       },
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
