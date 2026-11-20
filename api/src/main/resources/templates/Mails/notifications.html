@@ -1,0 +1,10 @@
+<p>New on project-planner:</p>
+<ul>
+{#for line in lines}
+  <li><a href="{line.link}">{line.text}</a></li>
+{/for}
+</ul>
+<p><a href="{settingsLink}">Choose which notifications are mailed to you.</a></p>
+{#for stop in stopLinks}
+<p><a href="{stop.link}">{stop.text}</a></p>
+{/for}

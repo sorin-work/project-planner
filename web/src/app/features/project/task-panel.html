@@ -197,7 +197,7 @@
           <li class="muted small">No comments yet.</li>
         }
       </ul>
-      <app-comment-box [members]="store.members()" [busy]="posting()" (submitted)="postComment($event)" />
+      <app-comment-box [members]="mentionable()" [busy]="posting()" (submitted)="postComment($event)" />
     </section>
 
     @if (canEdit()) {

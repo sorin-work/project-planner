@@ -41,6 +41,26 @@ class CommentResourceTest {
     }
 
     @Test
+    void aClientViewerOfAnotherClientIsNotNotifiedOfAMention() {
+        Account owner = Api.signup("Rhea");
+        long acme = Api.createClient(owner, "Acme");
+        long globex = Api.createClient(owner, "Globex");
+        Account acmeViewer = Api.signup("Sid");
+        Account globexViewer = Api.signup("Tia");
+        Api.addMember(owner, acmeViewer, "CLIENT", acme);
+        Api.addMember(owner, globexViewer, "CLIENT", globex);
+        long projectId = Api.createProject(owner, "ACME-WEB", acme);
+        long taskId = Api.createTask(owner, projectId, Map.of("title", "Acme pricing page"));
+
+        owner.as().body(Map.of("body", "@" + acmeViewer.handle() + " and @" + globexViewer.handle() + ", have a look"))
+                .post("/api/tasks/" + taskId + "/comments").then().statusCode(201);
+
+        acmeViewer.as().get("/api/notifications").then().body("$", hasSize(1)).body("[0].type", equalTo("MENTIONED"));
+        // The title of another client's task stays where they cannot see it.
+        globexViewer.as().get("/api/notifications").then().body("$", hasSize(0));
+    }
+
+    @Test
     void assigneesHearAboutComments() {
         Account owner = Api.signup("Quentin");
         Account member = Api.signup("Rae");

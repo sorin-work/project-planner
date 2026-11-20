@@ -69,3 +69,12 @@ export function segments(text: string, handles: Set<string>): Segment[] {
   }
   return result;
 }
+
+/**
+ * The people a comment on a project can mention: the whole team, and the client viewers
+ * of that project's client. The API applies the same rule, so a client viewer of another
+ * client is never notified, and is not offered either.
+ */
+export function mentionable<T extends { role: string; clientId?: number }>(members: T[], projectClientId: number | undefined): T[] {
+  return members.filter((m) => m.role !== 'CLIENT' || (m.clientId !== undefined && m.clientId === projectClientId));
+}

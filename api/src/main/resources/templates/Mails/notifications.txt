@@ -1,0 +1,11 @@
+New on project-planner:
+{#for line in lines}
+
+- {line.text}
+  {line.link}
+{/for}
+
+Choose which notifications are mailed to you: {settingsLink}
+{#for stop in stopLinks}
+{stop.text}: {stop.link}
+{/for}

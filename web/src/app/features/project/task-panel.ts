@@ -7,7 +7,7 @@ import { OrgContext } from '../../core/org-context.service';
 import { TaskApi, TaskPatch } from '../../core/task.api';
 import { formatDate, formatRange, timeAgo } from '../../shared/dates';
 import { PRIORITIES, PRIORITY_LABELS, TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/format';
-import { segments } from '../../shared/mentions';
+import { mentionable, segments } from '../../shared/mentions';
 import { TimerService } from '../time/timer.service';
 import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
@@ -40,6 +40,8 @@ export class TaskPanel {
   protected newLag = 0;
 
   protected readonly task = computed<Task | undefined>(() => this.store.byId().get(this.taskId()));
+  /** Who the comment box offers after "@": not client viewers of another client. */
+  protected readonly mentionable = computed(() => mentionable(this.store.members(), this.store.project()?.clientId));
   protected readonly subtasks = computed(() => this.store.subtasks(this.taskId()));
   protected readonly parent = computed(() => {
     const parentId = this.task()?.parentId;

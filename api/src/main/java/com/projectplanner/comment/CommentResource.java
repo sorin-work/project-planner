@@ -83,7 +83,7 @@ public class CommentResource {
         comment.persist();
 
         Set<Long> notified = new HashSet<>();
-        for (long userId : mentionedUsers(project.organisationId, comment.body)) {
+        for (long userId : mentionedUsers(project, comment.body)) {
             if (notified.add(userId)) {
                 notifier.notify(userId, project.organisationId, me.userId, NotificationType.MENTIONED,
                         author.name + " mentioned you on " + task.title, project.id, task.id);
@@ -130,14 +130,21 @@ public class CommentResource {
         comment.delete();
     }
 
-    /** Team members (and client viewers) of the organisation whose handle is mentioned. */
-    static Set<Long> mentionedUsers(long organisationId, String body) {
+    /**
+     * Members of the organisation whose handle is mentioned and who may see the project.
+     * A client viewer of another client is left out, so that a mention does not tell them
+     * the title of a task they cannot open.
+     */
+    static Set<Long> mentionedUsers(Project project, String body) {
         Set<String> handles = MentionParser.handles(body);
         Set<Long> ids = new HashSet<>();
         if (handles.isEmpty()) {
             return ids;
         }
-        for (Membership m : Membership.forOrganisation(organisationId)) {
+        for (Membership m : Membership.forOrganisation(project.organisationId)) {
+            if (!OrgAccess.canSee(m, project)) {
+                continue;
+            }
             User user = User.findById(m.userId);
             if (handles.contains(user.handle())) {
                 ids.add(user.id);
