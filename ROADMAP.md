@@ -1,0 +1,923 @@
+# Roadmap
+
+Things I might add to project-planner. It already does what I built it for:
+plan a project, log time against it and see whether it will land on time and
+on budget. So nothing here is promised or scheduled. These are ideas, written
+down with enough detail that I (or anyone else) can pick one up later without
+starting from zero. Items may change, move between groups or be dropped.
+
+What the app does today is in the [README](README.md).
+
+- **Next**: small or well understood. I would start with these.
+- **Later**: worth doing, but bigger or waiting on a decision.
+- **Maybe**: not sure yet that they are worth the extra complexity.
+
+Sizes are rough: **S** is an evening or two, **M** a few evenings up to a
+couple of weekends, **L** several weeks of spare time.
+
+## Overview
+
+| #   | Item                                       | Group | Area     | Size | Depends on |
+| --- | ------------------------------------------ | ----- | -------- | ---- | ---------- |
+| 1   | Warnings for broken dependencies           | Next  | both     | S    | -          |
+| 2   | Type hours into the weekly grid            | Next  | both     | M    | -          |
+| 3   | Missing timesheets and reminders           | Next  | both     | S    | -          |
+| 4   | Search and quick switcher                  | Next  | both     | M    | -          |
+| 5   | Accessibility pass                         | Next  | frontend | M    | -          |
+| 6   | Scheduled backups and a tested restore     | Next  | infra    | S    | -          |
+| 7   | API reference built from the code          | Next  | backend  | S    | -          |
+| 8   | Resize bars and draw links on the timeline | Later | both     | M    | -          |
+| 9   | Time and utilisation reports               | Later | both     | M    | -          |
+| 10  | Budget alerts                              | Later | both     | S    | -          |
+| 11  | Invitation and password reset emails       | Later | both     | M    | -          |
+| 12  | Notification emails and preferences        | Later | both     | M    | 11         |
+| 13  | Duplicate a project as a template          | Later | both     | M    | -          |
+| 14  | Performance on large projects              | Later | both     | M    | -          |
+| 15  | Public holidays and time off               | Later | both     | L    | -          |
+| 16  | Baselines                                  | Maybe | both     | M    | -          |
+| 17  | Dependency types and lead time             | Maybe | both     | L    | 1          |
+| 18  | Attachments on tasks                       | Maybe | both     | L    | -          |
+
+## Before starting on one
+
+A few things hold for every item:
+
+- The API is organised by feature under
+  `api/src/main/java/com/projectplanner`. Resources stay thin, and every
+  permission check goes through `OrgAccess` (`member`, `team`, `manager`,
+  `viewProject`, `editProject`, `manageProject`). An organisation you are not
+  in answers 404, client viewers (`Role.CLIENT`) only reach their own client's
+  projects, and money fields are only filled in when `role.canManage()`.
+- Errors are an `ApiException` with a stable `code`. `ErrorMappers` turns it
+  into the `ApiError` JSON and the web app shows it through `messageOf`.
+- Never call `LocalDate.now()`. Inject the `Clock` and ask
+  `Organisation.today(clock)`, so that "today" is the organisation's day.
+- Schema changes are Flyway files in `api/src/main/resources/db/migration`
+  (the latest is `V15`). The API tests run the same files on H2 in PostgreSQL
+  mode, so the SQL has to be plain enough for both: no `tsvector`, `jsonb`,
+  partial indexes or Postgres-only functions. Where an item needs a migration
+  I have written down a version number for it, so that two items in progress
+  at the same time do not both take `V16`. Gaps are fine. Flyway refuses a
+  lower version on a database that already has a higher one, so a development
+  volume may need `docker compose down -v` when items land out of order.
+- Tests go where the existing ones are: plain JUnit for the rule classes
+  (`schedule`, `report`, `workload`), `@QuarkusTest` with REST Assured and the
+  `support/Api` helper for endpoints, and Vitest specs next to the file on the
+  web side, with the logic pulled into a plain function first (as in
+  `gantt-layout.ts` and `timesheet-grid.ts`). There are no browser tests, only
+  jsdom, so layout, real drag and drop and colours cannot be asserted.
+- CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify`, `npm run lint`
+  (which includes the angular-eslint template accessibility rules),
+  `npm test`, `npm run build` and `docker compose build`. The production build
+  has bundle budgets in `angular.json` (a warning at 700 kB and an error at
+  1 MB for the initial bundle), which is a reason to think twice before adding
+  a library.
+- On the web side `core/models.ts` mirrors the API's JSON by hand, the HTTP
+  clients are the `core/*.api.ts` files, and everything inside a project page
+  shares one `ProjectStore`.
+- A new kind of notification is a new `NotificationType` value (the column has
+  no check constraint, so no migration), a call to `Notifier.notify`, and an
+  icon and a target in `notifications.page.ts`.
+
+## Next
+
+### 1. Warnings for broken dependencies
+
+A dependency is only enforced in one direction. When a task moves, the tasks
+that wait for it are pushed later, but the task that moved is never checked
+against the tasks it waits for itself. Drag "Build" to the week before
+"Design" ends and the API accepts it. The arrow on the timeline just doubles
+back. I want the plan to say so: a list of problems per project, a red arrow,
+and a one-click fix.
+
+- Why it happens: `TaskService.update` calls
+  `reschedule(me, project, Set.of(task.id))`, and `Rescheduler.propagate` only
+  looks at `graph.reachable(id)`, the tasks downstream. Nobody asks
+  `earliestStart` about the task that moved.
+- New plain class `ScheduleCheck` in `schedule/`, next to `Rescheduler`, with
+  the same inputs (`ScheduledTask`, `Link`, a `WorkCalendar`) and a list of
+  issues out: type, task, related task, days, earliest allowed start. Reuse
+  `Rescheduler.earliestStart` (package-private today) for the rule, so the two
+  cannot disagree.
+- Issue types to start with: the task starts before a predecessor's due date
+  plus lag allows; the task waits for a task without dates (such a link is
+  silently ignored by both `Rescheduler` and `CriticalPath`); the task is due
+  after `Project.endDate`; a subtask lies outside its parent's dates.
+- API: `GET /api/projects/{projectId}/schedule-issues`, with read access like
+  the critical path. `ScheduleResource` has its whole path on the class
+  (`/api/projects/{projectId}/critical-path`), so either move the path down to
+  the methods or add a second small resource.
+- Web: `ProjectStore` loads the issues in `load()` and again in `changed()`,
+  where it already refetches the critical path. `GanttLink` gets a `broken`
+  flag from the issue list (do not redo working-day arithmetic in
+  `gantt-layout.ts`), the task panel shows the issue under "Waits for" with a
+  "Move to" button, and the timeline toolbar shows a count.
+- The fix button sends `PATCH /api/tasks/{id}` with the earliest start and a
+  due date that keeps the length in working days. Not
+  `POST /api/tasks/{id}/shift`: that one moves by calendar days.
+- Tricky: `CriticalPath` already treats the planned start as "no earlier
+  than", and pushes a successor that starts too early in its own forward pass.
+  So with a broken link the "Plan ends" date on the timeline toolbar
+  (`CriticalPath.Result.finish`) is later than the "End date" on the overview
+  (`forecastEnd`, the latest due date). Both are right about different things.
+  Once issues are shown, the toolbar should say why the two differ.
+- Undecided: reject the move with a `409` instead of warning. I lean towards
+  warning only. Planners overlap tasks on purpose, and on the timeline the
+  drag has already happened by the time the server could say no.
+- Undecided: phases have `startDate` and `endDate` columns that no screen sets
+  and nothing reads (the overview works out a phase's range from its tasks). A
+  "task outside its phase" warning would give them a purpose. I would leave
+  them alone in this item.
+
+### 2. Type hours into the weekly grid
+
+The weekly grid on the Timesheet page is a read-only summary. Time goes in one
+entry at a time through the form below it: project, task, date, duration,
+save. A normal week is ten or more trips through that form. I want to type
+into the cells, the way the week views of Harvest and Toggl work, and to start
+a new week with last week's rows.
+
+- Cells: `timesheet.page.html` prints `formatMinutes(m)` per cell. Make each
+  one an input that takes what `parseDuration` takes ("1h 30m", "90m", "1.5",
+  "1:30") and saves on blur or Enter.
+- The simple case needs no new endpoint. A cell is the entries that share a
+  project, a task and a date. Empty cell plus a value is a
+  `POST /api/orgs/{orgId}/time-entries`. One entry is a `PUT`. A cleared cell
+  is a `DELETE`, because `TimeEntryRequest` wants at least one minute. The
+  `PUT` replaces the whole entry: send the description and the billable flag
+  back unchanged, or `TimeService.update` wipes the description.
+- Put the decision in a pure function in `timesheet-grid.ts` (create, update,
+  delete or nothing for a cell and a typed value) with a spec. `buildGrid`
+  has to keep the entries behind each cell for that. Today `GridRow.days` is
+  minutes only.
+- Tricky: several entries in one cell, for example two timer runs on the same
+  task or two entries with different descriptions. Which one takes the edit?
+  I lean towards not editing such a cell in place: show the total with a
+  marker and jump to the entry list below.
+- Tricky: a running timer is an entry with zero minutes, and
+  `TimeService.update` ignores the minutes while it runs. Its cell stays
+  read-only.
+- Rows come from entries, so a row vanishes when its last cell is cleared and
+  a new row has nowhere to live until it has time in it. Add an "Add row"
+  control (the project and task selects are already loaded for the form), keep
+  empty rows in the component, and remember them per organisation and week in
+  `localStorage` (existing keys start with `pp.`).
+- "Copy rows from last week" loads the previous week through `TimeApi.week`
+  and adds its rows without the time. Skip rows whose project is finished,
+  since `TimeService` rejects those with `project_done`.
+- Billable: `GridRow.billable` is true when any entry in the row is. A new
+  entry made from a cell should leave `billable` out so the server default
+  applies (`TimeService.defaultBillable`: client work yes, internal no).
+- Locked weeks (submitted or approved) keep read-only cells, as the form does
+  through `locked()`. The server answers `409 timesheet_locked` anyway.
+- Keyboard: Tab and arrow keys between cells, Enter saves and moves down. Each
+  input needs a label such as "ACME-APP, Tours catalogue, Tuesday".
+- Tricky: the page reloads the whole week after every save (`load`). With one
+  request per cell that would overwrite a cell being typed in. Apply each
+  response to the local state instead.
+- While here: `TimesheetResource.week` falls back to `LocalDate.now(clock)`
+  when no `date` is passed, which is the UTC day. Everything else uses
+  `Organisation.today(clock)`. The web app always passes a date, but it is the
+  browser's `today()`, so somebody in another time zone than the organisation
+  can get a different "this week" than the dashboard shows.
+- Undecided: a bulk endpoint that saves a whole week in one transaction. Fewer
+  requests and all or nothing, but then the server has to answer the
+  several-entries question. I would start without it.
+
+### 3. Missing timesheets and reminders
+
+The approvals page only knows about weeks that somebody submitted. A week that
+nobody submitted has no `timesheets` row at all (`TimesheetService.submit`
+creates it), so a manager cannot see who is late, and the only way to chase is
+to ask in person. Harvest has an "unsubmitted" filter and a reminder button
+for this.
+
+- API: `GET /api/orgs/{orgId}/timesheets/missing?weekStart=` for managers. For
+  each team member (`Membership.forOrganisation`, `role.isTeam()`): the status
+  from `Timesheet.statusOf`, the minutes logged in that week and
+  `weeklyCapacityHours`. Return the people whose week is a draft or was sent
+  back. Leave out people who joined after that week (`Membership.createdAt`).
+- `POST /api/orgs/{orgId}/timesheets/remind` with a week and a list of users
+  creates a `NotificationType.TIMESHEET_REMINDER` for each: "Priya asked you
+  to submit your timesheet for the week of 2026-11-09", in the wording the
+  other timesheet messages use.
+- Deep link: a `Notification` only carries `projectId` and `taskId`, so a
+  timesheet notification cannot say which week it is about.
+  `NotificationsPage.open` sends `TIMESHEET_SUBMITTED` to `/approvals` and the
+  other timesheet types to `/time`, which always opens the current week
+  because `TimesheetPage.weekOf` is not in the URL. Add a nullable
+  `week_start` to `notifications` (`V16__add_notification_week_start.sql`),
+  fill it for all timesheet notifications, and let `TimesheetPage` read
+  `?week=`.
+- With that column "already reminded today" is one query on type, user and
+  week. Do not remind the same person about the same week twice in a day.
+- Web: a "Not submitted" tab in `ApprovalsPage` (`tabs` holds the three
+  statuses today) with a week picker that starts on last week, hours logged
+  against capacity, "Remind" per person and "Remind all".
+- Dashboard: next to `pendingApprovals`, a count of missing timesheets for
+  last week. Managers also never see their own `lastWeekTimesheet`, because
+  the template shows either the approvals card or that one.
+- Tricky: the current week is not late yet. Only offer weeks that have ended
+  by the organisation's date.
+- Tricky: somebody who was away all week has no time, and `submit` refuses an
+  empty week (`empty_timesheet`), so they stay "missing" for good. Until item
+  15 knows about time off, list zero-hour weeks separately and do not include
+  them in "Remind all".
+- Undecided: automatic reminders (Harvest sends one before and one after a
+  weekly deadline). That needs a scheduler and a deadline setting per
+  organisation, and really wants email. I would leave it for item 12.
+- Undecided: "Approve all" on the submitted tab.
+  `TimesheetService.checkReviewer` stops managers approving their own week, so
+  a bulk call needs a result per sheet. I would leave it out.
+
+### 4. Search and quick switcher
+
+There is no search anywhere in the app. Finding a task means remembering which
+project it is in and scrolling through that project's list. I want `Ctrl+K` /
+`Cmd+K`, and a button in the top bar, to open a small dialog: type a few
+letters, arrow down, Enter, land on the task or project.
+
+- API: `GET /api/orgs/{orgId}/search?q=&limit=` in a new `search` package.
+  Hits come grouped: projects (name, code, client name), tasks (title,
+  description) and comments (body). Each hit has a type, an id, the project id
+  and code, a title and a short snippet.
+- Scope: `access.member(orgId)`. For `Role.CLIENT` restrict everything to
+  projects of `membership.clientId`, the way `ProjectResource.list` does.
+  Tasks have no organisation column. Reach them through their project with a
+  subquery, as `DashboardResource` does for the signed-in user's tasks.
+- Matching: `lower(...) like` with `%` and `_` escaped in the input, prefix
+  matches before "contains", open tasks before done ones, at most twenty or so
+  per group, and nothing below two characters.
+- Tricky: the tests run on H2, so Postgres full-text search (`tsvector`,
+  `pg_trgm`) is out unless search gets two implementations. `LIKE` is fine for
+  a few thousand tasks per organisation. Say so in the README instead of
+  pretending it scales.
+- Web: a new `features/search` folder with the dialog, opened from `Shell`,
+  which has no key handling today. The app has no dialog component yet:
+  confirmations use `confirm()` and the task panel is an `aside`. A native
+  `<dialog>` traps focus without extra code. Check that jsdom implements
+  `showModal()` before relying on it in specs.
+- The result list is the same pattern as the mention suggestions in
+  `CommentBox` (a `highlighted` index, arrow keys, Enter, Escape). Worth
+  sharing instead of copying.
+- A task hit goes to `/projects/{projectId}/list?task={id}`, the form the
+  dashboard and the notifications already use. A project hit goes to
+  `/projects/{id}`.
+- Debounce the input, drop the answer to a superseded request, and show the
+  last few picks (from `localStorage`) before anything is typed.
+- Related: inside a project the List tab can only "Hide done" and "Only mine".
+  A text filter plus assignee, status and priority filters over
+  `store.tasks()` need no API. `visibleRows` filters row by row, so decide
+  what happens to a parent when only its subtask matches. I would keep the
+  parent row, greyed out.
+- Related: the dashboard lists my overdue tasks, the ones due within seven
+  days (`DUE_SOON_DAYS`) and the ones in progress. A to-do task due in three
+  weeks shows up nowhere outside its project. The search endpoint with
+  `assigneeId` and `status` parameters and no text would feed a "My tasks"
+  page.
+- Undecided: whether the list filters and "My tasks" belong in this item. I
+  would build the endpoint with the extra parameters now and add the two
+  screens only if the dialog goes quickly.
+
+### 5. Accessibility pass
+
+The basics are there: labels on form fields, focus outlines, `role="alert"` on
+errors, arrow keys for moving bars on the timeline, and the angular-eslint
+accessibility rules in CI. But I have never gone through the whole app with
+only a keyboard or with a screen reader. Gaps I already know about:
+
+- Board: cards move between columns by HTML drag and drop only
+  (`BoardTab.onDragStart`, `onDrop`). Enter opens a card and nothing moves it.
+  Add keyboard moves, say `Alt` plus the arrow keys (left and right change the
+  status, up and down the `position`), through the same
+  `store.updateTask(id, { status, position })`, and announce the result.
+- Timeline: the SVG in `gantt.html` has `role="img"`, and the bars inside it
+  are focusable with `role="button"`. A screen reader treats an image as one
+  thing and hides what is inside, so the bars take focus without being
+  announced. The arrow keys also save on every press (`Gantt.onKey` emits
+  `moved` at once) and say nothing unless dependants moved.
+- Task panel: it opens from `?task=` as an `aside`. Focus stays where it was,
+  Escape does not close it, and closing does not return focus to the row or
+  bar that opened it.
+- Mentions: the suggestion list in `CommentBox` has `role="listbox"`, but the
+  textarea does not point at it (`aria-controls`, `aria-expanded`,
+  `aria-activedescendant`) and the options have no ids, so the highlighted
+  name is not read out.
+- Shell: there is no "skip to content" link before the sidebar. The menu
+  button has no `aria-expanded`. The navigation and the project tabs mark the
+  current page with a class only (`routerLinkActive="active"` without
+  `ariaCurrentWhenActive`). The bell is labelled "Notifications" whatever the
+  count. The running timer chip has `role="status"` and its text changes every
+  second, which a screen reader may try to read out every second.
+- Page titles: no route has a `title`, so every page is "project-planner" in
+  the tab, in the history and in what a screen reader announces on navigation.
+- Motion: `styles.css` has no `prefers-reduced-motion` rule. The one animation
+  is the pulsing dot of the timer (`@keyframes pulse`).
+- Add an automated check: `axe-core`, directly or through `vitest-axe`, run
+  against rendered pages in the specs so that regressions fail CI. jsdom
+  cannot work out colour contrast, so that rule stays off and both themes
+  (`prefers-color-scheme: dark` in `styles.css`) need checking by hand. I
+  would look at `--muted` text and the workload cell colours first.
+- Tricky: this touches templates all over `features/`, where every other item
+  also works. Keep the changes small and local: attributes and handlers, not
+  restructured markup.
+- Undecided: `@angular/cdk` has a live announcer, a focus trap and a drag and
+  drop that works from the keyboard, at the price of a dependency. I lean
+  towards a small live-region service of my own and plain key handlers.
+
+### 6. Scheduled backups and a tested restore
+
+Everything lives in the `db-data` volume and there is no backup of any kind.
+The only export is the timesheet CSV. For a tool that holds a year of billable
+hours, that is the first thing anyone hosting it should ask about.
+
+- A `backup` service in `docker-compose.yml` behind a compose profile, on the
+  same `postgres:17-alpine` image as `db` so that `pg_dump` matches the
+  server. It dumps once a day in custom format into a mounted folder and keeps
+  the last N files. The folder goes into `.gitignore`, the settings (how many
+  to keep, how often) into `.env.example` and the configuration table in the
+  README.
+- The same script should run once on demand
+  (`docker compose run --rm backup ...`), for a dump before an upgrade and for
+  the CI check below.
+- A "Backup and restore" section in the README with the restore steps: stop
+  `api`, `pg_restore --clean --if-exists`, start `api`.
+- Tricky: Flyway. The dump contains `flyway_schema_history`. An older dump
+  under a newer API is fine, because pending migrations run at start
+  (`quarkus.flyway.migrate-at-start=true`). A newer dump under an older API is
+  the risky direction: as far as I know Flyway only warns about applied
+  versions it has no file for, and the old code then runs against a newer
+  schema. Try it, and have the README say to restore into the same version or
+  a newer one.
+- A restore that is never tested is not a backup. The `docker` job in CI only
+  runs `docker compose build`, so nothing ever starts the stack. Add a step
+  that starts `db` and `api` with `SEED_DEMO=true`, waits for the health
+  check, takes one backup, restores it into a scratch database and compares
+  row counts for `users`, `tasks`, `time_entries` and `timesheets`. That is
+  also the first check that the compose stack boots at all.
+- Tricky: who owns the dump files. The postgres image only drops to its own
+  user for the server itself, so a script run in it writes as root, and the
+  files in a mounted host folder end up owned by root. Set a user for the
+  service or say in the README what to expect.
+- The extra CI time should be small. The Maven build inside `api/Dockerfile`
+  is the slow part and `docker compose build` already pays for it.
+- Undecided: cron inside a container is clumsy. A shell loop with `sleep` is
+  probably enough for one dump a day.
+- Undecided: if item 18 exists, its files belong in the same backup, and a
+  restore of one without the other leaves dangling rows.
+
+### 7. API reference built from the code
+
+The README has a table of endpoints and nothing more: no request or response
+shapes, no error codes. Anyone scripting against the API reads the Java.
+Quarkus can build an OpenAPI document from the resources.
+
+- Add `quarkus-smallrye-openapi`. By default the document is served at
+  `/q/openapi` and Swagger UI only exists in dev mode. nginx forwards only
+  `/api/` to the API (`web/nginx.conf`), so set
+  `quarkus.smallrye-openapi.path=/api/openapi`,
+  `quarkus.swagger-ui.path=/api/docs` and
+  `quarkus.swagger-ui.always-include=true` to reach both through the web port.
+  Both must answer without a token.
+- Most of it comes free. The request and response types are records with Bean
+  Validation annotations (`TaskDtos`, `ProjectDtos`, `TimeDtos`, `OrgDtos`,
+  `AuthDtos`), so types, required fields and limits are picked up.
+- What the generator cannot see and needs writing down:
+  - the bearer token (`quarkus.smallrye-openapi.security-scheme=jwt`), and
+    that `AuthResource` is the one public resource;
+  - errors: every error body is an `ApiError` built in `ErrorMappers`. One
+    shared response definition, plus the `code` values worth knowing
+    (`dependency_cycle`, `timesheet_locked`, `code_taken` and so on);
+  - methods that return a raw `Response`: `ExportResource.timesheets` (CSV)
+    and `TimeEntryResource.timer` (200 with an entry, or 204);
+  - the partial update rule of `UpdateTaskRequest` and `UpdateMemberRequest`:
+    null means "leave as it is", which is why `clearDates`, `clearAssignee`,
+    `clearPhase` and `clearHourlyRate` exist;
+  - fields that are left out for some roles (`@JsonInclude(NON_NULL)` on
+    `ProjectResponse`, `BudgetView` and `MemberResponse`).
+- A tag per feature package, so the UI groups endpoints the way the README
+  table does, and a one-line summary on every operation.
+- Test: a `@QuarkusTest` that fetches the document and checks that every
+  operation has a summary and a tag, that operation ids are unique, and that
+  everything except sign-up and login asks for the bearer scheme.
+- The "API overview" table in the README shrinks to a pointer and the few
+  rules that are not per endpoint.
+- Tricky: do not commit the document itself. A checked-in copy with an "is it
+  up to date" test would make every other item that touches an endpoint
+  conflict with all the others.
+- Undecided: generating `web/src/app/core/models.ts` from the document instead
+  of keeping it by hand. Tempting, since it is 350 lines that can drift, but
+  it adds a build step and a dependency. Not in this item.
+
+## Later
+
+### 8. Resize bars and draw links on the timeline
+
+On the timeline a bar can only be moved as a whole. Making a task longer, or
+saying "this waits for that", means opening the task panel and using date
+fields and a select. Every Gantt tool lets you drag the end of a bar and draw
+an arrow from one bar to another.
+
+- Resize: handles at both ends of a bar in `gantt.html`. `Gantt` keeps one
+  drag state (`Drag` with `taskId`, `startX`, `dx`). Give it a mode: move,
+  start or end. A resize ends in a new output with the new start or due date,
+  which `TimelineTab` sends through `store.updateTask`. That already cascades
+  and returns a `TaskChange`. Milestones cannot be resized
+  (`TaskService.setDates` forces start and due to the same day).
+- Link: a small connector at the right end of a bar. Dropping it on another
+  bar calls `store.addDependency(successorId, predecessorId, 0)`. The API
+  answers `409 dependency_cycle` with the chain in the message, or
+  `409 dependency_exists`. Show both in the tab's existing error line.
+- Remove a link: the arrows are thin paths. Add a wide transparent path to
+  click on, make the arrow focusable, and delete with a button or the Delete
+  key through `store.removeDependency(successorId, dependencyId)`. `GanttLink`
+  only has the dependency id, so add the successor.
+- Keyboard: the arrow keys move a focused bar today. `Shift` plus the arrow
+  keys should change the due date. Linking by keyboard stays in the task
+  panel.
+- Put the arithmetic in `gantt-layout.ts` next to `dragDays` (new dates from a
+  resize, never letting due pass start) and test it there. jsdom has pointer
+  events but no layout and no `setPointerCapture` (the code already calls it
+  with `?.`), so a component spec can only send events with made-up
+  coordinates.
+- Tricky: weekends. `TaskService.shift` moves by calendar days. Drag a
+  Thursday to Friday task one column to the right and it becomes Friday to
+  Saturday, which `WorkCalendar.duration` counts as one working day: the task
+  quietly got shorter. Resizing makes that easier to hit. I think `shift`
+  should start on a working day and keep the length in working days
+  (`onOrAfter`, `addWorkingDays`), the way `Rescheduler` treats dependants,
+  and a resize should snap its end to a working day.
+- Tricky: at month zoom a day is 4 pixels wide (`DAY_WIDTH.month`), too small
+  for handles. Edit only at day and week zoom. On touch screens the bars need
+  `touch-action: none`, or the drag scrolls `.gantt-scroll` instead.
+- Tricky: a parent with subtasks. Nothing ties their dates together today, so
+  resizing the parent leaves the subtasks where they were. Leave that as it
+  is.
+- Undecided: drawing a bar on the empty row of a task without dates, to give
+  it dates. Cheap once resize exists, and easy to trigger by accident.
+
+### 9. Time and utilisation reports
+
+The Reports page is a single form that downloads a CSV. To answer "how many
+hours went to Acme last month" or "how billable was the team in October" I
+open the CSV in a spreadsheet and build a pivot table. The data is all there.
+
+- API: `GET /api/orgs/{orgId}/reports/time` with `from`, `to`, a `groupBy` of
+  project, client, member or task, and the filters the export has (`userId`,
+  `projectId`, `billable`). Each row has a key, a label, total minutes,
+  billable minutes and, for managers, the billable amount. Plus a totals row.
+- Same rules as `ExportResource`: team only (`access.team`), members get their
+  own time and no money, the range is capped (the export allows two years),
+  and running timers are left out
+  (`startedAt is null or endedAt is not null`).
+- Put the grouping in a plain class in `report/`, like `BudgetCalculator`, fed
+  with rows of project, person, task, billable flag, minutes and rate, so it
+  is tested without a database.
+- Rates: one `RateBook.load(orgId)` per request, then
+  `rate(project.hourlyRate, userId)`.
+- Tricky: rounding. `Money.cost` rounds each entry to cents, and both
+  `BudgetCalculator` and the CSV add up rounded entries. Summing minutes in
+  SQL and multiplying once gives totals a few cents away from the CSV for the
+  same range, and somebody will notice. Price per entry in Java for now (a
+  year of the demo team is a few thousand rows) and leave the grouped query to
+  item 14.
+- Utilisation: `GET /api/orgs/{orgId}/reports/utilisation` for managers. Per
+  person and range: logged hours, billable hours, capacity, and billable hours
+  as a share of capacity. Capacity is `weeklyCapacityHours / 5` for each
+  working day in the range (`WorkCalendar.workingDaysBetween`).
+- Web: `ReportsPage` gets three tabs: Summary (group-by select, date range and
+  the presets from `preset()`), Utilisation, and the existing Export. Bars are
+  drawn with `ProgressBar`. No chart library. Clicking a project row regroups
+  by task within that project.
+- Tricky: capacity for somebody who joined in the middle of the range or
+  changed their hours. There is no history of `weeklyCapacityHours`, only the
+  current value. Use the current value and say so on the page.
+- Undecided: a filter for approved time only. The CSV has a `timesheet_status`
+  column but no filter. It is what invoicing wants and it is cheap to add to
+  both.
+
+### 10. Budget alerts
+
+The point of the app is knowing whether a project will land on budget, but it
+only tells you when you open the project. Nobody hears about it when a project
+crosses 80% of its hours or goes over. Harvest sends a message at a threshold,
+and that is the one thing of theirs I miss.
+
+- When: after time changes on a project, which is `TimeService.create`,
+  `update`, `delete` and `finish` (a stopped timer). Compare the hours burn
+  and the money burn with two thresholds (80 and 100) and notify when one is
+  crossed for the first time.
+- State: `budget_alert_pct` on `projects`, an integer that defaults to 0
+  (`V17__add_project_budget_alert.sql`). It holds the highest threshold
+  already announced. Reset it when the burn falls back under a threshold
+  (entries deleted) or the budget changes in `ProjectService`.
+- Who: every owner and manager of the organisation, with the loop
+  `TimesheetService.submit` uses. A new `NotificationType.BUDGET_ALERT` with
+  the project set and no actor. Pass `null` as the actor: `Notifier.notify`
+  skips people's own actions, and the manager whose entry crossed the line
+  should still hear about it.
+- Money is only for owners and managers. They are the only recipients for now,
+  but keep the hours message and the money message separate so that widening
+  the audience later cannot leak amounts.
+- Where: a small `BudgetAlerts` bean in `report/`. `TimeService` either calls
+  it or fires a CDI event that it observes, which keeps `time` from depending
+  on `report`.
+- Tricky: cost. `ProjectHealthService.budget` loads every time entry of the
+  project and a full `RateBook` on each call. Doing that on every saved entry
+  is wasteful on a long project. The hours threshold only needs a
+  `sum(minutes)`. Money needs minutes per person, since the rate depends on
+  project and person, so one grouped query.
+- Web: an icon in `ICONS`. `NotificationsPage.open` does nothing for a
+  notification that has a project but no task, so add that case (to the
+  project's overview tab).
+- Keep the thresholds as constants next to
+  `HealthStatus.BURN_AHEAD_TOLERANCE`.
+- Undecided: who a project belongs to. There is no project lead, so every
+  manager is told about every project, which is noise in a bigger team. A lead
+  on `projects` would fix that and would help item 12 too.
+- Undecided: alerts for the schedule (health turning off track, or the plan
+  running past `Project.endDate` after a cascade). Those need hooks in
+  `TaskService` as well. Not here.
+
+### 11. Invitation and password reset emails
+
+The app sends no email at all, and two things are broken without it. Inviting
+somebody who has no account stores an `Invitation` and tells the manager that
+the person "joins automatically when they sign up with that address", but the
+person is never told. And a forgotten password cannot be reset:
+`MeResource.changePassword` needs the current one, so the only way back in is
+editing the database.
+
+- Mail: add `quarkus-mailer`. Settings: `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`
+  and `APP_URL` (links need the web app's address, and the API does not know
+  it). Mailpit as a `mail` service in `docker-compose.yml`, with its inbox on
+  a host port listed with the other three in `.env.example`.
+- Without `MAIL_HOST` nothing is sent and the app behaves as it does today. In
+  dev and test `quarkus.mailer.mock` is on by default, and tests assert on the
+  injected `MockMailbox`.
+- Invitations: `OrgResource.invite` mails "Maya invited you to Brightline
+  Studio" with a link to `/signup?email=...`. `SignupPage` reads the
+  parameter. The router already binds query parameters to inputs
+  (`withComponentInputBinding`, used by `LoginPage.returnUrl`). People who
+  already have an account are added at once today. Mail them too. Add a
+  "Resend" link beside "cancel" in `team.page.html`.
+- Reset: `POST /api/auth/forgot` with an email always answers 204, whether the
+  account exists or not. `POST /api/auth/reset` takes the token and a new
+  password. A `password_resets` table holds the user, a SHA-256 of the token,
+  an expiry of one hour and a used-at time
+  (`V18__create_password_resets.sql`). New pages `/forgot` and `/reset` under
+  `guestGuard`, and a link on `LoginPage`.
+- Tricky: joining by typing an address. `AuthService.signup` accepts every
+  pending invitation for the email it is given, and nothing proves that the
+  person owns that address. Today that is the only way to join. Once
+  invitations are mailed, the link can carry a token (a `token_hash` on
+  `invitations`, in the same migration) and sign-up can insist on it. I lean
+  towards requiring the token when mail is configured and keeping the current
+  behaviour when it is not.
+- Tricky: a reset does not end other sessions. Logins are stateless JWTs valid
+  for `JWT_TTL` (seven days), and `CurrentUser` only checks that the user
+  still exists. Either accept that, or put a "password changed at" time on
+  `users` and reject tokens issued before it, at the price of a user lookup
+  per request. I lean towards the second, since `MeResource.changePassword`
+  has the same hole.
+- Tricky: `/api/auth/forgot` can be used to flood somebody's inbox, and
+  nothing in the API is rate limited. One live token per user and a minimum
+  gap between mails covers it without new machinery.
+- Templates: plain text plus simple HTML, with Qute, which the mailer brings
+  along.
+- Undecided: verifying the address at sign-up. It would close the hole above
+  for everybody, but the first run of a fresh install would then depend on
+  working mail. I would not.
+
+### 12. Notification emails and preferences
+
+Notifications only exist inside the app, behind a bell that the web app polls
+once a minute (`UNREAD_POLL_MS` in `Shell`). Somebody who is not looking at
+the app does not learn that they were mentioned, given a task or had a
+timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
+
+- Every notification is created in one place, `Notifier.notify`. Do not send
+  mail from there. It runs inside the request's transaction, so a slow mail
+  server would slow the request down, and a rollback would come too late to
+  take the mail back.
+- Outbox instead: an `emailed_at` column on `notifications`, and a job that
+  mails the rows that still need it and stamps them. `quarkus-scheduler`, once
+  a minute. Several notifications for one person in the same run go into one
+  mail. A notification that was read before the job ran (`read_at`) is not
+  mailed.
+- Preferences: which types are mailed, per user. A `notification_preferences`
+  table (user, type, email on or off) with the defaults in code: on for
+  `MENTIONED`, `ASSIGNED` and `TIMESHEET_REJECTED`, off for `COMMENTED`.
+  `GET` and `PUT /api/me/notification-preferences`, and a card in
+  `SettingsPage`. Both schema changes go in `V19__notification_emails.sql`.
+- Links: `APP_URL` plus the targets `NotificationsPage.open` uses, and a
+  footer link to the settings card.
+- Tests: switch the scheduler off in the test profile
+  (`quarkus.scheduler.enabled=false`), call the job method directly and assert
+  on `MockMailbox`.
+- Tricky: old rows. On the first run every existing notification has no
+  `emailed_at`, and the demo data has several. Stamp them in the migration.
+- Tricky: client viewers can be mentioned (`CommentResource.mentionedUsers`
+  goes through every membership) and should get mail like anybody else. The
+  text must not tell them anything they could not see in the app. Today's
+  messages only name the task, which they can see.
+- A daily summary ("due today", "overdue", and for managers "timesheets
+  waiting") is the other half of what people expect. The queries exist in
+  `DashboardResource`. It needs "eight in the morning in the organisation's
+  time zone" (`Organisation.zone()`) and a record of what was sent, so that it
+  does not repeat. I would do it last and drop it from this item if it grows.
+- Undecided: separate preferences per organisation for people who are in
+  several. I lean towards no.
+- Undecided: whether the automatic timesheet reminders from item 3 come in
+  here. Yes if the daily summary is built, as part of it.
+
+### 13. Duplicate a project as a template
+
+Every client project in the demo data has the same shape: discovery, design,
+build and launch, with the same kinds of tasks and links. A new project starts
+empty, and that shape is typed in by hand each time. People asked Asana for
+years for "copy a project and shift its dates". That is this feature.
+
+- API: `POST /api/projects/{projectId}/duplicate` for managers
+  (`access.manageProject` on the source) with a name, a code, an optional
+  client, a start date and a "keep assignees" flag. It answers with the new
+  project, which starts as `PLANNED`.
+- Copied: phases, tasks, subtasks, milestones, dependencies with their lag,
+  estimates, priorities, descriptions, the colour, the budgets and the fixed
+  rate. Not copied: time entries, comments, activity and notifications. Every
+  task starts again as `TODO` with `completedAt` empty.
+- The order matters because of ids: phases first, then top-level tasks, then
+  subtasks (`parentId`), then the `TaskDependency` rows from
+  `TaskDependency.forProject`, each through a map from old id to new id.
+- Dates: given a start date, every task keeps its distance from the source's
+  earliest task start, and its length, both counted in working days
+  (`WorkCalendar.workingDaysBetween`, `addWorkingDays`, `onOrAfter`). Nothing
+  lands on a weekend and every link still holds. Tasks without dates stay
+  without. The project's own start and end move the same way. Put the shift in
+  a plain class in `schedule/` with its own test.
+- Tricky: do not build the copy with `TaskService.create`. It writes an
+  activity entry per task and notifies every assignee (`notifyAssigned`),
+  which for a forty-task plan is forty notifications. Create the entities
+  directly and record one activity entry for the whole copy.
+- Tricky: positions. The board orders cards by `Task.position` within a
+  status. With everything back in `TODO`, the copied numbers collide.
+  Renumber in the order of the source's list. Phase positions can already
+  have gaps or repeats, because the settings tab reorders with two separate
+  `PUT /api/phases/{id}` calls. Copy the order, not the numbers.
+- Tricky: assignees who have left. `TaskService.assigneeIn` only accepts
+  current team members. With "keep assignees", drop the ones who are gone
+  instead of failing.
+- Web: in `ProjectsPage` the "New project" form (`ProjectForm`) gets a "Copy
+  the plan from" select, and the start date becomes required when it is set. A
+  "Duplicate" button on the project's Settings tab.
+- Undecided: real templates, meaning projects that are flagged as templates
+  and hidden everywhere else. The flag would have to be respected by the
+  project list, the dashboard, the workload (`WorkloadResource` counts every
+  planned and active project), time logging and search. Copying from any
+  project, a finished one included, gets most of the value without that. I
+  would stop there.
+
+### 14. Performance on large projects
+
+The demo data is eight projects, about ninety tasks and a year of time for
+five people, and everything is instant. Some of the code only works at that
+size.
+
+- The project list works out full health for every project.
+  `ProjectResource.list` calls `ProjectHealthService.summary` per project,
+  which loads all of its tasks, every one of its time entries
+  (`TimeEntry.list("projectId", ...)`) and a fresh `RateBook` (the
+  organisation, the role rates and all memberships).
+  `ProjectService.toResponse` then looks up the client by id.
+  `DashboardResource` does the same for the active projects.
+- `TimesheetPage` and `ReportsPage` call that same list only to fill a project
+  select.
+- More of the same kind: `TimesheetService.summaries` queries the entries and
+  the user once per sheet. `OrgResource.members` and
+  `CommentResource.mentionedUsers` call `User.findById` per member.
+  `MeResource.me` loads the organisation per membership.
+- Fixes: load the tasks and one grouped time query (project, user, billable,
+  `sum(minutes)`) for all listed projects at once, with one `RateBook` per
+  request. A light list for selects (id, code, name, status, client) under its
+  own path or a query parameter. Users in one `id in` query, as `TaskMapper`
+  already does.
+- Tricky: rounding again. `BudgetCalculator` adds up `Money.cost` per entry,
+  rounded to cents each time. Feeding it one `TimeFacts` per person with
+  summed minutes moves `spentAmount` by a few cents, and
+  `BudgetCalculatorTest` pins the current behaviour. Either accept the change
+  and say so, or keep pricing per entry and only fix the number of queries.
+- Lists with nothing but a limit: `ActivityResource` (at most 200) and
+  `NotificationResource` cannot be asked for older entries. Add a "before this
+  id" parameter and "Load more" in `ActivityTab` and `NotificationsPage`.
+- Web: the timeline draws every row and every bar. `layoutGantt` is recomputed
+  when tasks, zoom or collapsed phases change and not during a drag, which is
+  right. With a thousand tasks it is the size of the DOM that hurts. Cheapest
+  first: open with the phases collapsed above some task count, and only then
+  think about drawing just the visible rows.
+- Smaller things: `groupTasks` copies the child array for every subtask and
+  scans the phases for every task. After each change `ProjectStore.changed`
+  fetches the critical path again, and the board reloads the whole task list
+  after each drop (`reloadTasks`). All fine at ninety tasks. Measure before
+  touching them.
+- Make it checkable in CI without timing anything: switch on Hibernate
+  statistics in the test profile (`quarkus.hibernate-orm.statistics=true`) and
+  assert that the number of statements for the project list with, say, thirty
+  projects stays under a fixed bound. Build that data in the test, not in
+  `DemoSeeder`.
+- The indexes look right for today's queries. Add one only together with the
+  query that needs it (`V20`).
+- Undecided: the target. I would aim for an organisation with 50 projects and
+  a project with 1,000 tasks and 20,000 time entries, with the project list
+  under ten queries.
+
+### 15. Public holidays and time off
+
+`WorkCalendar` knows weekends and nothing else. A task planned across
+Christmas counts those days as working days, and the workload page shows forty
+free hours for somebody who is on holiday. (The demo data even skips two
+holiday stretches per person when it logs time, but nothing in the model says
+so.) OpenProject has non-working days for the whole instance, and Float builds
+its capacity view on leave and public holidays.
+
+- Data (`V21__create_holidays_and_time_off.sql`): `holidays` (organisation,
+  date, name, one per organisation and date) and `time_off` (organisation,
+  user, first day, last day, note).
+- API in a new `calendar` package: `/api/orgs/{orgId}/holidays` (the team
+  reads, managers write) and `/api/orgs/{orgId}/time-off` (people manage their
+  own, managers anybody's).
+- Calendar: `WorkCalendar` gets a constructor that takes the non-working
+  dates. `WorkCalendar.DEFAULT` stays for the tests and the seeder.
+  `isWorkingDay` checks the set. `workingDaysBetween` has a fast path that
+  counts five days per whole week, so subtract the holidays that fall on
+  weekdays in the range.
+- Four places build a helper on `WorkCalendar.DEFAULT` once, in a field, and
+  need the organisation's calendar per request instead: `TaskService`
+  (`rescheduler`), `ScheduleResource` (`criticalPath`), `ProjectHealthService`
+  (`progressCalculator`, plus three direct calls) and `WorkloadResource`
+  (`calculator`). Add a request-scoped loader so that one request reads the
+  holidays once. The static `WorkCalendar.weekStart` is not affected.
+- Time off does not move the schedule. It only lowers capacity.
+  `WorkloadCalculator.Person` has one `capacityHours` for all weeks. Make it
+  per week (`WeekLoad` already reports capacity per week). A day off takes a
+  fifth of the weekly capacity, and a holiday does the same for everybody. A
+  task is still spread evenly over its own working days, not around its
+  assignee's days off.
+- Web: a holidays card in Settings for managers. Time off on the Team page or
+  a page of its own. The timeline shades holidays like weekends: `layoutGantt`
+  builds `weekends` from `isWeekend`, so pass the holiday dates in through its
+  options. Workload cells show the lower capacity with a marker. The timesheet
+  grid marks holidays in its header.
+- Tricky: existing plans. Dates are stored and durations are worked out from
+  them, so a new holiday inside a task makes it one working day shorter
+  without moving anything, and can leave a task starting or ending on the
+  holiday. Do not rewrite plans when a holiday is added. Dependants are only
+  checked on the next move. If item 1 is in, it reports the links that now
+  break.
+- Tricky: `TimeService` lets people log time on any day and should keep doing
+  so. People do work on holidays.
+- Tricky: other items do new arithmetic with `WorkCalendar.DEFAULT` (capacity
+  in item 9, the date shift in item 13, the slip in item 16). Whichever lands
+  second switches to the organisation's calendar.
+- Undecided, with my leaning in brackets: approval for time off (no, this is a
+  planner and not an HR tool), half days (no), importing public holidays (a
+  typed list of dates is enough), and one calendar per country for spread-out
+  teams (one per organisation for now).
+
+## Maybe
+
+### 16. Baselines
+
+Health compares the plan with today: `forecastEnd` is the latest due date and
+`endVarianceDays` its distance from `Project.endDate`. What the plan looked
+like when it was agreed is not kept anywhere. The activity log has
+"Rescheduled ... to ..." as text and no more. A baseline is a saved copy of
+the dates to compare against: the grey bar under each bar in MS Project.
+
+- Data (`V22__create_baselines.sql`): `baselines` (project, name, created by,
+  created at) and `baseline_tasks` (baseline, task id, title, start, due,
+  estimate, milestone). The task id is a plain value without a foreign key, as
+  in `activity_log`, and the title is copied, so that a task deleted later
+  still shows up as removed.
+- API: `GET` and `POST /api/projects/{projectId}/baselines` (creating needs
+  `manageProject`), `DELETE /api/baselines/{id}`, and
+  `GET /api/baselines/{id}/comparison`: per task the baseline dates and the
+  current ones, the slip of start and finish in working days, the tasks added
+  and removed since, and totals (slip of the end date, change in total
+  estimate).
+- The comparison is a plain class in `schedule/` with its own test.
+- Web: a "Compare with" select on the timeline toolbar. `GanttBar` gets
+  optional baseline coordinates and `gantt.html` draws a thin bar under the
+  real one. `ROW_HEIGHT` is 32 and the bar is 18 high, so there is room.
+  `dateRange` has to include the baseline dates, or the grey bars fall off the
+  left edge.
+- On the Overview tab, a card with the slip of the end date and a list of
+  milestones (baseline date, current date, days late). Milestones are what a
+  client asks about.
+- "Save baseline" with a name ("Signed off 3 March") on the project's Settings
+  tab.
+- Tricky: tasks created after the baseline have nothing to compare with. Show
+  them as new, not as on time. The same goes for tasks that had no dates then
+  and have dates now.
+- Tricky: client viewers see the plan (`viewProject`). Should they see how far
+  it slipped from what was promised? I think yes, read-only, since it is their
+  project. Make it a deliberate choice.
+- Undecided: taking a baseline automatically when a project goes from planned
+  to active (`ProjectService.update` already notices status changes). I lean
+  towards yes, named "Start of project", because nobody remembers to take one
+  until they need it. And a cap of about ten per project.
+- Undecided: whether a small team looks at this more than twice a year. That
+  is why it is under Maybe.
+
+### 17. Dependency types and lead time
+
+Every link is finish-to-start with a lag of zero or more working days. Real
+plans also have "QA starts two days before development ends" (lead, which is a
+negative lag) and "these two start together" (start-to-start). MS Project has
+four link types. In practice finish-to-start with lead, and start-to-start,
+cover nearly everything. Depends on item 1, because its check and this item
+must share one rule.
+
+- Model: a `type` on `task_dependencies` (`FS`, `SS`, `FF`, `SF`, default
+  `FS`) and a lag that may be negative. `V23__add_dependency_type.sql` adds
+  the column and replaces `ck_task_dependencies_lag` (`lag_days >= 0`) with a
+  range. `Link` gets the type. `DependencyRequest.lagDays` is `@Min(0)` today.
+- One rule in one place: given a link and the predecessor's dates, the
+  earliest allowed start or finish of the successor. FS: start after the
+  predecessor's due date plus lag. SS: start no earlier than its start plus
+  lag. FF: finish no earlier than its finish plus lag. SF: finish no earlier
+  than its start plus lag. `Rescheduler.earliestStart` becomes that rule. For
+  the two finish-based types the task is moved so that its finish fits,
+  keeping its length.
+- `CriticalPath`: the forward pass (`ef + 1 + lag`) and the backward pass
+  (`ls - 1 - lag`) both have finish-to-start written into them. Each needs the
+  four cases. `CriticalPathTest` and `ReschedulerTest` cover FS. Add the same
+  shapes for the other types.
+- `DependencyGraph` does not change. A loop is a loop whatever the type, and
+  one link per pair of tasks stays (`uq_task_dependencies`).
+- `Rescheduler.propagate` still only moves tasks downstream of the change, and
+  only later. With SS a change to the predecessor's start now matters, which
+  works because the chain is recomputed from the current dates.
+- Web: a type select and a lag that accepts negative numbers in the "Waits
+  for" form of `task-panel.html`. The list says "+2 working days" today and
+  needs wording for the rest ("starts with", "2 working days before the end
+  of"). `linkPath` always runs from the right end of one bar to the left end
+  of the next. SS leaves from the left end and FF arrives at the right end.
+  `Dependency` in `models.ts` gets the type.
+- Tricky: lead across a weekend. `addWorkingDays` accepts negative numbers,
+  but returns its date unchanged for zero, weekend or not. `Rescheduler` gets
+  around that today by calling `nextWorkingDay` first. Write the Friday and
+  Monday tests before the code.
+- Tricky: a lead longer than the predecessor makes the successor start before
+  it. MS Project allows that. So would I.
+- Tricky: the check from item 1 and its "Move to" fix must use the same rule,
+  or valid start-to-start links get reported as broken.
+- Undecided: all four types, or only FS and SS. SF is almost never used and
+  doubles the test matrix. I would ship FS and SS with lead, and keep the
+  column able to hold the others.
+
+### 18. Attachments on tasks
+
+A task has a description and plain-text comments, nothing else. The brief, the
+mock-up and the signed-off PDF live in email or on a shared drive, with a link
+pasted into a comment. Every comparable tool has attachments. The question is
+whether file storage is worth it for a planner.
+
+- Data (`V24__create_attachments.sql`): `attachments` (task, uploader, file
+  name, content type, size, storage key, created at), deleted with the task.
+- Storage: files on disk under `ATTACHMENTS_DIR`, on a new named volume in
+  `docker-compose.yml`, saved under a random key and never under the uploaded
+  name. S3-compatible storage can wait.
+- API in a new `attachment` package: list and upload (multipart) at
+  `/api/tasks/{taskId}/attachments`, `GET /api/attachments/{id}` for the
+  bytes, and `DELETE /api/attachments/{id}`. Reading needs `viewProject`.
+  Uploading needs `editProject`, or `viewProject` like commenting if client
+  viewers may upload (see below). Deleting is for the uploader and for
+  managers.
+- Web: a section in `task-panel.html` between the subtasks and the comments,
+  with the list, an upload button and a drop target. A download has to send
+  the bearer token, which a plain link cannot do. `TimeApi.exportCsv` and
+  `downloadBlob` in `reports.page.ts` already solve that for the CSV: fetch a
+  blob and save it. Image previews work the same way with object URLs.
+- Limits per file (say 20 MB) and per organisation. Two places cap the request
+  size: Quarkus (`quarkus.http.limits.max-body-size`, 10 MB by default) and
+  nginx, which has no `client_max_body_size` in `web/nginx.conf` and so stops
+  at its default of 1 MB.
+- Tricky: clean-up. Deleting a task or a project removes rows through foreign
+  key cascades (`ProjectResource.delete` is a single `project.delete()`),
+  which would leave the files on disk. Delete the files explicitly in
+  `TaskService.delete` and before a project delete, and add a sweep for files
+  without a row. Probably both.
+- Tricky: serving other people's files. Always send
+  `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. An
+  uploaded SVG or HTML file shown inline would run script on the app's origin,
+  where the login token sits in `localStorage`.
+- Tricky: client viewers can read tasks and comment. Should they upload? I
+  lean towards yes, with deleting limited to their own files. Sending the
+  brief is what a client does.
+- Tricky: backups. Item 6 dumps the database only. With attachments the volume
+  has to be in the backup as well.
+- Tests: a multipart upload with REST Assured against a temporary directory,
+  then download, the size limit, permissions and clean-up.
+- Undecided: whether this is worth it at all, when a link to the shared drive
+  in the description works. Attachments on comments and pasted images are what
+  people would ask for next, so it does not stay small.
