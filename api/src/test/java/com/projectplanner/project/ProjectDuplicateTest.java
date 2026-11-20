@@ -229,6 +229,27 @@ class ProjectDuplicateTest {
     }
 
     @Test
+    void aProjectWithNothingInItCopiesTooAndStartsOnTheDayAskedFor() {
+        Account owner = Api.signup("Uma");
+        long empty = Api.createProject(owner, "EMPTY");
+        // A Saturday: the copy starts on the Monday after. There is no end date to move.
+        long copy = duplicate(owner, empty, Map.of("name", "Still empty", "code", "EMPTY-2", "startDate", "2026-06-13"));
+        owner.as().get("/api/projects/" + copy).then().statusCode(200)
+                .body("startDate", equalTo("2026-06-15")).body("endDate", nullValue()).body("status", equalTo("PLANNED"));
+        owner.as().get("/api/projects/" + copy + "/tasks").then().body("$", hasSize(0));
+        owner.as().get("/api/projects/" + copy + "/activity").then()
+                .body("[0].summary", equalTo("Copied the plan of Project EMPTY into Still empty: 0 phases, 0 tasks and 0 links"));
+
+        // Tasks without any dates stay without, and the project still gets its start.
+        long undated = Api.createProject(owner, "UNDATED");
+        Api.createTask(owner, undated, Map.of("title", "Sometime"));
+        long second = duplicate(owner, undated, Map.of("name", "Undated again", "code", "UNDATED-2", "startDate", "2026-06-10"));
+        owner.as().get("/api/projects/" + second).then().body("startDate", equalTo("2026-06-10"));
+        owner.as().get("/api/projects/" + second + "/tasks").then()
+                .body("$", hasSize(1)).body("[0].startDate", nullValue()).body("[0].dueDate", nullValue());
+    }
+
+    @Test
     void proposesAFreeCodeAndRefusesOneThatIsTaken() {
         Account owner = Api.signup("Eve");
         Account designer = Api.signup("Fay");
