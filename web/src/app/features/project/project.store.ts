@@ -154,9 +154,9 @@ export class ProjectStore {
   }
 
   /**
-   * Refetches the baselines. With {@code pickReference} the comparison switches to the
-   * project's reference baseline. Otherwise it stays on the one picked, unless that one
-   * is gone.
+   * Refetches the baselines. With {@code pickReference}, or when the project had none
+   * before, the comparison switches to the project's reference baseline. Otherwise it
+   * stays on the one picked, "no baseline" included, unless that one is gone.
    */
   loadBaselines(pickReference = false): void {
     const project = this.project();
@@ -165,9 +165,11 @@ export class ProjectStore {
     }
     this.projects.baselines(project.id).subscribe({
       next: (baselines) => {
+        // With no baselines before, "no baseline" was not a choice: the first one is compared with at once.
+        const hadSome = this.baselines().length > 0;
         this.baselines.set(baselines);
         const picked = this.comparedId();
-        const keep = !pickReference && (picked === null || baselines.some((b) => b.id === picked));
+        const keep = !pickReference && hadSome && (picked === null || baselines.some((b) => b.id === picked));
         this.compareWith(keep ? picked : (baselines.find((b) => b.reference)?.id ?? null));
       },
       error: (err: unknown) => this.comparisonError.set(messageOf(err)),

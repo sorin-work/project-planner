@@ -188,4 +188,14 @@ describe('ProjectStore baselines', () => {
     http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
     expect(store.comparedId()).toBe(31);
   });
+
+  it('compares with the first baseline as soon as the project has one', () => {
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    store.baselines.set([]);
+    store.compareWith(null);
+    store.loadBaselines();
+    http.expectOne('/api/projects/7/baselines').flush([signedOff]);
+    http.expectOne('/api/baselines/31/comparison').flush(comparison(31));
+    expect(store.comparedId()).toBe(31);
+  });
 });
