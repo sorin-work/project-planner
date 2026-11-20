@@ -38,7 +38,7 @@ import { TaskPanel } from './task-panel';
         }
       </nav>
       <div class="project-body" [class.with-panel]="openTaskId() !== null">
-        <div class="tab-content"><router-outlet /></div>
+        <div class="tab-content" tabindex="-1"><router-outlet /></div>
         @if (openTaskId(); as taskId) {
           <app-task-panel [taskId]="taskId" (closed)="closeTask()" />
         }
@@ -82,7 +82,8 @@ export class ProjectPage {
         const opener = this.opener;
         this.opener = null;
         // After the panel is gone. A row or a bar that was drawn again is found by what it stands for.
-        setTimeout(() => (opener.isConnected ? opener : this.sameAs(opener))?.focus());
+        // When the task is gone (deleted), the focus goes to the list, board or timeline it was in.
+        setTimeout(() => (opener.isConnected ? opener : (this.sameAs(opener) ?? document.querySelector<HTMLElement>('.tab-content')))?.focus());
       }
     });
     // The project's name in the title of the tab: "Timeline · Website · project-planner".
