@@ -26,6 +26,15 @@ public final class WorkCalendar {
         return d;
     }
 
+    /** {@code date} itself if it is a working day, otherwise the one before. */
+    public LocalDate onOrBefore(LocalDate date) {
+        LocalDate d = date;
+        while (!isWorkingDay(d)) {
+            d = d.minusDays(1);
+        }
+        return d;
+    }
+
     /** The first working day strictly after {@code date}. */
     public LocalDate nextWorkingDay(LocalDate date) {
         return onOrAfter(date.plusDays(1));
