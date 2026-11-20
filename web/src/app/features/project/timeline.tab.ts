@@ -119,7 +119,8 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
       </p>
     }
     @if (message()) {
-      <p class="alert info" role="status">{{ message() }}</p>
+      <!-- Shown here and read out once through the shell's live region, not as a region of its own. -->
+      <p class="alert info">{{ message() }}</p>
     }
     @if (error()) {
       <p class="alert error" role="alert">{{ error() }}</p>
@@ -161,9 +162,27 @@ export class TimelineTab {
   /** Resizes on their way, by task: what to send next, and the due date the keys last asked for. */
   private readonly resizes = new Map<number, { next: TaskPatch | null; dueDate?: string }>();
 
-  /** A bar was dragged or moved with the arrow keys, by working days. */
+  /** Moves asked for and not sent yet, by task: the working days so far and the timer that sends them. */
+  private readonly moves = new Map<number, { days: number; timer: ReturnType<typeof setTimeout> }>();
+
+  /**
+   * A bar was dragged or moved with the arrow keys, by working days. Presses that follow
+   * each other within {@link MOVE_PAUSE_MS}, a held key included, are added up and sent
+   * as one move, which is saved and read out once.
+   */
   move(taskId: number, days: number): void {
-    this.apply(this.store.shiftTask(taskId, days), (change) => pushedBack(change, `${change.task.title} moved`));
+    const waiting = this.moves.get(taskId);
+    if (waiting) {
+      clearTimeout(waiting.timer);
+    }
+    const total = (waiting?.days ?? 0) + days;
+    const timer = setTimeout(() => {
+      this.moves.delete(taskId);
+      if (total !== 0) {
+        this.apply(this.store.shiftTask(taskId, total), (change) => pushedBack(change, `${change.task.title} moved`));
+      }
+    }, MOVE_PAUSE_MS);
+    this.moves.set(taskId, { days: total, timer });
   }
 
   /**
@@ -258,8 +277,8 @@ export class TimelineTab {
         after?.();
       },
       error: (err: unknown) => {
+        // The error paragraph is an alert, which is read out as it appears.
         this.error.set(messageOf(err));
-        this.announcer.alert(`Not saved: ${messageOf(err)}`);
         after?.();
       },
     });
@@ -269,6 +288,9 @@ export class TimelineTab {
     return this.store.byId().get(taskId)?.title ?? `#${taskId}`;
   }
 }
+
+/** How long the arrow keys may pause between presses that still count as one move. */
+export const MOVE_PAUSE_MS = 300;
 
 /** "Design: 3 Mar – 7 Mar." for an answer about a task, or "Saved." for one that is not. */
 function landed(result: unknown): string {

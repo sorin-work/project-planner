@@ -8,7 +8,8 @@ import { OrgContext } from '../../core/org-context.service';
 import { Gantt } from '../gantt/gantt';
 import { ProjectStore } from './project.store';
 import { linkKey } from './schedule-issues';
-import { TimelineTab } from './timeline.tab';
+import { MOVE_PAUSE_MS, TimelineTab } from './timeline.tab';
+import { Announcer } from '../../core/announcer';
 
 function task(id: number, title: string, startDate: string, dueDate: string, extra: Partial<Task> = {}): Task {
   return {
@@ -58,14 +59,44 @@ describe('TimelineTab edits', () => {
     http.expectOne('/api/projects/7/schedule-issues').flush(issues);
   }
 
-  it('sends a move as working days', async () => {
+  /** Lets the pause pass after which moves are sent. */
+  const pause = () => new Promise((resolve) => setTimeout(resolve, MOVE_PAUSE_MS + 20));
+
+  it('sends a move as working days, after a short pause', async () => {
     gantt.moved.emit({ taskId: 1, days: -1 });
+    http.expectNone('/api/tasks/1/shift');
+    await pause();
     const shift = http.expectOne('/api/tasks/1/shift');
     expect(shift.request.body).toEqual({ days: -1 });
     shift.flush({ task: { ...design, startDate: '2026-02-27', dueDate: '2026-03-05' }, rescheduled: [] });
     refetch([]);
     await fixture.whenStable();
     expect(store.byId().get(1)?.startDate).toBe('2026-02-27');
+  });
+
+  it('adds up the presses of a held arrow key into one move, saved and read out once', async () => {
+    const announcer = TestBed.inject(Announcer);
+    const said = vi.spyOn(announcer, 'announce');
+    for (let i = 0; i < 4; i++) {
+      gantt.moved.emit({ taskId: 1, days: 1 });
+    }
+    gantt.moved.emit({ taskId: 1, days: -1 });
+    await pause();
+    const shift = http.expectOne('/api/tasks/1/shift');
+    expect(shift.request.body).toEqual({ days: 3 });
+    shift.flush({ task: { ...design, startDate: '2026-03-05', dueDate: '2026-03-11' }, rescheduled: [] });
+    refetch([]);
+    await fixture.whenStable();
+    expect(said).toHaveBeenCalledTimes(1);
+    expect(said.mock.calls[0][0]).toMatch(/^Design: /);
+    // The note under the toolbar is not a live region of its own, so the move is not read twice.
+    expect(el.querySelector('.alert.info[role]')).toBeNull();
+
+    // Presses that come back to where the bar was send nothing.
+    gantt.moved.emit({ taskId: 1, days: 1 });
+    gantt.moved.emit({ taskId: 1, days: -1 });
+    await pause();
+    http.expectNone('/api/tasks/1/shift');
   });
 
   it('sends only the date of the end that was dragged, and shows the warning the resize caused at once', async () => {
@@ -159,6 +190,7 @@ describe('TimelineTab edits', () => {
     expect(el.querySelector('path.link.broken')).not.toBeNull();
 
     gantt.moved.emit({ taskId: 1, days: 5 });
+    await pause();
     http.expectOne('/api/tasks/1/shift').flush({ task: { ...design, startDate: '2026-03-09', dueDate: '2026-03-13' }, rescheduled: [] });
     http.expectOne('/api/projects/7/critical-path').flush(noPath);
     http.expectOne('/api/projects/7/schedule-issues').flush('down', { status: 503, statusText: 'Service Unavailable' });
@@ -197,7 +229,7 @@ describe('TimelineTab edits', () => {
     post.flush({ task: build, rescheduled: [] });
     refetch([]);
     await fixture.whenStable();
-    expect(el.querySelector('[role=status]')?.textContent).toContain('Build now waits for Design.');
+    expect(el.querySelector('.alert.info')?.textContent).toContain('Build now waits for Design.');
     expect(store.byId().get(2)?.predecessors).toHaveLength(1);
   });
 
@@ -219,7 +251,7 @@ describe('TimelineTab edits', () => {
     del.flush(null);
     refetch([]);
     await fixture.whenStable();
-    expect(el.querySelector('[role=status]')?.textContent).toContain('Build no longer waits for Design.');
+    expect(el.querySelector('.alert.info')?.textContent).toContain('Build no longer waits for Design.');
     expect(store.byId().get(2)?.predecessors).toHaveLength(0);
   });
 });
