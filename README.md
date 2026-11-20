@@ -584,7 +584,10 @@ up to ten (`409 baseline_limit`), names are unique within the project
 (`409 baseline_name_taken`), and the first baseline is the reference.
 `PATCH /baselines/{id}` renames one or makes it the reference (`{ "reference": true }`),
 and `DELETE /baselines/{id}` deletes it; when that was the reference, the latest one left
-takes over. These three are for owners and managers. `GET /projects/{id}/baselines` and
+takes over. These three are for owners and managers. Each locks the project's row first,
+so two that arrive together run one after the other: the limit, the names and the one
+reference hold, and the database has unique constraints on the name and the reference
+behind that. `GET /projects/{id}/baselines` and
 `GET /baselines/{id}/comparison` are for everybody who can see the project.
 
 The comparison has an entry per task and per phase that is in the plan or in the
@@ -595,7 +598,9 @@ days (later is positive), plus `projectEnd` (the project's own end date) and `pl
 decides, and the start only when the finish did not move. A date on a weekend counts as
 the working day it stands for, so a due date moved from Friday to Saturday has not
 slipped. A task that had no dates in the baseline and has them now is `ADDED` with
-`existedThen: true`; one that is gone is `REMOVED` with `existsNow: false`. The schedule
+`existedThen: true`; one that is gone is `REMOVED` with `existsNow: false`. Whether a task
+exists then and now is decided first, so a task created or deleted since is `ADDED` or
+`REMOVED` even when it has no dates. The schedule
 issues and the critical path look at the plan only, never at a baseline, and duplicating
 a project does not copy its baselines.
 
