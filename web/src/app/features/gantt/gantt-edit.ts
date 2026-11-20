@@ -1,5 +1,5 @@
 import { Task } from '../../core/models';
-import { addDays, diffDays, formatDate, isWeekend, workingDaysBetween } from '../../shared/dates';
+import { addDays, addWorkingDays, formatDate, isWeekend, workingDaysBetween } from '../../shared/dates';
 import { BarBox, GanttBar, MILESTONE_RADIUS, ROW_HEIGHT } from './gantt-layout';
 
 // What a drag on the timeline means in dates. The component only measures pixels
@@ -66,9 +66,35 @@ export function moveWorkingDays(from: string, calendarDays: number): number {
 }
 
 /**
+ * The task's dates after the API has shifted it by {@code workingDays}: the start
+ * moves that many working days and the due date keeps the length in working days,
+ * so a Monday to Friday task moved by one runs Tuesday to Monday. A task with one
+ * date moves that date. This is Rescheduler.shift in the API, repeated here so
+ * that a bar can be drawn where it will land.
+ */
+export function shiftedDates(task: Dates, workingDays: number): Dates {
+  if (workingDays === 0) {
+    return { startDate: task.startDate, dueDate: task.dueDate };
+  }
+  if (task.startDate && task.dueDate) {
+    const length = Math.max(1, workingDaysBetween(task.startDate, task.dueDate));
+    const startDate = addWorkingDays(task.startDate, workingDays);
+    return { startDate, dueDate: addWorkingDays(startDate, length - 1) };
+  }
+  return {
+    startDate: task.startDate ? addWorkingDays(task.startDate, workingDays) : undefined,
+    dueDate: task.dueDate ? addWorkingDays(task.dueDate, workingDays) : undefined,
+  };
+}
+
+/**
  * The date to save after dragging one end of a bar by {@code calendarDays}
- * columns: a new start or a new due date, never past the other end. Null when
+ * columns: a new start or a new due date, never past the other one. Null when
  * the end did not move.
+ *
+ * A task with one date is a one-day bar. Its end that stands for the date it has
+ * moves freely, there is nothing to run into. The other end gives the task the
+ * date it lacks, and only away from the one it has.
  */
 export function resizeDates(task: Dates, edge: 'start' | 'end', calendarDays: number): { startDate: string } | { dueDate: string } | null {
   const dates = barDates(task);
@@ -77,29 +103,29 @@ export function resizeDates(task: Dates, edge: 'start' | 'end', calendarDays: nu
   }
   if (edge === 'start') {
     const start = dropDate(dates.from, calendarDays);
-    const startDate = start > dates.to ? dates.to : start;
+    const startDate = task.dueDate && start > task.dueDate ? task.dueDate : start;
     return startDate === dates.from ? null : { startDate };
   }
   const due = dropDate(dates.to, calendarDays);
-  const dueDate = due < dates.from ? dates.from : due;
+  const dueDate = task.startDate && due < task.startDate ? task.startDate : due;
   return dueDate === dates.to ? null : { dueDate };
 }
 
-/** The days a bar covers while it is being dragged, to draw it where it would land. */
+/**
+ * The days a bar covers while it is being dragged. It is drawn exactly where the
+ * drop would put it: a moved bar with the dates the API will answer, a resized
+ * one with the date that would be saved.
+ */
 export function previewDates(task: Dates, mode: Exclude<DragMode, 'link'>, calendarDays: number): { from: string; to: string } | null {
   const dates = barDates(task);
   if (!dates) {
     return null;
   }
   if (mode === 'move') {
-    const from = dropDate(dates.from, calendarDays);
-    return { from, to: addDays(dates.to, diffDays(dates.from, from)) };
+    return barDates(shiftedDates(task, moveWorkingDays(dates.from, calendarDays)));
   }
   const resized = resizeDates(task, mode, calendarDays);
-  if (!resized) {
-    return dates;
-  }
-  return 'startDate' in resized ? { from: resized.startDate, to: dates.to } : { from: dates.from, to: resized.dueDate };
+  return resized ? barDates({ startDate: task.startDate, dueDate: task.dueDate, ...resized }) : dates;
 }
 
 /** What dropping the bar now would do, in words. Null while nothing would change. */

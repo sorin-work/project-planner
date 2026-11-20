@@ -1,5 +1,6 @@
 import {
   addDays,
+  addWorkingDays,
   dayName,
   diffDays,
   formatDate,
@@ -51,6 +52,17 @@ describe('dates', () => {
     expect(workingDaysBetween('2026-03-02', '2026-03-06')).toBe(5);
     expect(workingDaysBetween('2026-03-06', '2026-03-09')).toBe(2);
     expect(workingDaysBetween('2026-03-07', '2026-03-08')).toBe(0);
+  });
+
+  it('adds working days in either direction, as the API does', () => {
+    expect(addWorkingDays('2026-03-02', 4)).toBe('2026-03-06');
+    expect(addWorkingDays('2026-03-06', 1)).toBe('2026-03-09');
+    expect(addWorkingDays('2026-03-02', 10)).toBe('2026-03-16');
+    expect(addWorkingDays('2026-03-09', -1)).toBe('2026-03-06');
+    expect(addWorkingDays('2026-03-07', 1)).toBe('2026-03-09');
+    expect(addWorkingDays('2026-03-07', -1)).toBe('2026-03-06');
+    // Zero leaves a date alone, weekend or not.
+    expect(addWorkingDays('2026-03-07', 0)).toBe('2026-03-07');
   });
 
   it('finds the earliest and latest date', () => {
