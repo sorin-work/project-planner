@@ -1354,6 +1354,13 @@ select.compact {
   fill: color-mix(in srgb, var(--good) 55%, var(--surface));
 }
 
+/* Where the task was in the baseline being compared with: grey, thin, under the bar. */
+.gantt-svg .baseline-bar {
+  fill: var(--muted);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 .gantt-svg .milestone {
   fill: var(--warning);
   stroke: var(--surface);
