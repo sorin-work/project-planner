@@ -1046,6 +1046,23 @@ select.compact {
   margin: 0.25rem 0 0;
 }
 
+.deps li {
+  flex-wrap: wrap;
+}
+
+.deps .issue-note {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+
+.issue-fix {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.4rem 0 0;
+}
+
 .issues-card {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;

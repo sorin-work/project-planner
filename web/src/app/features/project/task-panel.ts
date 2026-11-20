@@ -5,12 +5,13 @@ import { messageOf } from '../../core/errors';
 import { Comment, Priority, Task, TaskStatus } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { TaskApi, TaskPatch } from '../../core/task.api';
-import { formatDate, timeAgo } from '../../shared/dates';
+import { formatDate, formatRange, timeAgo } from '../../shared/dates';
 import { PRIORITIES, PRIORITY_LABELS, TASK_STATUSES, TASK_STATUS_LABELS, formatHours } from '../../shared/format';
 import { segments } from '../../shared/mentions';
 import { TimerService } from '../time/timer.service';
 import { CommentBox } from './comment-box';
 import { ProjectStore } from './project.store';
+import { issueText, linkIssue, linkNote, moveTo } from './schedule-issues';
 
 @Component({
   selector: 'app-task-panel',
@@ -54,6 +55,15 @@ export class TaskPanel {
   protected readonly dependants = computed(() =>
     this.store.tasks().filter((t) => t.predecessors.some((d) => d.predecessorId === this.taskId())),
   );
+  protected readonly issues = computed(() => this.store.issuesOf(this.taskId()));
+  /** The dates the API suggests when this task starts before something it waits for allows. */
+  protected readonly fix = computed(() => moveTo(this.issues()));
+  /** Issues about the task's own dates. The ones about a link are shown on that link. */
+  protected readonly dateNotes = computed(() =>
+    this.issues()
+      .filter((i) => i.type === 'AFTER_PROJECT_END' || i.type === 'OUTSIDE_PARENT')
+      .map((i) => issueText(i, (id) => this.taskTitle(id))),
+  );
   protected readonly handles = computed(() => new Set(this.store.members().map((m) => m.handle)));
   protected readonly canEdit = computed(() => this.org.isTeam());
   protected readonly isCritical = computed(() => this.store.criticalIds().has(this.taskId()));
@@ -65,7 +75,10 @@ export class TaskPanel {
   protected readonly priorities = PRIORITIES;
   protected readonly priorityLabels = PRIORITY_LABELS;
   protected readonly formatDate = formatDate;
+  protected readonly formatRange = formatRange;
   protected readonly formatHours = formatHours;
+  protected readonly linkIssue = linkIssue;
+  protected readonly linkNote = linkNote;
   protected readonly timeAgo = timeAgo;
   protected readonly segments = segments;
 
@@ -149,6 +162,14 @@ export class TaskPanel {
 
   clearDates(): void {
     this.save({ clearDates: true });
+  }
+
+  /** "Move to": sends the two suggested dates back exactly as the API gave them. */
+  applyFix(): void {
+    const fix = this.fix();
+    if (fix) {
+      this.save({ startDate: fix.startDate, dueDate: fix.dueDate });
+    }
   }
 
   addSubtask(): void {

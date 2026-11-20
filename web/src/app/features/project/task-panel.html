@@ -88,6 +88,10 @@
       }
     </div>
 
+    @for (note of dateNotes(); track note) {
+      <p class="issue-note">{{ note }}</p>
+    }
+
     <label for="tp-description" class="block-label">Description</label>
     <textarea id="tp-description" rows="4" [disabled]="!canEdit()" [value]="t.description ?? ''"
       (change)="setDescription($any($event.target).value)"></textarea>
@@ -125,11 +129,22 @@
             @if (canEdit()) {
               <button type="button" class="link small" (click)="removeDependency(d.id)" [attr.aria-label]="'Remove dependency on ' + taskTitle(d.predecessorId)">remove</button>
             }
+            @if (linkIssue(issues(), d.predecessorId); as issue) {
+              <span class="issue-note">{{ linkNote(issue) }}</span>
+            }
           </li>
         } @empty {
           <li class="muted small">Nothing; it can start any time.</li>
         }
       </ul>
+      @if (fix(); as f) {
+        <p class="issue-fix">
+          @if (canEdit()) {
+            <button type="button" class="small" (click)="applyFix()">Move to {{ formatDate(f.startDate) }}</button>
+          }
+          <span class="muted small">Earliest dates that fit, at the same length: {{ formatRange(f.startDate, f.dueDate) }}</span>
+        </p>
+      }
       @if (canEdit()) {
         <form class="dep-form" (ngSubmit)="addDependency()">
           <select name="predecessor" [(ngModel)]="newPredecessor" aria-label="Task to wait for">
