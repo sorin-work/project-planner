@@ -15,10 +15,17 @@ let boxes = 0;
   imports: [FormsModule],
   template: `
     <div class="comment-box">
-      <textarea #area rows="3" [(ngModel)]="text" name="comment" placeholder="Write a comment… use @ to mention someone"
-        aria-label="Comment" aria-autocomplete="list" [attr.aria-controls]="suggestions().length ? listId : null"
-        [attr.aria-activedescendant]="suggestions().length ? listId + '-' + highlighted() : null"
-        (input)="update()" (click)="update()" (keydown)="onKeydown($event)"></textarea>
+      <!--
+        A combobox: ARIA in HTML allows no role on a textarea, so the role and its open state are on
+        a wrapper (the ARIA 1.1 pattern), and the textarea points at the list and the highlighted person.
+      -->
+      <div role="combobox" aria-label="Comment" aria-haspopup="listbox" [attr.aria-expanded]="suggestions().length > 0"
+        [attr.aria-owns]="suggestions().length ? listId : null" [attr.aria-controls]="suggestions().length ? listId : null">
+        <textarea #area rows="3" [(ngModel)]="text" name="comment" placeholder="Write a comment… use @ to mention someone"
+          aria-label="Comment" aria-autocomplete="list" [attr.aria-controls]="suggestions().length ? listId : null"
+          [attr.aria-activedescendant]="suggestions().length ? listId + '-' + highlighted() : null"
+          (input)="update()" (click)="update()" (keydown)="onKeydown($event)"></textarea>
+      </div>
       @if (suggestions().length) {
         <ul class="suggestions" role="listbox" aria-label="People" [id]="listId">
           @for (m of suggestions(); track m.userId; let i = $index) {
@@ -80,6 +87,9 @@ export class CommentBox {
       event.preventDefault();
       this.choose(list[this.highlighted()]);
     } else if (event.key === 'Escape') {
+      // Escape closes the suggestions and nothing else: the panel around the box stays open.
+      event.preventDefault();
+      event.stopPropagation();
       this.mention.set(null);
     }
   }

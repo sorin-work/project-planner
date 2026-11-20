@@ -2,6 +2,7 @@ import { Announce } from '../../shared/announce';
 import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
+import { Announcer } from '../../core/announcer';
 import { messageOf } from '../../core/errors';
 import { Comment, Dependency, DependencyType, Priority, Task, TaskStatus } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
@@ -37,6 +38,7 @@ export class TaskPanel {
   protected readonly comments = signal<Comment[]>([]);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
+  private readonly announcer = inject(Announcer);
   protected readonly posting = signal(false);
   protected newSubtask = '';
   protected newPredecessor: number | null = null;
@@ -97,6 +99,29 @@ export class TaskPanel {
   protected readonly segments = segments;
 
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+
+  /**
+   * Escape closes the panel, except where it would lose something. A field that handled
+   * Escape itself (the mention suggestions) stops it. From inside a text field Escape
+   * first leaves the field, which saves it, and a second Escape closes the panel; a
+   * comment that is being written is never thrown away by it.
+   */
+  protected onEscape(event: Event): void {
+    if (event.defaultPrevented) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.matches('input, textarea, select, [contenteditable="true"]')) {
+      event.preventDefault();
+      target.blur();
+      this.panel()?.nativeElement.focus();
+      if (target instanceof HTMLTextAreaElement && target.value.trim()) {
+        this.notice.set('Your comment is still here. Press Escape again to close the task.');
+      }
+      return;
+    }
+    this.closed.emit();
+  }
 
   constructor() {
     // A task that opens takes the focus, so that the keyboard and a screen reader are where the
@@ -324,7 +349,10 @@ export class TaskPanel {
       return;
     }
     this.store.deleteTask(task.id).subscribe({
-      next: () => this.closed.emit(),
+      next: () => {
+        this.announcer.announce(`Deleted ${task.title}.`);
+        this.closed.emit();
+      },
       error: (err: unknown) => this.error.set(messageOf(err)),
     });
   }
