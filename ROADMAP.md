@@ -913,17 +913,21 @@ Dragging an end saves the new start or due date through `store.updateTask`.
 Dragging the dot onto another bar calls `store.addDependency`, the same
 endpoint and loop check as the form in the task panel. An arrow can be clicked
 or focused and removed with a button or the Delete key, and `Shift` plus the
-arrow keys moves the due date of the focused bar.
+arrow keys moves the due date of the focused bar, one working day per press.
 `POST /api/tasks/{id}/shift` now moves by working days in either direction and
 keeps the length in working days (`Rescheduler.shift`), and the timeline sends
-working days. A refused edit leaves the bar where it was, because the timeline
-only draws what the API answered. Different from the design: the arithmetic of
-a drag is in its own file, `gantt-edit.ts`, next to `gantt-layout.ts`; bars can
-still be moved at month zoom, only the handles are left out there; and a click
-on a handle that does not move opens the task, like a click on the bar. Still
-open: the start date has no key of its own on the bar (the Start field in the
-task panel does that), linking by keyboard stays in the task panel, the
-timeline does not scroll while something is dragged (two bars that are not on
-screen together are linked at week zoom or in the task panel), a parent's
-subtasks do not follow when it is resized, and drawing a bar for a task
-without dates is the follow-up it was.
+working days. A dragged bar is drawn where it will land, with the length the
+API will give it. A refused edit leaves the bar where it was, because the
+timeline only draws what the API answered. Different from the design: the
+arithmetic of a drag is in its own file, `gantt-edit.ts`, next to
+`gantt-layout.ts`; a press only becomes a drag after four pixels, and one
+that does not opens the task, on a handle too; Escape gives up a drag; and Tab
+goes from a bar to the arrows that leave it, through stand-ins that follow the
+bar in the page while the arrows themselves stay drawn under the bars. At
+month zoom the timeline is read-only, keys included. Still open: the start
+date has no key of its own on the bar (the Start field in the task panel does
+that), linking by keyboard stays in the task panel, the timeline does not
+scroll while something is dragged (two bars that are not on screen together
+are linked at week zoom or in the task panel), a parent's subtasks do not
+follow when it is resized, and drawing a bar for a task without dates is the
+follow-up it was.

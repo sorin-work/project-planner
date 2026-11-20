@@ -45,9 +45,12 @@ the point is knowing whether a project will land on time and on budget.
   start or due date, drag the dot after a bar onto another bar to make that one wait
   for it, and click an arrow to remove the link. Everything counts in working days: a
   bar dropped on a weekend goes on to the next working day in the direction of the
-  drag, and a moved task keeps its length. With the keyboard, the arrow keys move the
-  focused bar by a working day, Shift with the arrow keys moves its due date and
-  Delete removes the focused arrow. The handles are there at day and week zoom.
+  drag, and a moved task keeps its length. While it is dragged, a bar is drawn where
+  it will land. With the keyboard, the arrow keys move the focused bar by a working
+  day, Shift with the arrow keys moves its due date (every press counts), Delete
+  removes the focused arrow and Escape gives up a drag. Tab goes from a bar to the
+  arrows that leave it. The timeline is edited at day and week zoom; at month zoom it
+  is read-only.
 - **Time tracking**: start/stop timers from a task or the top bar, manual entries,
   billable and non-billable time. Timers stopped after midnight book the time on the
   day they started.
