@@ -640,8 +640,14 @@ timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
 - Tests: switch the scheduler off in the test profile
   (`quarkus.scheduler.enabled=false`), call the job method directly and assert
   on `MockMailbox`.
-- Tricky: old rows. On the first run every existing notification has no
-  `emailed_at`, and the demo data has several. Stamp them in the migration.
+- Tricky: rows that must never be mailed. An install that is upgraded has old
+  notifications without `emailed_at`. Stamp those in the migration.
+- The migration does not cover demo data. `DemoSeeder` runs after Flyway and
+  creates its notifications through `Notifier.notify`, so a fresh install with
+  `SEED_DEMO=true` would mail every unread demo notification the first time
+  the job runs. `DemoSeeder.notification` already rewrites `createdAt` and
+  `readAt` on each row it has just created. Set `emailedAt` there as well, and
+  assert in `DemoSeederTest` that seeding leaves nothing for the job to send.
 - Tricky: mentions leak task titles. `CommentResource.mentionedUsers` matches
   the handles against every membership of the organisation and never asks
   whether that person can see the project. A client viewer mentioned on
