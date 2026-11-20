@@ -2,9 +2,11 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, forkJoin, map, tap } from 'rxjs';
 import { messageOf } from '../../core/errors';
 import { Baseline, BaselineComparison, CriticalPath, DependencyType, Member, Phase, Project, ScheduleIssue, Task, TaskChange } from '../../core/models';
+import { CalendarApi } from '../../core/calendar.api';
 import { OrgApi } from '../../core/org.api';
 import { ProjectApi } from '../../core/project.api';
 import { NewTask, TaskApi, TaskPatch } from '../../core/task.api';
+import { Holidays, NO_HOLIDAYS } from '../../shared/dates';
 import { brokenLinks } from './schedule-issues';
 
 /** Everything the project tabs share: the project, its plan and the team. Provided per project page. */
@@ -13,11 +15,14 @@ export class ProjectStore {
   private readonly projects = inject(ProjectApi);
   private readonly tasksApi = inject(TaskApi);
   private readonly orgApi = inject(OrgApi);
+  private readonly calendar = inject(CalendarApi);
 
   readonly project = signal<Project | null>(null);
   readonly tasks = signal<Task[]>([]);
   readonly phases = signal<Phase[]>([]);
   readonly members = signal<Member[]>([]);
+  /** The organisation's holidays, which the timeline shades and skips. Empty until they are in, and when they can not be read. */
+  readonly holidays = signal<Holidays>(NO_HOLIDAYS);
   readonly criticalPath = signal<CriticalPath | null>(null);
   /** Where the plan contradicts itself, as the API sees it. Refetched with the critical path. */
   readonly issues = signal<ScheduleIssue[]>([]);
@@ -41,11 +46,15 @@ export class ProjectStore {
   readonly brokenLinks = computed(() => brokenLinks(this.issues()));
 
   private scheduleRequest = 0;
+  private holidaysRequest = 0;
   private comparisonRequest = 0;
   private baselinesRequest = 0;
 
   load(projectId: number): Observable<void> {
     this.loading.set(true);
+    // Another project may be in another organisation: its holidays must not shade or count here.
+    this.holidays.set(NO_HOLIDAYS);
+    const holidaysFor = ++this.holidaysRequest;
     // Nothing of the project shown before stays on screen while this one loads, or after it fails.
     this.clearBaselines();
     return forkJoin({
@@ -66,6 +75,19 @@ export class ProjectStore {
         this.scheduleError.set(null);
         this.loading.set(false);
         this.orgApi.members(project.organisationId).subscribe({ next: (m) => this.members.set(m) });
+        this.calendar.holidays(project.organisationId).subscribe({
+          next: (list) => {
+            // An answer for a project that is no longer the one loaded does not count.
+            if (holidaysFor === this.holidaysRequest) {
+              this.holidays.set(new Set(list.map((h) => h.date)));
+            }
+          },
+          error: () => {
+            if (holidaysFor === this.holidaysRequest) {
+              this.holidays.set(NO_HOLIDAYS);
+            }
+          },
+        });
         this.loadBaselines(true);
       }),
       map(() => undefined),

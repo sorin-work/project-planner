@@ -1,11 +1,11 @@
 package com.projectplanner.task;
 
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.project.Project;
 import com.projectplanner.schedule.CriticalPath;
 import com.projectplanner.schedule.Link;
 import com.projectplanner.schedule.ScheduleCheck;
-import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.TaskDtos.ScheduleIssueResponse;
 import io.quarkus.security.Authenticated;
 import jakarta.ws.rs.GET;
@@ -26,11 +26,11 @@ import java.util.Set;
 public class ScheduleResource {
 
     private final OrgAccess access;
-    private final CriticalPath criticalPath = new CriticalPath(WorkCalendar.DEFAULT);
-    private final ScheduleCheck scheduleCheck = new ScheduleCheck(WorkCalendar.DEFAULT);
+    private final OrgCalendars calendars;
 
-    public ScheduleResource(OrgAccess access) {
+    public ScheduleResource(OrgAccess access, OrgCalendars calendars) {
         this.access = access;
+        this.calendars = calendars;
     }
 
     /** Critical path over every task in the project that has both a start and a due date. */
@@ -39,9 +39,9 @@ public class ScheduleResource {
     @Operation(summary = "Critical path of a project",
             description = "Counts every task that has both a start and a due date.")
     public CriticalPath.Result critical(@PathParam("projectId") long projectId) {
-        access.project(projectId);
+        Project project = access.project(projectId);
         List<Task> tasks = Task.forProject(projectId);
-        return criticalPath.calculate(tasks.stream().map(Task::toScheduled).toList(), links(projectId));
+        return new CriticalPath(calendars.of(project.organisationId)).calculate(tasks.stream().map(Task::toScheduled).toList(), links(projectId));
     }
 
     /**
@@ -67,7 +67,7 @@ public class ScheduleResource {
                 done.add(task.id);
             }
         }
-        return scheduleCheck.check(tasks.stream().map(Task::toScheduled).toList(), links(projectId), parents, done, project.endDate)
+        return new ScheduleCheck(calendars.of(project.organisationId)).check(tasks.stream().map(Task::toScheduled).toList(), links(projectId), parents, done, project.endDate)
                 .stream().map(ScheduleIssueResponse::of).toList();
     }
 

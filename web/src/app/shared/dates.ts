@@ -61,11 +61,25 @@ export function maxDate(dates: (string | undefined | null)[]): string | null {
   return valid.length ? valid.reduce((a, b) => (a > b ? a : b)) : null;
 }
 
-/** Working days (Mon-Fri) from start to end, both included. */
-export function workingDaysBetween(start: string, end: string): number {
+/**
+ * The organisation's holidays, as ISO dates. Every count of working days below takes
+ * them, the same way the API's WorkCalendar does, so the timeline lands a drag where
+ * the API will put it. Leaving them out means Monday to Friday.
+ */
+export type Holidays = ReadonlySet<string>;
+
+export const NO_HOLIDAYS: Holidays = new Set<string>();
+
+/** Monday to Friday, apart from the holidays. */
+export function isWorkingDay(iso: string, holidays: Holidays = NO_HOLIDAYS): boolean {
+  return !isWeekend(iso) && !holidays.has(iso);
+}
+
+/** Working days from start to end, both included. */
+export function workingDaysBetween(start: string, end: string, holidays: Holidays = NO_HOLIDAYS): number {
   let count = 0;
   for (let d = start; d <= end; d = addDays(d, 1)) {
-    if (!isWeekend(d)) {
+    if (isWorkingDay(d, holidays)) {
       count++;
     }
   }
@@ -77,11 +91,11 @@ export function workingDaysBetween(start: string, end: string): number {
  * the date unchanged, even on a weekend. The same rule as the API's
  * WorkCalendar.addWorkingDays, so the timeline can show where a move will land.
  */
-export function addWorkingDays(iso: string, days: number): string {
+export function addWorkingDays(iso: string, days: number, holidays: Holidays = NO_HOLIDAYS): string {
   let date = iso;
   for (let left = Math.abs(days); left > 0; ) {
     date = addDays(date, days > 0 ? 1 : -1);
-    if (!isWeekend(date)) {
+    if (isWorkingDay(date, holidays)) {
       left--;
     }
   }

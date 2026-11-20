@@ -34,8 +34,8 @@ couple of weekends, **L** several weeks of spare time.
 | 11  | Invitation and password reset emails       | Later | both     | M    | -          |
 | 12  | Notification emails and preferences        | Later | both     | M    | 11         |
 | 13  | Duplicate a project as a template          | Shipped | both     | M    | -          |
-| 14  | Performance on large projects              | Later | both     | M    | -          |
-| 15  | Public holidays and time off               | Later | both     | L    | -          |
+| 14  | Performance on large projects              | Shipped | both     | M    | -          |
+| 15  | Public holidays and time off               | Shipped | both     | L    | -          |
 | 16  | Baselines                                  | Shipped | both     | M    | -          |
 | 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
@@ -291,133 +291,25 @@ timesheet sent back. Depends on item 11 for the mailer and `APP_URL`.
 - Undecided: separate preferences per organisation for people who are in
   several. I lean towards no.
 
-### 14. Performance on large projects
+### Follow-ups of 14. Performance on large projects
 
-The demo data is eight projects, about ninety tasks and a year of time for
-five people, and everything is instant. Some of the code only works at that
-size. There are seven separate changes here, listed in the order I would do
-them. The first four are the pull request. The last three are follow-ups, each
-small enough for a pull request of its own.
+These were left out of item 14 on purpose, each small enough for a pull
+request of its own.
 
-In the pull request:
-
-1. A query-count check, first, because it makes the rest checkable in CI
-   without timing anything. Switch on Hibernate statistics in the test profile
-   (`quarkus.hibernate-orm.statistics=true`) and assert that the number of
-   statements for the project list with thirty projects stays under a fixed
-   bound. Build that data in the test, not in `DemoSeeder`.
-2. The project list and the dashboard. `ProjectResource.list` calls
-   `ProjectHealthService.summary` per project, which loads all of its tasks,
-   every one of its time entries (`TimeEntry.list("projectId", ...)`) and a
-   fresh `RateBook` (the organisation, the role rates and all memberships).
-   `ProjectService.toResponse` then looks up the client by id, and
-   `DashboardResource` does the same for the active projects. Load the tasks
-   and one grouped time query for all listed projects at once, with one
-   `RateBook` per request.
-3. A light project list for selects (id, code, name, status, client) under its
-   own path or a query parameter. `TimesheetPage` and `ReportsPage` call the
-   full list today only to fill a project select. Switch both.
-4. People in one `id in` query, as `TaskMapper` already does, in the places
-   that look them up one at a time: `TimesheetService.summaries` (which also
-   queries the entries once per sheet), `OrgResource.members` and
-   `CommentResource.mentionedUsers` (`User.findById` per member), and
-   `MeResource.me` (the organisation per membership).
-
-Follow-ups, not in this pull request:
-
-5. Older entries in the two lists that only take a limit. `ActivityResource`
-   (at most 200) and `NotificationResource` cannot be asked for anything
-   older. A "before this id" parameter, and "Load more" in `ActivityTab` and
-   `NotificationsPage`.
-6. The timeline with many tasks. It draws every row and every bar.
-   `layoutGantt` is recomputed when tasks, zoom or collapsed phases change and
-   not during a drag, which is right, so with a thousand tasks it is the size
-   of the DOM that hurts. Open with the phases collapsed above some task count
-   first, and only then think about drawing just the visible rows.
-7. Smaller things on the web side, and only with a measurement that says they
-   matter: `groupTasks` copies the child array for every subtask and scans the
-   phases for every task, `ProjectStore.changed` fetches the critical path
-   again after each change, and the board reloads the whole task list after
-   each drop (`reloadTasks`).
-
-Notes for the pull request:
-
-- Tricky: rounding again. `BudgetCalculator` adds up `Money.cost` per entry,
-  rounded to cents each time. Feeding it one `TimeFacts` per person with
-  summed minutes moves `spentAmount` by a few cents, and no test would
-  notice: `roundsPartialHoursToCents` in `BudgetCalculatorTest` has a single
-  entry. Before touching the query, add a case that pins rounding per entry:
-  three one-minute entries at 100 an hour cost 1.67 each and 5.01 together,
-  where three minutes in one entry cost 5.00.
-- Keep rounding per entry, so that the budget, the CSV and item 9's report
-  stay in step. The grouped query in step 2 can still be exact: group by the
-  minutes value as well (project, user, billable, minutes, and a count), price
-  one entry and multiply by the count.
-- Item 12 changes `CommentResource.mentionedUsers` too, to skip people who
-  cannot see the project. Whichever lands second keeps both changes.
-- The indexes look right for today's queries. Add one only together with a
-  query from steps 2 to 4 that needs it (`V20`).
-- The target: an organisation with 50 projects, and a project with 1,000 tasks
-  and 20,000 time entries, with the project list under ten statements.
-
-### 15. Public holidays and time off
-
-`WorkCalendar` knows weekends and nothing else. A task planned across
-Christmas counts those days as working days, and the workload page shows forty
-free hours for somebody who is on holiday. (The demo data even skips two
-holiday stretches per person when it logs time, but nothing in the model says
-so.) OpenProject has non-working days for the whole instance, and Float builds
-its capacity view on leave and public holidays.
-
-- Data (`V21__create_holidays_and_time_off.sql`): `holidays` (organisation,
-  date, name, one per organisation and date) and `time_off` (organisation,
-  user, first day, last day, note).
-- API in a new `calendar` package: `/api/orgs/{orgId}/holidays` (the team
-  reads, managers write) and `/api/orgs/{orgId}/time-off` (people manage their
-  own, managers anybody's).
-- Calendar: `WorkCalendar` gets a constructor that takes the non-working
-  dates. `WorkCalendar.DEFAULT` stays for the tests and the seeder.
-  `isWorkingDay` checks the set. `workingDaysBetween` has a fast path that
-  counts five days per whole week, so subtract the holidays that fall on
-  weekdays in the range.
-- Four places build a helper on `WorkCalendar.DEFAULT` once, in a field, and
-  need the organisation's calendar per request instead: `TaskService`
-  (`rescheduler`), `ScheduleResource` (`criticalPath`), `ProjectHealthService`
-  (`progressCalculator`, plus three direct calls) and `WorkloadResource`
-  (`calculator`). Add a request-scoped loader so that one request reads the
-  holidays once. The static `WorkCalendar.weekStart` is not affected.
-- Item 1's `ScheduleCheck` takes a calendar as well. It is built in
-  `ScheduleResource` next to `criticalPath` (the `scheduleCheck` field), so
-  that class has two helpers to switch.
-- Time off does not move the schedule. It only lowers capacity.
-  `WorkloadCalculator.Person` has one `capacityHours` for all weeks. Make it
-  per week (`WeekLoad` already reports capacity per week). A day off takes a
-  fifth of the weekly capacity, and a holiday does the same for everybody. A
-  task is still spread evenly over its own working days, not around its
-  assignee's days off.
-- Web: a holidays card in Settings for managers. Time off on the Team page or
-  a page of its own. The timeline shades holidays like weekends: `layoutGantt`
-  builds `weekends` from `isWeekend`, so pass the holiday dates in through its
-  options. Workload cells show the lower capacity with a marker. The timesheet
-  grid marks holidays in its header.
-- Tricky: existing plans. Dates are stored and durations are worked out from
-  them, so a new holiday inside a task makes it one working day shorter
-  without moving anything, and can leave a task starting or ending on the
-  holiday. Do not rewrite plans when a holiday is added. Dependants are only
-  checked on the next move. If item 1 is in, it reports the links that now
-  break.
-- Tricky: `TimeService` lets people log time on any day and should keep doing
-  so. People do work on holidays.
-- Tricky: other items do new arithmetic with `WorkCalendar.DEFAULT`: the check
-  in item 1, the working-day shift in item 8, capacity in item 9, the date
-  shift in item 13 and the slip in item 16. Whichever lands second switches to
-  the organisation's calendar. The timeline's own count of working days for a
-  drag (item 8: `snapToWorkingDay` and `moveWorkingDays` in `gantt-edit.ts`)
-  needs the holiday dates too.
-- Undecided, with my leaning in brackets: approval for time off (no, this is a
-  planner and not an HR tool), half days (no), importing public holidays (a
-  typed list of dates is enough), and one calendar per country for spread-out
-  teams (one per organisation for now).
+- Older entries in the two lists that only take a limit. `ActivityResource`
+  (at most 200) and `NotificationResource` cannot be asked for anything
+  older. A "before this id" parameter, and "Load more" in `ActivityTab` and
+  `NotificationsPage`.
+- The timeline with many tasks. It draws every row and every bar.
+  `layoutGantt` is recomputed when tasks, zoom or collapsed phases change and
+  not during a drag, which is right, so with a thousand tasks it is the size
+  of the DOM that hurts. Open with the phases collapsed above some task count
+  first, and only then think about drawing just the visible rows.
+- Smaller things on the web side, and only with a measurement that says they
+  matter: `groupTasks` copies the child array for every subtask and scans the
+  phases for every task, `ProjectStore.changed` fetches the critical path
+  again after each change, and the board reloads the whole task list after
+  each drop (`reloadTasks`).
 
 ## Maybe
 
@@ -712,6 +604,64 @@ plain create as well, and a source that is changed while it is copied is
 `409 source_changed`. Still open: real templates (projects
 flagged as such and hidden elsewhere), a choice of which phases to copy, and
 the organisation's calendar in `ProjectDuplicator` once item 15 has one.
+
+### 14. Performance on large projects
+
+`QueryCountTest` counts statements with Hibernate's statistics (on in the
+test profile) on an organisation built by the test, not by `DemoSeeder`:
+fifty projects, one with 1,000 tasks and 20,000 time entries, five people,
+thirty-six submitted weeks and an owner in five organisations. Each endpoint
+has a fixed bound, and a small organisation sends as many statements as the
+large one. The project list is nine statements for every role (eight before
+item 15 added the holidays), the target
+was under ten. `ProjectHealthService.summaries` takes the tasks of all listed
+projects in one query, their time in one query grouped by project, person,
+billable flag and minutes with a count, and one `RateBook`, and
+`ProjectService.toResponses` the client names in one. The dashboard uses the
+same and maps its three task lists in one pass (22 statements). The light
+list is `GET /orgs/{org}/projects/options` (id, code, name, status, client),
+and `TimesheetPage` and `ReportsPage` fill their selects from it. People are
+looked up in one `id in` query in `TimesheetService.summaries` (which also
+takes the entries of all its weeks at once), `OrgResource.members`,
+`CommentResource.mentionedUsers` and `MeResource.me` (the organisations).
+Money is still priced and rounded per entry, which
+`BudgetCalculatorTest.roundsEveryEntryOnItsOwn` pins. Different from the
+design: no index was needed, so `V20` is unused. Still open: the three
+follow-ups listed under Later.
+
+### 15. Public holidays and time off
+
+`V21` adds `holidays` and `time_off`, and the `calendar` package has their
+endpoints: every member reads the holidays (client viewers too, since their
+timeline shades them), managers write them; the team reads time off, people
+manage their own and managers anybody's. `WorkCalendar` takes the holidays
+that fall on weekdays and takes them out of `workingDaysBetween` after the
+fast path for whole weeks. `OrgCalendars`, request-scoped, reads them once per
+request, and every place that counted working days with
+`WorkCalendar.DEFAULT` now asks it: the rescheduler in `TaskService` (moves,
+shifts and the cascade, through item 17's `LinkRule` for all four link types,
+whose start-to-finish takes the working day before with the holidays), the critical path and the schedule check in
+`ScheduleResource`, progress and the three counts in `ProjectHealthService`,
+`ProjectDuplicator` with `PlanShift`, the slips of item 16 in `BaselineService`,
+`WorkloadResource` and the capacity in `TimeReportService`. `DEFAULT` is left for the tests and the seeder. Capacity
+is per week (`WeekLoad.holidays`, `daysOff`): every working day is a fifth of
+the weekly hours, so a holiday takes a fifth off for everybody and a day off a
+fifth off for one person, and a task is still spread over its own working
+days. On the web, `shared/dates.ts` takes the holidays in every working-day
+function, and `gantt-edit.ts` and `gantt-layout.ts` pass them on, so a drag
+lands where the API will put it and holidays are shaded like weekends.
+Settings has a holidays card, the Team page a time off card, the workload
+marks weeks with less capacity, and the timesheet header names a holiday
+(the week's days carry it). Plans are not rewritten when a holiday is added,
+and time can still be logged on one. The demo team's holidays are time off
+now, and Tom is away three days next week. Different from the design: the
+holidays are readable by client viewers. Overlapping time off for one person
+is refused, under a lock on their membership, and holiday changes are in the
+activity log. Left as the roadmap leaned: no approval, no half days, no import,
+one calendar per organisation. Still open: the missing timesheets list still
+shows the plain weekly hours as capacity, and the demo has no public holidays,
+since one inside a seeded plan would change the schedule issues the demo is
+built to show.
 
 ### 16. Baselines
 

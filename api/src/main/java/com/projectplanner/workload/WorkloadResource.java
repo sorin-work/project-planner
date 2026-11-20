@@ -1,6 +1,7 @@
 package com.projectplanner.workload;
 
 import com.projectplanner.auth.User;
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
@@ -40,11 +41,12 @@ public class WorkloadResource {
 
     private final OrgAccess access;
     private final Clock clock;
-    private final WorkloadCalculator calculator = new WorkloadCalculator(WorkCalendar.DEFAULT);
+    private final OrgCalendars calendars;
 
-    public WorkloadResource(OrgAccess access, Clock clock) {
+    public WorkloadResource(OrgAccess access, Clock clock, OrgCalendars calendars) {
         this.access = access;
         this.clock = clock;
+        this.calendars = calendars;
     }
 
     /**
@@ -68,7 +70,12 @@ public class WorkloadResource {
         List<Membership> team = Membership.forOrganisation(orgId).stream().filter(m -> m.role.isTeam()).toList();
         Map<Long, User> users = new HashMap<>();
         team.forEach(m -> users.put(m.userId, User.findById(m.userId)));
-        List<Person> people = team.stream().map(m -> new Person(m.userId, m.weeklyCapacityHours.doubleValue())).toList();
+        // Holidays and time off lower the capacity of a week. They do not move the tasks.
+        WorkloadCalculator calculator = new WorkloadCalculator(calendars.of(orgId));
+        Map<Long, Set<LocalDate>> daysOff = calendars.daysOff(orgId, start, start.plusWeeks(weeks).minusDays(1));
+        List<Person> people = team.stream()
+                .map(m -> new Person(m.userId, m.weeklyCapacityHours.doubleValue(), daysOff.getOrDefault(m.userId, Set.of())))
+                .toList();
 
         List<Project> projects = Project.list("organisationId = ?1 and status in ?2", orgId,
                 Set.of(ProjectStatus.PLANNED, ProjectStatus.ACTIVE));

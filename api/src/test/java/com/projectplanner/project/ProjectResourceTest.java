@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
@@ -112,5 +113,30 @@ class ProjectResourceTest {
         owner.as().get("/api/orgs/" + owner.orgId() + "/clients/" + clientId)
                 .then().statusCode(200).body("archived", equalTo(true));
         owner.as().get("/api/orgs/" + owner.orgId() + "/clients").then().body("$", hasSize(0));
+    }
+
+    @Test
+    void theOptionsForASelectFollowTheSameRules() {
+        Account owner = Api.signup("Ines");
+        long acme = Api.createClient(owner, "Acme");
+        long acmeProject = Api.createProject(owner, "ACME", acme);
+        long internal = Api.createProject(owner, "INT");
+        // A finished project comes last, as in the full list, although its name comes first.
+        long done = Api.createProject(owner, "AAA");
+        owner.as().body(Map.of("name", "Project AAA", "code", "AAA", "status", "DONE")).put("/api/projects/" + done).then().statusCode(200);
+        Account viewer = Api.signup("Jon");
+        Api.addMember(owner, viewer, "CLIENT", acme);
+        Account stranger = Api.signup("Kai");
+
+        owner.as().get("/api/orgs/" + owner.orgId() + "/projects/options").then().statusCode(200)
+                .body("code", equalTo(java.util.List.of("ACME", "INT", "AAA")))
+                .body("find { it.id == " + acmeProject + " }.clientName", equalTo("Acme"))
+                .body("find { it.id == " + acmeProject + " }.status", equalTo("ACTIVE"))
+                // An internal project has no client fields at all.
+                .body("find { it.id == " + internal + " }", not(hasKey("clientId")))
+                .body("find { it.id == " + internal + " }", not(hasKey("health")));
+        viewer.as().get("/api/orgs/" + owner.orgId() + "/projects/options").then().statusCode(200)
+                .body("id", equalTo(java.util.List.of((int) acmeProject)));
+        stranger.as().get("/api/orgs/" + owner.orgId() + "/projects/options").then().statusCode(404);
     }
 }
