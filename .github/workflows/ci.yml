@@ -47,3 +47,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose build
+
+      # The only place where the stack is started. Brings up db and api with
+      # the demo data, runs the backup loop against made-up clocks, dumps the
+      # database, restores the dump and compares the row counts. Then it
+      # restores an older dump onto a new volume and lets the api migrate it,
+      # and checks that the api refuses a database from a newer version. The
+      # project name is the default one, so that the images built above are
+      # used.
+      - name: Check that the stack starts and a backup restores
+        run: sh scripts/check-restore.sh
+        env:
+          CHECK_PROJECT: project-planner
+        timeout-minutes: 10
