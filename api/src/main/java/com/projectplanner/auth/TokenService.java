@@ -13,6 +13,9 @@ import java.util.Set;
 @ApplicationScoped
 public class TokenService {
 
+    /** The claim with the account's {@code tokenVersion}. */
+    static final String VERSION_CLAIM = "ver";
+
     private final JwtKeys keys;
     private final Duration ttl;
     private final Clock clock;
@@ -30,6 +33,7 @@ public class TokenService {
                 .subject(String.valueOf(user.id))
                 .upn(user.email)
                 .claim("name", user.name)
+                .claim(VERSION_CLAIM, user.tokenVersion)
                 .groups(Set.of("user"))
                 .issuedAt(now)
                 .expiresAt(expires)

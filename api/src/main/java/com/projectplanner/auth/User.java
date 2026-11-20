@@ -32,7 +32,10 @@ public class User extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
-    /** Tokens issued before this time no longer work. In whole seconds, see {@link CurrentUser}. */
+    /** Carried in every login token. A token with an older version no longer works, see {@link CurrentUser}. */
+    @Column(name = "token_version", nullable = false)
+    public int tokenVersion;
+
     @Column(name = "password_changed_at")
     public Instant passwordChangedAt;
 
@@ -50,7 +53,8 @@ public class User extends PanacheEntityBase {
      */
     public void changePassword(String newHash, Instant now) {
         passwordHash = newHash;
-        passwordChangedAt = now.truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        passwordChangedAt = now;
+        tokenVersion++;
         PasswordReset.revokeAll(id, now);
     }
 

@@ -101,8 +101,8 @@ class AuthResourceTest {
         account.as().body(Map.of("currentPassword", "nope-nope", "newPassword", "new-password-1"))
                 .post("/api/me/password").then().statusCode(400).body("code", equalTo("wrong_password"));
 
-        // Later than both tokens, by more than the second they are compared in.
-        TestClock.fix(Instant.now().plusSeconds(5));
+        // In the same second as both tokens: they stop working all the same.
+        TestClock.fix(Instant.now());
         try {
             String fresh = account.as().body(Map.of("currentPassword", "correct-horse", "newPassword", "new-password-1"))
                     .post("/api/me/password").then().statusCode(200)

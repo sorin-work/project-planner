@@ -12,8 +12,10 @@ create table password_resets (
 
 create index ix_password_resets_user on password_resets (user_id);
 
--- Tokens issued before this time are no longer accepted. Kept in whole seconds, like the
--- issued-at time in a token.
+-- Every login token carries the version of its account. A change or reset of the password
+-- counts it up, and a token with an older version is no longer accepted. The time of the
+-- last change is kept to be shown.
+alter table users add column token_version integer default 0 not null;
 alter table users add column password_changed_at timestamp with time zone;
 
 -- The link in an invitation mail: a hash of its token, when it stops working and when it

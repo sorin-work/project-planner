@@ -70,8 +70,10 @@ class PasswordResetTest {
     @Test
     void aLinkSetsANewPasswordOnceAndEndsEverySessionStartedBefore() {
         Api.Account rita = Api.signup("Rita Moreno");
-        // Later than the token from signing up, by more than the second they are compared in.
-        TestClock.fix(Instant.now().plusSeconds(5));
+        // Everything below happens in one and the same second, the way a script that signs in
+        // again and again would try to keep a session alive across the reset.
+        TestClock.fix(Instant.now());
+        String sameSecond = login(rita.email(), "correct-horse").statusCode(200).extract().path("token");
         forgot(rita.email()).statusCode(204);
 
         Mail mail = mailbox.only(rita.email());
@@ -86,8 +88,9 @@ class PasswordResetTest {
         // Both the endpoints that load the user and those that only ask for the id.
         rita.as().get("/api/me").then().statusCode(401).body("code", equalTo("unauthorized"));
         rita.as().get("/api/orgs/" + rita.orgId()).then().statusCode(401);
+        given().auth().oauth2(sameSecond).get("/api/orgs/" + rita.orgId()).then().statusCode(401);
         login(rita.email(), "correct-horse").statusCode(401);
-        // Signed in within the same second as the reset, and not thrown out.
+        // Signed in within the same second as the reset, with the new password: that works.
         String fresh = login(rita.email(), "brand-new-password").statusCode(200).extract().path("token");
         given().auth().oauth2(fresh).get("/api/orgs/" + rita.orgId()).then().statusCode(200);
 
