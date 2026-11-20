@@ -91,6 +91,23 @@ class DemoSeederTest {
                 .body("type", everyItem(equalTo("AFTER_PROJECT_END")))
                 .body("$", hasSize(2));
 
+        // The patient portal is over its hours budget and has told the two people who run projects. The other
+        // projects start at the level their burn is at, so logging more time on them announces nothing old.
+        var inbox = given().auth().oauth2(token).get("/api/notifications?limit=200").then().statusCode(200).extract().jsonPath();
+        List<String> alerts = inbox.getList("findAll { it.type == 'BUDGET_ALERT' }.message");
+        assertThat(alerts).isNotEmpty().allMatch(message -> message.startsWith("Globex patient portal has used 1"));
+        assertThat(alerts).anyMatch(message -> message.contains("% of its hours budget: "));
+        Number overBudget = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/projects").then()
+                .extract().path("find { it.project.code == 'GLX-PORTAL' }.project.id");
+        Number underBudget = given().auth().oauth2(token).get("/api/orgs/" + orgId + "/projects").then()
+                .extract().path("find { it.project.code == 'INT-DS' }.project.id");
+        for (Number projectId : List.of(overBudget, underBudget)) {
+            given().auth().oauth2(token).contentType(ContentType.JSON)
+                    .body(Map.of("projectId", projectId, "date", LocalDate.now(DemoSeeder.ZONE).toString(), "minutes", 30))
+                    .post("/api/orgs/" + orgId + "/time-entries").then().statusCode(201);
+        }
+        assertThat(given().auth().oauth2(token).get("/api/notifications?limit=200").then().extract().jsonPath()
+                .<String>getList("findAll { it.type == 'BUDGET_ALERT' }.message")).isEqualTo(alerts);
         // Last week Tom has a draft and Samir a week that was sent back. Tom was reminded today, Samir was not.
         given().auth().oauth2(token).get("/api/orgs/" + orgId + "/timesheets/missing").then().statusCode(200)
                 .body("people.userName", contains("Samir Haddad", "Tom Becker"))
