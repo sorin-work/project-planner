@@ -207,11 +207,20 @@ export interface Phase {
   endDate?: string;
 }
 
+/**
+ * How a task waits for another: finish-to-start, start-to-start, finish-to-finish or
+ * start-to-finish. The first letter is the predecessor's end that counts, the second
+ * the successor's.
+ */
+export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
+
 export interface Dependency {
   id: number;
   predecessorId: number;
   successorId: number;
+  /** Working days. Negative is a lead. */
   lagDays: number;
+  type: DependencyType;
 }
 
 export interface Task {
@@ -275,6 +284,8 @@ export interface ScheduleIssue {
   suggestedDue?: string;
   /** What that move would get the task reported for instead: AFTER_PROJECT_END, OUTSIDE_PARENT or both. */
   suggestionCauses?: ScheduleIssueType[];
+  /** For the two link issues: the link's type. With FF and SF it is the finish that is too early. */
+  linkType?: DependencyType;
 }
 
 export interface Progress {
