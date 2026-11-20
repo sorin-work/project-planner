@@ -13,6 +13,39 @@ function task(id: number, startDate?: string, dueDate?: string, extra: Partial<T
 }
 
 describe('gantt layout', () => {
+  it('takes each end of an arrow from the type of the link', () => {
+    const from = { x: 100, y: 51, width: 56, height: 18 };
+    const to = { x: 196, y: 83, width: 28, height: 18 };
+    expect(linkEnds(from, to, 'FS')).toEqual({ fromX: 156, fromY: 60, toX: 196, toY: 92 });
+    expect(linkEnds(from, to, 'SS')).toEqual({ fromX: 100, fromY: 60, toX: 196, toY: 92 });
+    expect(linkEnds(from, to, 'FF')).toEqual({ fromX: 156, fromY: 60, toX: 224, toY: 92 });
+    expect(linkEnds(from, to, 'SF')).toEqual({ fromX: 100, fromY: 60, toX: 224, toY: 92 });
+  });
+
+  it('leaves a left end leftwards and comes into a right end from the right', () => {
+    // Start to start: out to the left, down between the rows, in from the left.
+    expect(linkPath(100, 10, 196, 42, false, true)).toBe(`M 100 10 H 92 V ${10 + ROW_HEIGHT / 2} H 188 V 42 H 196`);
+    // Finish to finish with the successor ending later: out to the right, along, in from the right.
+    expect(linkPath(156, 10, 224, 42, true, false)).toBe(`M 156 10 H 164 V ${10 + ROW_HEIGHT / 2} H 232 V 42 H 224`);
+    // A start-to-finish arrow that runs leftwards needs no detour.
+    expect(linkPath(300, 10, 224, 42, false, false)).toBe('M 300 10 H 292 V 42 H 224');
+  });
+
+  it('gives an arrow its type, its lag and a tag unless it is a plain finish-to-start link', () => {
+    const a = task(1, '2026-03-02', '2026-03-06');
+    const b = task(2, '2026-03-03', '2026-03-06', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 1, type: 'SS' }] });
+    const c = task(3, '2026-03-09', '2026-03-10', { predecessors: [{ id: 51, predecessorId: 1, successorId: 3, lagDays: 0, type: 'FS' }] });
+    const layout = layoutGantt([a, b, c], [], { zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-01' });
+    const ss = layout.links.find((l) => l.id === 50)!;
+    const fs = layout.links.find((l) => l.id === 51)!;
+    expect(ss.type).toBe('SS');
+    expect(ss.tag).toBe('SS +1');
+    const barA = layout.bars.find((bar) => bar.task.id === 1)!;
+    expect(ss.path.startsWith(`M ${barA.x} `)).toBe(true);
+    expect(fs.tag).toBeNull();
+    expect(fs.path.startsWith(`M ${barA.x + barA.width} `)).toBe(true);
+  });
+
   it('draws the baseline as a thin bar under the bar, inside its row', () => {
     const baseline = new Map([[1, { start: '2026-03-02', due: '2026-03-04' }]]);
     const layout = layoutGantt([task(1, '2026-03-04', '2026-03-10'), task(2, '2026-03-05', '2026-03-06')], [], {
@@ -71,7 +104,7 @@ describe('gantt layout', () => {
     const a = task(1, '2026-03-02', '2026-03-03', { phaseId: 7 });
     const b = task(2, '2026-03-04', '2026-03-06', {
       phaseId: 7,
-      predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }],
+      predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0, type: 'FS' }],
     });
     const m = task(3, '2026-03-09', '2026-03-09', { milestone: true });
     const layout = layoutGantt([a, b, m], phases, { zoom: 'day', critical: new Set([1, 2]), collapsed: new Set(), today: '2026-03-04' });
@@ -91,8 +124,8 @@ describe('gantt layout', () => {
   it('marks a link as broken only when the issue list names it', () => {
     // Task 2 starts before task 1 is due. The layout does not judge that itself.
     const a = task(1, '2026-03-02', '2026-03-06');
-    const b = task(2, '2026-03-04', '2026-03-05', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }] });
-    const c = task(3, '2026-03-09', '2026-03-10', { predecessors: [{ id: 51, predecessorId: 1, successorId: 3, lagDays: 0 }] });
+    const b = task(2, '2026-03-04', '2026-03-05', { predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0, type: 'FS' }] });
+    const c = task(3, '2026-03-09', '2026-03-10', { predecessors: [{ id: 51, predecessorId: 1, successorId: 3, lagDays: 0, type: 'FS' }] });
     const options = { zoom: 'day' as const, critical: new Set([1, 2]), collapsed: new Set<number>(), today: '2026-03-04' };
 
     expect(layoutGantt([a, b, c], [], options).links.map((l) => l.broken)).toEqual([false, false]);

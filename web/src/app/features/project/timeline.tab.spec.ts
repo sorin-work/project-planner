@@ -19,7 +19,7 @@ function task(id: number, title: string, startDate: string, dueDate: string, ext
 
 const design = task(1, 'Design', '2026-03-02', '2026-03-06');
 const build = task(2, 'Build', '2026-03-09', '2026-03-11', {
-  predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0 }],
+  predecessors: [{ id: 50, predecessorId: 1, successorId: 2, lagDays: 0, type: 'FS' }],
 });
 const noPath = { durationDays: 0, criticalTaskIds: [], tasks: [] };
 
@@ -193,7 +193,7 @@ describe('TimelineTab edits', () => {
     gantt.linked.emit({ predecessorId: 1, successorId: 2 });
     const post = http.expectOne('/api/tasks/2/dependencies');
     expect(post.request.method).toBe('POST');
-    expect(post.request.body).toEqual({ predecessorId: 1, lagDays: 0 });
+    expect(post.request.body).toEqual({ predecessorId: 1, lagDays: 0, type: 'FS' });
     post.flush({ task: build, rescheduled: [] });
     refetch([]);
     await fixture.whenStable();

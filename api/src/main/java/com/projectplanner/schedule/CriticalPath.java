@@ -19,13 +19,16 @@ import java.util.Map;
 public final class CriticalPath {
 
     private final WorkCalendar calendar;
+    private final LinkRule rule;
 
     public CriticalPath(WorkCalendar calendar) {
         this.calendar = calendar;
+        this.rule = new LinkRule(calendar);
     }
 
     public Result calculate(Collection<ScheduledTask> tasks, Collection<Link> links) {
-        List<ScheduledTask> scheduled = tasks.stream().filter(ScheduledTask::isScheduled).toList();
+        // Read the way the rescheduler reads them: a task on days off only is one day on the next working day.
+        List<ScheduledTask> scheduled = tasks.stream().filter(ScheduledTask::isScheduled).map(rule::normalise).toList();
         if (scheduled.isEmpty()) {
             return new Result(null, null, 0, List.of(), List.of());
         }
@@ -47,7 +50,7 @@ public final class CriticalPath {
             int d = calendar.duration(task.start(), task.due());
             int start = offset(origin, task.start());
             for (Link link : graph.predecessors(id)) {
-                start = Math.max(start, ef.get(link.predecessorId()) + 1 + link.lagDays());
+                start = Math.max(start, LinkRule.earliestStartOffset(link, es.get(link.predecessorId()), ef.get(link.predecessorId()), d));
             }
             duration.put(id, d);
             es.put(id, start);
@@ -61,7 +64,8 @@ public final class CriticalPath {
         for (long id : order.reversed()) {
             int latestFinish = finish;
             for (Link link : graph.successors(id)) {
-                latestFinish = Math.min(latestFinish, ls.get(link.successorId()) - 1 - link.lagDays());
+                latestFinish = Math.min(latestFinish,
+                        LinkRule.latestFinishOffset(link, ls.get(link.successorId()), lf.get(link.successorId()), duration.get(id)));
             }
             lf.put(id, latestFinish);
             ls.put(id, latestFinish - duration.get(id) + 1);

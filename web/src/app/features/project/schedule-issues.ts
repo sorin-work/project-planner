@@ -46,12 +46,17 @@ function workingDays(days: number | undefined): string {
   return `${days ?? 0} working day${days === 1 ? '' : 's'}`;
 }
 
+/** A finish-to-finish or start-to-finish link holds the finish, so that is what is too early. */
+function endsOrStarts(issue: ScheduleIssue): string {
+  return issue.linkType === 'FF' || issue.linkType === 'SF' ? 'Ends' : 'Starts';
+}
+
 /** A whole sentence about an issue, for a list where the task's own title stands next to it. */
 export function issueText(issue: ScheduleIssue, titleOf: TitleOf): string {
   const related = issue.relatedTaskId === undefined ? '' : titleOf(issue.relatedTaskId);
   switch (issue.type) {
     case 'STARTS_TOO_EARLY':
-      return `Starts ${workingDays(issue.days)} too early for ${related}`;
+      return `${endsOrStarts(issue)} ${workingDays(issue.days)} too early for ${related}`;
     case 'WAITS_FOR_UNSCHEDULED':
       return `Waits for ${related}, which has no due date, so the link is ignored`;
     case 'AFTER_PROJECT_END':
@@ -64,7 +69,7 @@ export function issueText(issue: ScheduleIssue, titleOf: TitleOf): string {
 /** The short form for the "Waits for" list, where the other task's title is already on the row. */
 export function linkNote(issue: ScheduleIssue): string {
   return issue.type === 'STARTS_TOO_EARLY'
-    ? `Starts ${workingDays(issue.days)} too early for this`
+    ? `${endsOrStarts(issue)} ${workingDays(issue.days)} too early for this`
     : 'Has no due date, so this link is ignored';
 }
 
@@ -129,7 +134,11 @@ export function finishedOverlaps(tasks: Task[]): Task[] {
     if (task.status !== 'DONE' || !start || !task.dueDate) {
       return false;
     }
+    // Only plain finish-to-start links: a start-to-start link or a lead overlaps on purpose.
     return task.predecessors.some((d) => {
+      if (d.type !== 'FS' || d.lagDays < 0) {
+        return false;
+      }
       const waitedFor = byId.get(d.predecessorId);
       return !!waitedFor?.startDate && !!waitedFor.dueDate && start <= waitedFor.dueDate;
     });

@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, forkJoin, map, tap } from 'rxjs';
 import { messageOf } from '../../core/errors';
-import { Baseline, BaselineComparison, CriticalPath, Member, Phase, Project, ScheduleIssue, Task, TaskChange } from '../../core/models';
+import { Baseline, BaselineComparison, CriticalPath, DependencyType, Member, Phase, Project, ScheduleIssue, Task, TaskChange } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { ProjectApi } from '../../core/project.api';
 import { NewTask, TaskApi, TaskPatch } from '../../core/task.api';
@@ -112,8 +112,12 @@ export class ProjectStore {
     );
   }
 
-  addDependency(successorId: number, predecessorId: number, lagDays: number): Observable<TaskChange> {
-    return this.tasksApi.addDependency(successorId, predecessorId, lagDays).pipe(tap((change) => this.apply(change)));
+  addDependency(successorId: number, predecessorId: number, lagDays: number, type: DependencyType = 'FS'): Observable<TaskChange> {
+    return this.tasksApi.addDependency(successorId, predecessorId, lagDays, type).pipe(tap((change) => this.apply(change)));
+  }
+
+  updateDependency(dependencyId: number, change: { type?: DependencyType; lagDays?: number }): Observable<TaskChange> {
+    return this.tasksApi.updateDependency(dependencyId, change).pipe(tap((result) => this.apply(result)));
   }
 
   removeDependency(successorId: number, dependencyId: number): Observable<void> {

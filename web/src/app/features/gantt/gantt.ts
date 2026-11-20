@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, comp
 import { Phase, Task } from '../../core/models';
 import { formatRange } from '../../shared/dates';
 import { CONNECTOR_RADIUS, DragMode, barAt, barDates, barHandles, dragHint, moveWorkingDays, previewDates, resizeDates } from './gantt-edit';
+import { dependencyPhrase } from '../project/dependency-text';
 import { GanttBar, GanttLink, MILESTONE_RADIUS, ROW_HEIGHT, Zoom, barSpan, dragDays, layoutGantt } from './gantt-layout';
 
 interface Drag {
@@ -207,7 +208,7 @@ export class Gantt {
 
   linkLabel(link: GanttLink): string {
     const title = (id: number) => this.titles().get(id) ?? `#${id}`;
-    return `${title(link.successorId)} waits for ${title(link.predecessorId)}`;
+    return `${title(link.successorId)} ${dependencyPhrase(link, title(link.predecessorId))}`;
   }
 
   /**
