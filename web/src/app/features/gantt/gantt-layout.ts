@@ -1,5 +1,5 @@
 import { Phase, Task } from '../../core/models';
-import { addDays, diffDays, isWeekend, maxDate, minDate, monthName, toDate, today, weekStart } from '../../shared/dates';
+import { Holidays, NO_HOLIDAYS, addDays, diffDays, isWorkingDay, maxDate, minDate, monthName, toDate, today, weekStart } from '../../shared/dates';
 import { linkKey } from '../project/schedule-issues';
 import { groupTasks } from '../project/task-groups';
 
@@ -113,7 +113,7 @@ export function linkPath(fromX: number, fromY: number, toX: number, toY: number)
 export function layoutGantt(
   tasks: Task[],
   phases: Phase[],
-  options: { zoom: Zoom; critical: Set<number>; collapsed: Set<number>; today?: string; broken?: Set<string> },
+  options: { zoom: Zoom; critical: Set<number>; collapsed: Set<number>; today?: string; broken?: Set<string>; holidays?: Holidays },
 ): GanttLayout {
   const dayWidth = DAY_WIDTH[options.zoom];
   const now = options.today ?? today();
@@ -194,6 +194,7 @@ export function layoutGantt(
     }
   }
 
+  const holidays = options.holidays ?? NO_HOLIDAYS;
   const ticks: GanttTick[] = [];
   const months: GanttTick[] = [];
   const weekends: { x: number; width: number }[] = [];
@@ -204,11 +205,12 @@ export function layoutGantt(
       months.push({ x, label: `${monthName(date)} ${date.slice(0, 4)}`, major: true });
     }
     if (options.zoom === 'day') {
-      ticks.push({ x, label: String(toDate(date).getUTCDate()), major: !isWeekend(date) });
+      ticks.push({ x, label: String(toDate(date).getUTCDate()), major: isWorkingDay(date, holidays) });
     } else if (options.zoom === 'week' && i % 7 === 0) {
       ticks.push({ x, label: String(toDate(date).getUTCDate()), major: true });
     }
-    if (isWeekend(date) && options.zoom !== 'month') {
+    // Holidays are shaded like weekends: nobody works on them.
+    if (!isWorkingDay(date, holidays) && options.zoom !== 'month') {
       weekends.push({ x, width: dayWidth });
     }
   }

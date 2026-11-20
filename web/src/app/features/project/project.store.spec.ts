@@ -39,6 +39,7 @@ describe('ProjectStore schedule issues', () => {
     http.expectOne('/api/projects/7/critical-path').flush(noPath);
     http.expectOne('/api/projects/7/schedule-issues').flush(issues);
     http.expectOne('/api/orgs/3/members').flush([]);
+    http.expectOne('/api/orgs/3/holidays').flush([{ id: 1, date: '2026-03-04', name: 'Holiday' }]);
   }
 
   it('loads the issues with the plan', () => {
@@ -47,6 +48,8 @@ describe('ProjectStore schedule issues', () => {
     expect(store.issuesOf(2)).toEqual([early]);
     expect(store.issuesOf(1)).toEqual([]);
     expect([...store.brokenLinks()]).toEqual([linkKey(1, 2)]);
+    // The holidays come with the team, for the timeline to shade and skip.
+    expect([...store.holidays()]).toEqual(['2026-03-04']);
   });
 
   it('asks again after a change', () => {

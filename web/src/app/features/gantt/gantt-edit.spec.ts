@@ -42,6 +42,34 @@ function apiShift(start: string, due: string, days: number): { from: string; to:
   return { from, to: addWorkingDays(from, Math.max(1, length) - 1) };
 }
 
+describe('dragging across a holiday', () => {
+  // Wednesday 2026-03-04 is a holiday.
+  const holidays = new Set(['2026-03-04']);
+
+  it('snaps off a holiday like off a weekend', () => {
+    expect(snapToWorkingDay('2026-03-04', 1, holidays)).toBe(THU);
+    expect(snapToWorkingDay('2026-03-04', -1, holidays)).toBe('2026-03-03');
+    expect(dropDate(MON, 2, holidays)).toBe(THU);
+  });
+
+  it('counts and previews a move in the working days the API counts', () => {
+    // Monday to Tuesday, dropped one column later: one working day, and it runs Tuesday to Thursday.
+    const twoDays = task(1, MON, '2026-03-03');
+    expect(moveWorkingDays(MON, 1, holidays)).toBe(1);
+    expect(shiftedDates(twoDays, 1, holidays)).toEqual({ startDate: '2026-03-03', dueDate: THU });
+    expect(previewDates(twoDays, 'move', 1, holidays)).toEqual({ from: '2026-03-03', to: THU });
+    // Dropped on the holiday itself, it lands on Thursday: two working days.
+    expect(moveWorkingDays(MON, 2, holidays)).toBe(2);
+    expect(dragHint(twoDays, 'move', 2, holidays)).toBe('Move by +2 working days');
+    // Without the holidays it is Monday to Friday, as before.
+    expect(shiftedDates(twoDays, 1)).toEqual({ startDate: '2026-03-03', dueDate: '2026-03-04' });
+  });
+
+  it('never resizes an end onto a holiday', () => {
+    expect(resizeDates(task(1, MON, '2026-03-03'), 'end', 1, holidays)).toEqual({ dueDate: THU });
+  });
+});
+
 describe('dragging on the timeline', () => {
   it('snaps a weekend to the next working day in the direction of the drag', () => {
     expect(snapToWorkingDay(SAT, 1)).toBe(NEXT_MON);

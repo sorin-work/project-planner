@@ -79,7 +79,7 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
     }
     <div class="card gantt-card">
       <app-gantt [tasks]="store.tasks()" [phases]="store.phases()" [critical]="store.criticalIds()"
-        [broken]="store.brokenLinks()" [showCritical]="showCritical" [zoom]="zoom()" [editable]="org.isTeam()"
+        [broken]="store.brokenLinks()" [showCritical]="showCritical" [zoom]="zoom()" [editable]="org.isTeam()" [holidays]="store.holidays()"
         (moved)="move($event.taskId, $event.days)" (resized)="resize($event)" (extended)="extend($event.taskId, $event.days)"
         (linked)="link($event)" (unlinked)="unlink($event)" (opened)="openTask($event)" />
     </div>
@@ -139,7 +139,7 @@ export class TimelineTab {
       return;
     }
     const asked = this.resizes.get(taskId)?.dueDate;
-    const dates = resizeDates({ startDate: task.startDate, dueDate: asked ?? task.dueDate }, 'end', days);
+    const dates = resizeDates({ startDate: task.startDate, dueDate: asked ?? task.dueDate }, 'end', days, this.store.holidays());
     if (dates && 'dueDate' in dates) {
       this.resize({ taskId, ...dates });
       const waiting = this.resizes.get(taskId);

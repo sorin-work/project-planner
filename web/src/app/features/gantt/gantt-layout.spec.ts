@@ -64,6 +64,18 @@ describe('gantt layout', () => {
     expect(layout.weekends.length).toBeGreaterThan(0);
   });
 
+  it('shades holidays like weekends and does not count them as working days in the header', () => {
+    const a = task(1, '2026-03-02', '2026-03-06');
+    const plain = layoutGantt([a], [], { zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-04' });
+    const withHoliday = layoutGantt([a], [], {
+      zoom: 'day', critical: new Set(), collapsed: new Set(), today: '2026-03-04', holidays: new Set(['2026-03-04']),
+    });
+    expect(withHoliday.weekends).toHaveLength(plain.weekends.length + 1);
+    const x = xOf('2026-03-04', withHoliday.start, DAY_WIDTH.day);
+    expect(withHoliday.weekends).toContainEqual({ x, width: DAY_WIDTH.day });
+    expect(withHoliday.ticks.find((t) => t.x === x)!.major).toBe(false);
+  });
+
   it('marks a link as broken only when the issue list names it', () => {
     // Task 2 starts before task 1 is due. The layout does not judge that itself.
     const a = task(1, '2026-03-02', '2026-03-06');
