@@ -12,6 +12,15 @@ export function toIso(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** {@code value} if it is a real date written as yyyy-mm-dd, otherwise null. For dates that arrive in a URL. */
+export function parseIsoDate(value: string | null | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const date = toDate(value);
+  return !Number.isNaN(date.getTime()) && toIso(date) === value ? value : null;
+}
+
 /** Today in the browser's local time zone. */
 export function today(now: Date = new Date()): string {
   const y = now.getFullYear();

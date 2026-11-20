@@ -12,7 +12,31 @@ const ICONS: Record<string, string> = {
   TIMESHEET_SUBMITTED: '⏱',
   TIMESHEET_APPROVED: '✓',
   TIMESHEET_REJECTED: '↩',
+  TIMESHEET_REMINDER: '!',
 };
+
+export interface NotificationTarget {
+  commands: (string | number)[];
+  queryParams?: Record<string, string | number>;
+}
+
+/**
+ * Where a notification leads: the task it is about, the approval queue for a submitted
+ * week, or the person's own timesheet on the week in question. Null when there is nowhere to go.
+ */
+export function notificationTarget(n: Pick<Notification, 'type' | 'projectId' | 'taskId' | 'weekStart'>): NotificationTarget | null {
+  if (n.projectId && n.taskId) {
+    return { commands: ['/projects', n.projectId, 'list'], queryParams: { task: n.taskId } };
+  }
+  if (n.type === 'TIMESHEET_SUBMITTED') {
+    return { commands: ['/approvals'] };
+  }
+  if (n.type.startsWith('TIMESHEET_')) {
+    // Notifications from before weeks were recorded open the current week.
+    return n.weekStart ? { commands: ['/time'], queryParams: { week: n.weekStart } } : { commands: ['/time'] };
+  }
+  return null;
+}
 
 @Component({
   selector: 'app-notifications-page',
@@ -80,12 +104,9 @@ export class NotificationsPage {
       this.api.markRead(n.id).subscribe();
       this.items.update((all) => all.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
     }
-    if (n.projectId && n.taskId) {
-      void this.router.navigate(['/projects', n.projectId, 'list'], { queryParams: { task: n.taskId } });
-    } else if (n.type === 'TIMESHEET_SUBMITTED') {
-      void this.router.navigate(['/approvals']);
-    } else if (n.type.startsWith('TIMESHEET_')) {
-      void this.router.navigate(['/time']);
+    const target = notificationTarget(n);
+    if (target) {
+      void this.router.navigate(target.commands, { queryParams: target.queryParams });
     }
   }
 }

@@ -1,5 +1,5 @@
 import { TimeEntry } from '../../core/models';
-import { addDays, diffDays } from '../../shared/dates';
+import { addDays, diffDays, parseIsoDate, weekStart } from '../../shared/dates';
 
 export interface GridRow {
   key: string;
@@ -56,4 +56,9 @@ export function buildGrid(weekStart: string, entries: TimeEntry[]): Grid {
     (a, b) => a.projectCode.localeCompare(b.projectCode) || (a.taskTitle ?? '').localeCompare(b.taskTitle ?? ''),
   );
   return { dates, rows: sorted, dayTotals, total: dayTotals.reduce((a, b) => a + b, 0) };
+}
+
+/** Monday of the week named by ?week= (any day of it); the week of {@code today} when it is missing or not a date. */
+export function weekOfParam(param: string | null | undefined, today: string): string {
+  return weekStart(parseIsoDate(param) ?? today);
 }
