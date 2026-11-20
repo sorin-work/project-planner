@@ -38,6 +38,13 @@ the point is knowing whether a project will land on time and on budget.
   day they started.
 - **Timesheets**: a weekly grid per person; submit a week, managers approve it or send
   it back with a note. Submitted and approved weeks are locked.
+- **Missing timesheets**: for any week that is over, managers see who has not
+  submitted it (drafts and weeks that were sent back) with the hours logged against
+  capacity, and can remind one person or everybody who logged time. People without any
+  time that week are listed apart, since they may have been away. Nobody gets a second
+  reminder about the same week on the same day, or more than five reminders a day. The
+  reminder, like every timesheet notification, opens the timesheet on the week it is
+  about.
 - **Workload**: allocated hours per person per week against their capacity, with
   overallocated weeks flagged. Each open task's estimate is spread over its working
   days.
@@ -92,6 +99,7 @@ dependencies, so they are tested in isolation:
 | `BudgetCalculator`    | Hours and money burn against the budgets                             |
 | `HealthStatus`        | Turns progress and burn into on track / at risk / off track          |
 | `WorkloadCalculator`  | Allocated hours per person per week vs capacity                      |
+| `MissingTimesheets`   | Who has not submitted a finished week, and the limits on reminders   |
 | `RateResolver`        | Picks the hourly rate for a piece of time                            |
 | `MentionParser`       | Finds @handles in comments (and ignores email addresses)             |
 | `CsvWriter`           | RFC 4180 CSV that neutralises spreadsheet formulas                   |
@@ -120,9 +128,9 @@ creates a demo agency, *Brightline Studio*, with eight projects at different sta
 (two finished, four active including two internal ones, one on hold and one
 planned), phases, milestones and about ninety tasks with dependencies, a year of
 time entries for five people, timesheets
-(older weeks approved, last week waiting for review, one sent back), comments with
-mentions and some notifications. All dates are relative to the day it runs. Set
-`SEED_DEMO=false` for an empty database.
+(older weeks approved, last week waiting for review, one sent back and one still a
+draft with a reminder), comments with mentions and some notifications. All dates are
+relative to the day it runs. Set `SEED_DEMO=false` for an empty database.
 
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
@@ -205,10 +213,10 @@ cd web && npm test           # Vitest in jsdom, no browser needed
 cd web && npm run lint       # ESLint with angular-eslint
 ```
 
-The scheduling, critical path, cycle detection, budget, progress and workload tests
-are plain JUnit tests and need no database. The `@QuarkusTest` API tests start the
-application against H2 in PostgreSQL mode and run the same Flyway migrations as
-production.
+The scheduling, critical path, cycle detection, budget, progress, workload and
+missing timesheet tests are plain JUnit tests and need no database. The
+`@QuarkusTest` API tests start the application against H2 in PostgreSQL mode and run
+the same Flyway migrations as production.
 
 ## API overview
 
@@ -225,13 +233,20 @@ token. Errors are JSON: `{ "status", "code", "message", "errors"? }`.
 | Dependencies  | `GET /projects/{id}/dependencies`, `POST /tasks/{id}/dependencies`, `DELETE /dependencies/{id}`   |
 | Planning      | `GET /projects/{id}/critical-path`, `GET /projects/{id}/health`, `GET /orgs/{org}/workload`       |
 | Time          | `/orgs/{org}/time-entries`, `GET /orgs/{org}/timer`, `POST /orgs/{org}/timer/start\|stop`         |
-| Timesheets    | `GET /orgs/{org}/timesheets/week`, `POST .../submit\|withdraw`, `GET /orgs/{org}/timesheets`, `POST .../{id}/approve\|reject` |
+| Timesheets    | `GET /orgs/{org}/timesheets/week`, `POST .../submit\|withdraw`, `GET /orgs/{org}/timesheets`, `POST .../{id}/approve\|reject`, `GET .../missing?weekStart`, `POST .../remind` |
 | Export        | `GET /orgs/{org}/exports/timesheets.csv?from&to&userId&projectId&billable`                        |
 | Collaboration | `/tasks/{id}/comments`, `/comments/{id}`, `/notifications`, `/orgs/{org}/activity`, `/projects/{id}/activity` |
 | Dashboard     | `GET /orgs/{org}/dashboard`                                                                     |
 
 Task updates that change dates return `{ task, rescheduled: [...] }` so the client can
 show which dependants were pushed back.
+
+`GET .../timesheets/missing` and `POST .../timesheets/remind` are for owners and
+managers and only take weeks that are over by the organisation's date
+(`400 week_not_over` otherwise). A reminder request names the week and the people,
+`{ "weekStart", "userIds": [...] }`, and the answer says who was reminded and who was
+left out and why: `{ "reminded": [...], "skipped": [{ "userId", "reason" }] }` with the
+reasons `NOT_MISSING`, `YOURSELF`, `ALREADY_REMINDED` and `DAILY_LIMIT`.
 
 ## License
 
