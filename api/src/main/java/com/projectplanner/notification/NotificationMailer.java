@@ -245,6 +245,9 @@ public class NotificationMailer {
                 && !membership.role.canManage()) {
             return false;
         }
+        if (n.type == NotificationType.BACKUP_ALERT && membership.role != com.projectplanner.org.Role.OWNER) {
+            return false;
+        }
         if (n.projectId != null) {
             Project project = Project.findById(n.projectId);
             if (project == null || !OrgAccess.canSee(membership, project)) {
@@ -267,6 +270,7 @@ public class NotificationMailer {
             case TIMESHEET_REMINDER -> "You were reminded to submit your timesheet" + week + ".";
             case BUDGET_ALERT -> "A project passed a budget threshold.";
             case SCHEDULE_ALERT -> "A project's schedule needs a look.";
+            case BACKUP_ALERT -> "The backups of this server need a look.";
             case DAILY_SUMMARY -> "Your morning summary.";
         };
     }
@@ -282,6 +286,7 @@ public class NotificationMailer {
             case TIMESHEET_REMINDER -> "timesheet reminders";
             case BUDGET_ALERT -> "budget alerts";
             case SCHEDULE_ALERT -> "schedule alerts";
+            case BACKUP_ALERT -> "backup alerts";
             case DAILY_SUMMARY -> "the morning summary";
         };
     }
@@ -296,6 +301,9 @@ public class NotificationMailer {
         }
         if (n.type == NotificationType.TIMESHEET_SUBMITTED) {
             return "/approvals";
+        }
+        if (n.type == NotificationType.BACKUP_ALERT) {
+            return "/settings";
         }
         if (n.weekStart != null) {
             return "/time?week=" + n.weekStart;

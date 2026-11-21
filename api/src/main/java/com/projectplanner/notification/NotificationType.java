@@ -11,6 +11,8 @@ public enum NotificationType {
     BUDGET_ALERT,
     /** A project went off track, or its plan now ends after its end date. */
     SCHEDULE_ALERT,
+    /** For owners: the backups of the server have stopped, or a dump could not be copied off the machine. */
+    BACKUP_ALERT,
     /**
      * The morning summary. Mail only: there is never a notification of this type, only a
      * choice of EMAIL (on) or OFF, which defaults to on for owners and managers.
