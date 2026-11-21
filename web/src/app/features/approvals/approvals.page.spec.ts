@@ -11,7 +11,7 @@ import { ApprovalsPage } from './approvals.page';
 const MISSING_URL = '/api/orgs/7/timesheets/missing';
 
 function person(userId: number, userName: string, totalMinutes: number, remindedToday = false): MissingTimesheet {
-  return { userId, userName, status: 'DRAFT', totalMinutes, weeklyCapacityHours: 40, remindedToday };
+  return { userId, userName, status: 'DRAFT', totalMinutes, capacityHours: 40, away: false, remindedToday };
 }
 
 function missing(weekStart: string, people: MissingTimesheet[]): MissingTimesheets {
@@ -140,6 +140,49 @@ describe('ApprovalsPage', () => {
     await harness.fixture.whenStable();
     expect(el.querySelector('[role=alert]')?.textContent).toContain('Something went wrong on our side');
     expect(el.querySelectorAll('.missing-row')).toHaveLength(0);
+  });
+
+  it('approves the ticked weeks as they were on screen and names the ones left out', async () => {
+    const queue = [
+      { id: 11, userId: 1, userName: 'Tom Becker', weekStart: '2024-03-04', status: 'SUBMITTED', submittedAt: '2024-03-11T08:00:00.123456Z',
+        totalMinutes: 2400, billableMinutes: 1800, billableAmount: 2250 },
+      { id: 12, userId: 2, userName: 'Samir Haddad', weekStart: '2024-03-04', status: 'SUBMITTED', submittedAt: '2024-03-11T09:00:00Z',
+        totalMinutes: 1200, billableMinutes: 600, billableAmount: 750 },
+    ];
+    const harness = await RouterTestingHarness.create('/approvals');
+    http.expectOne((r) => r.url === '/api/orgs/7/timesheets').flush(queue);
+    await harness.fixture.whenStable();
+    const el = harness.routeNativeElement as HTMLElement;
+    expect(button(el, 'Approve selected').disabled).toBe(true);
+
+    const boxes = el.querySelectorAll<HTMLInputElement>('.approve-row input[type=checkbox]');
+    expect(boxes).toHaveLength(2);
+    expect(boxes[1].getAttribute('aria-label')).toBe('Select Samir Haddad, week of 4 Mar 2024');
+    boxes[1].click();
+    await harness.fixture.whenStable();
+    button(el, 'Approve selected (1)').click();
+    const sent = http.expectOne('/api/orgs/7/timesheets/approve');
+    expect(sent.request.body).toEqual({ sheets: [{ id: 12, submittedAt: '2024-03-11T09:00:00Z' }] });
+    sent.flush({ approved: [], skipped: [{ timesheetId: 12, reason: 'CHANGED' }] });
+    // The queue comes again, with Samir's new submission in it.
+    http.expectOne((r) => r.url === '/api/orgs/7/timesheets').flush([queue[0], { ...queue[1], submittedAt: '2024-03-12T07:00:00Z' }]);
+    await harness.fixture.whenStable();
+
+    expect(el.querySelector('[role=status]')?.textContent).toContain('No weeks approved.');
+    expect(el.querySelector('.left-out')?.textContent).toContain('Samir Haddad, week of 4 Mar 2024: withdrawn and submitted again');
+    expect(boxes[1].checked).toBe(true);
+
+    button(el, 'Approve all').click();
+    const all = http.expectOne('/api/orgs/7/timesheets/approve');
+    expect(all.request.body.sheets).toEqual([
+      { id: 11, submittedAt: '2024-03-11T08:00:00.123456Z' },
+      { id: 12, submittedAt: '2024-03-12T07:00:00Z' },
+    ]);
+    all.flush({ approved: [11, 12], skipped: [] });
+    http.expectOne((r) => r.url === '/api/orgs/7/timesheets').flush([]);
+    await harness.fixture.whenStable();
+    expect(el.querySelector('[role=status]')?.textContent).toContain('Approved 2 weeks.');
+    expect(el.textContent).toContain('Nothing waiting for approval.');
   });
 
   it('goes back through earlier weeks but not past the last one that is over', async () => {
