@@ -104,10 +104,16 @@ the point is knowing whether a project will land on time and on budget.
     of entries below the grid, where everything about them can be seen.
   - Submit a week, managers approve it or send it back with a note. Submitted and
     approved weeks are locked: the grid shows them as text and the API refuses changes.
+  - Managers can tick weeks in the approval queue and approve them in one go, or
+    approve all of them. Only the weeks as they were on screen are approved: one that
+    was withdrawn, or withdrawn and submitted again since the page loaded, is left out,
+    and the page names every week it left out and why.
 - **Missing timesheets**: for any week that is over, managers see who has not
   submitted it (drafts and weeks that were sent back) with the hours logged against
-  capacity, and can remind one person or everybody who logged time. People without any
-  time that week are listed apart, since they may have been away. Nobody gets a second
+  that week's capacity, counted as the workload counts it, and can remind one person
+  or everybody who logged time. People without any time that week are listed apart,
+  since they may have been away, and somebody whose time off covers the whole week is
+  marked away rather than shown as far under capacity. Nobody gets a second
   reminder about the same week on the same day, or more than five reminders a day. The
   reminder, like every timesheet notification, opens the timesheet on the week it is
   about.
@@ -667,7 +673,9 @@ of fifty projects with a thousand tasks and twenty thousand time entries on one 
 (`support/LargeOrganisation`, built by the test, not by the demo seed). The counts come
 from Hibernate's statistics, which are on in the test profile, and each has a fixed
 bound. A change that queries per row fails there instead of getting slow later. The
-project list is nine statements.
+project list is nine statements. Approving five weeks at once reads as much as
+approving one, and only writes more: a notification and a line in the activity log for
+each week.
 
 A restore that is never tested is not a backup, so CI also runs
 `scripts/check-restore.sh` once the images are built. It is the only check that starts
@@ -982,7 +990,21 @@ managers and only take weeks that are over by the organisation's date
 (`400 week_not_over` otherwise). A reminder request names the week and the people,
 `{ "weekStart", "userIds": [...] }`, and the answer says who was reminded and who was
 left out and why: `{ "reminded": [...], "skipped": [{ "userId", "reason" }] }` with the
-reasons `NOT_MISSING`, `YOURSELF`, `ALREADY_REMINDED` and `DAILY_LIMIT`.
+reasons `NOT_MISSING`, `YOURSELF`, `ALREADY_REMINDED` and `DAILY_LIMIT`. Each person
+on the missing list has `capacityHours`, the week's capacity less holidays and time
+off, and `away` when their time off covers every working day of it.
+
+`POST .../timesheets/approve` approves several weeks at once, for owners and managers.
+It takes up to 200 weeks as they were listed, each with the `submittedAt` the queue
+showed: `{ "sheets": [{ "id", "submittedAt" }] }`. A week that can't be approved never
+fails the others. The answer is `{ "approved": [...], "skipped": [{ "timesheetId",
+"reason" }] }` with the reasons `NOT_FOUND`, `OWN_WEEK` (a manager's own week),
+`NOT_SUBMITTED` (approved, sent back or withdrawn since) and `CHANGED` (withdrawn and
+submitted again since, so its `submittedAt` is another one). The weeks are locked
+while they are approved, and so are a single approval, a send back and a withdrawal,
+so that a withdrawal at the same moment waits and then sees the approval. Each person
+gets the same notification a single approval sends, one per week, and the activity log
+has a line per week.
 
 ### Reports
 

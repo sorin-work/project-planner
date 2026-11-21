@@ -40,7 +40,7 @@ couple of weekends, **L** several weeks of spare time.
 | 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
 | 19  | My tasks page                              | Next  | both     | S    | -          |
-| 20  | Approve weeks in one go                    | Next  | both     | S    | -          |
+| 20  | Approve weeks in one go                    | Shipped | both     | S    | -          |
 | 21  | Schedule issues beyond the timeline        | Next  | both     | S    | -          |
 | 22  | Sign-in hardening                          | Next  | both     | S    | -          |
 | 23  | Project lead                               | Next  | both     | S    | -          |
@@ -183,43 +183,6 @@ know what is on my plate I open every project and tick "Only mine".
   `GET /api/orgs/{orgId}/my-tasks`. The search already has the visibility
   rules in its queries, which is the hard part. I lean towards the search
   endpoint.
-
-### 20. Approve weeks in one go
-
-Improvement of items 3 and 15, two things left open on the approvals page.
-
-- "Approve all": a manager approves submitted weeks one at a time
-  (`POST /api/orgs/{orgId}/timesheets/{sheetId}/approve`). On a Monday with a
-  dozen people that is a dozen clicks, each with a reload. Add
-  `POST /api/orgs/{orgId}/timesheets/approve` that takes a list of sheet ids
-  and answers per sheet, approved or left out and why, the way `remind`
-  answers with `RemindResponse`. A bad sheet never fails the batch.
-- Tricky: the list is what was on screen, not "everything submitted". A week
-  submitted after the page loaded, or withdrawn and changed in the meantime
-  (`withdraw` takes it back to draft), must not be approved by that click.
-  Approve only sheets that are still `SUBMITTED`, and take each sheet's
-  `submittedAt` with its id so a sheet withdrawn and submitted again since is
-  left out as changed.
-- `checkReviewer` holds per sheet, a manager's own week included.
-  `TimesheetService.approve` loads the reviewer and the owner with
-  `User.findById` for each sheet; a batch loads them in one `id in` query, as
-  item 14 did elsewhere, with a `QueryCountTest` bound.
-- One notification per person as today. The activity log gets one line per
-  sheet, so that an approval can still be traced to a week.
-- Capacity on the "Not submitted" tab: `MissingTimesheets.Person` carries
-  `weeklyCapacityHours`, the plain weekly hours. Item 15 made capacity per
-  week everywhere else (`WeekLoad.holidays`, `daysOff`), so somebody away for
-  three days shows as far under capacity here and nowhere else. Take the
-  week's capacity from the same place the workload does.
-- Tricky: people with a whole week off. They are under "No time logged" and
-  "Remind all" skips them, which is right. With capacity per week a week
-  with zero capacity could leave the list altogether; I lean towards keeping
-  them listed with "away" next to them, since a manager may still want the
-  hours of a person who worked anyway.
-- Web: a checkbox per row on the submitted tab, "Approve selected" and
-  "Approve all", and the left-out sheets named with their reasons.
-- Undecided: "Send back all". I would not add it: a rejection needs a note
-  for each person.
 
 ### 21. Schedule issues beyond the timeline
 
@@ -1197,3 +1160,26 @@ plain download and an `<img>` preview work, and a link works for its two
 minutes even after access is taken away; and a file removed in the minute between a dump and its
 archive is missing from that backup. Still open: attachments on comments,
 pasted images, and storage other than the volume.
+
+### 20. Approve weeks in one go
+
+`POST /api/orgs/{orgId}/timesheets/approve` takes the weeks as they were on
+screen, each with its `submittedAt`, and answers per week, approved or left
+out with `NOT_FOUND`, `OWN_WEEK`, `NOT_SUBMITTED` or `CHANGED`; a bad week never
+fails the others. The weeks are read in one `id in` query with a lock, in id
+order, and the people and their notification choices in one query each, so
+five weeks read what one does (`QueryCountTest`). Each person gets the
+notification a single approval sends, one per week, and the log has a line
+per week. The approvals page has a box per row, "Select all", "Approve
+selected" and "Approve all", and names each week left out with its reason.
+The "Not submitted" tab shows the week's capacity, counted by
+`WorkloadCalculator.capacityMinutes` with the holidays and time off, and
+somebody off the whole week stays listed, marked away. Differences from the
+design: `submittedAt` is compared to the millisecond, since the database keeps
+microseconds and a client may keep less; a manager's own week has its box turned off,
+since the API would leave it out anyway; and a single approval, a send back and
+a withdrawal now lock the week as well, so that a withdrawal at the same
+moment as an approval waits for it instead of overwriting it. The dashboard
+reads the time off for its count of missing weeks, one statement more (24).
+Left out as the roadmap leaned: "Send back all", since a rejection needs a
+note for each person.
