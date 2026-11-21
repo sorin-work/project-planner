@@ -313,7 +313,7 @@ export interface TaskTiming {
   lateStart: string;
   lateFinish: string;
   /** Missing for a finished task, which stays at its own dates and has no float. */
-  floatDays?: number;
+  floatDays?: number | null;
   critical: boolean;
 }
 

@@ -1,4 +1,4 @@
-import { ScheduleIssue, ScheduleIssueType, Task } from '../../core/models';
+import { CriticalPath, ScheduleIssue, ScheduleIssueType, Task, TaskTiming } from '../../core/models';
 import { formatDate, maxDate } from '../../shared/dates';
 
 /** The two dates the API suggests for a task that starts too early. */
@@ -152,4 +152,26 @@ export function planEndNote(finish: string | null | undefined, tasks: Task[], is
 /** "1 schedule issue", "3 schedule issues". */
 export function scheduleIssuesText(count: number): string {
   return `${count} schedule ${count === 1 ? 'issue' : 'issues'}`;
+}
+
+/**
+ * The float badge of a task in the panel. A finished task stays at its own dates on the
+ * critical path and has no float, so it gets no badge.
+ */
+export function floatText(timing: Pick<TaskTiming, 'floatDays'> | null | undefined): string | null {
+  if (timing?.floatDays === undefined || timing.floatDays === null) {
+    return null;
+  }
+  return `${timing.floatDays} ${timing.floatDays === 1 ? 'day' : 'days'} float`;
+}
+
+/**
+ * Why nothing is highlighted as critical, when that is so. A finished task is never critical,
+ * so when the plan ends with one, no open task is: none of them moves the end by slipping.
+ */
+export function criticalNote(path: Pick<CriticalPath, 'finish' | 'criticalTaskIds'> | null | undefined): string | null {
+  if (!path?.finish || path.criticalTaskIds.length) {
+    return null;
+  }
+  return 'No task is critical: the plan ends with a finished task, and no open task moves that end by slipping.';
 }
