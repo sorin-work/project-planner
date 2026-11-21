@@ -9,6 +9,7 @@ import { Delivery, NotificationPreferences, NotificationType, Organisation } fro
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { HolidaysCard } from './holidays.card';
+import { BackupLine, backupLine } from './backup-line';
 import { NOTIFICATION_LABELS, deliveriesFor, deliveryLabel } from './notification-labels';
 
 const TIMEZONES = ['UTC', 'Europe/London', 'Europe/Berlin', 'Europe/Bucharest', 'America/New_York', 'America/Los_Angeles', 'Asia/Singapore'];
@@ -76,6 +77,13 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
       @if (org.canManage()) {
         <app-holidays-card />
       }
+      @if (backup(); as line) {
+        <section class="card">
+          <h2>Backups</h2>
+          <p [class]="line.bad ? 'alert error' : 'muted'" [attr.role]="line.bad ? 'alert' : null">{{ line.text }}</p>
+          <p class="muted small">The backups are of the whole server. Every owner is mailed once when they stop.</p>
+        </section>
+      }
     </div>
     @if (preferences(); as p) {
       <section class="card" id="notifications">
@@ -113,6 +121,8 @@ export class SettingsPage {
   private readonly http = inject(HttpClient);
 
   protected readonly organisation = signal<Organisation | null>(null);
+  /** For owners, when the server watches its backups. */
+  protected readonly backup = signal<BackupLine | null>(null);
   protected readonly message = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected name = '';
@@ -134,6 +144,10 @@ export class SettingsPage {
       const orgId = this.org.orgId();
       if (orgId !== null) {
         this.orgApi.organisation(orgId).subscribe({ next: (o) => this.organisation.set({ ...o }) });
+        this.backup.set(null);
+        if (this.org.isOwner()) {
+          this.orgApi.backupStatus(orgId).subscribe({ next: (b) => this.backup.set(backupLine(b, new Date())), error: () => undefined });
+        }
       }
     });
   }

@@ -152,6 +152,8 @@ export const FIXTURES: FakeRoute[] = [
   { path: /^\/notifications\/unread-count$/, body: { count: 3 } },
   { path: /^\/notifications$/, body: NOTIFICATIONS },
   { path: /^\/orgs\/3$/, body: { id: 3, name: 'Brightline', currency: 'EUR', timezone: 'Europe/London', defaultHourlyRate: 90, role: 'OWNER', autoReminders: false } },
+  { path: /^\/orgs\/3\/backup-status$/, body: { watched: true, state: 'LATE', lastGood: 'planner-20260301T030000Z.dump.age',
+    lastGoodAt: '2026-03-01T03:00:00Z', lastRunAt: '2026-03-04T03:00:00Z', lastOutcome: 'dump_failed' } },
   { path: /^\/orgs\/3\/timer$/, body: null },
   { path: /^\/orgs\/3\/dashboard$/, body: DASHBOARD },
   { path: /^\/orgs\/3\/activity$/, body: ACTIVITY },

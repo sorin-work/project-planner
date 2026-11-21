@@ -11,6 +11,7 @@ export const NOTIFICATION_LABELS: Record<NotificationType, string> = {
   TIMESHEET_REMINDER: 'A reminder to submit your timesheet',
   BUDGET_ALERT: 'A project passes a budget threshold',
   SCHEDULE_ALERT: 'A project goes off track or now ends late',
+  BACKUP_ALERT: 'The backups of the server stop (owners)',
   DAILY_SUMMARY: 'A summary on working mornings: tasks due and timesheets to review',
 };
 
@@ -25,6 +26,7 @@ export const NOTIFICATION_ABOUT: Record<NotificationType, string> = {
   TIMESHEET_REMINDER: 'timesheet reminders',
   BUDGET_ALERT: 'budget alerts',
   SCHEDULE_ALERT: 'schedule alerts',
+  BACKUP_ALERT: 'backup alerts',
   DAILY_SUMMARY: 'the morning summary',
 };
 

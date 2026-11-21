@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Client, Invitation, Member, Organisation, Role, RoleRate } from './models';
+import { BackupStatus, Client, Invitation, Member, Organisation, Role, RoleRate } from './models';
 
 export interface ClientInput {
   name: string;
@@ -25,6 +25,11 @@ export class OrgApi {
 
   organisation(orgId: number): Observable<Organisation> {
     return this.http.get<Organisation>(`/api/orgs/${orgId}`);
+  }
+
+  /** For owners: how the backups of the server are doing. */
+  backupStatus(orgId: number): Observable<BackupStatus> {
+    return this.http.get<BackupStatus>(`/api/orgs/${orgId}/backup-status`);
   }
 
   updateOrganisation(orgId: number, body: Partial<Organisation>): Observable<Organisation> {

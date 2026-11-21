@@ -15,6 +15,7 @@ const ICONS: Record<string, string> = {
   TIMESHEET_REMINDER: '!',
   BUDGET_ALERT: '%',
   SCHEDULE_ALERT: '⚑',
+  BACKUP_ALERT: '⛁',
 };
 
 export interface NotificationTarget {
@@ -37,6 +38,10 @@ export function notificationTarget(n: Pick<Notification, 'type' | 'projectId' | 
   }
   if (n.type === 'TIMESHEET_SUBMITTED') {
     return { commands: ['/approvals'] };
+  }
+  if (n.type === 'BACKUP_ALERT') {
+    // The backup line is on the Settings page.
+    return { commands: ['/settings'] };
   }
   if (n.type.startsWith('TIMESHEET_')) {
     // Notifications from before weeks were recorded open the current week.

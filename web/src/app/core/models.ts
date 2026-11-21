@@ -512,6 +512,18 @@ export interface RemindResult {
   skipped: { userId: number; reason: ReminderSkip }[];
 }
 
+/** How the backups of the server are doing, from the status file of the backup service. */
+export interface BackupStatus {
+  /** Whether the server reads the status at all (BACKUP_STATUS_FILE). */
+  watched: boolean;
+  /** Missing when there is no status file yet. */
+  state?: 'OK' | 'COPY_FAILED' | 'LATE' | 'NO_GOOD_DUMP';
+  lastGood?: string;
+  lastGoodAt?: string;
+  lastRunAt?: string;
+  lastOutcome?: string;
+}
+
 /** A week as it was in the approval queue. */
 export interface SheetToApprove {
   id: number;
@@ -664,6 +676,7 @@ export type NotificationType =
   | 'TIMESHEET_REMINDER'
   | 'BUDGET_ALERT'
   | 'SCHEDULE_ALERT'
+  | 'BACKUP_ALERT'
   /** Mail only: on (EMAIL) or OFF, never a notification in the app. */
   | 'DAILY_SUMMARY';
 
