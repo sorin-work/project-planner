@@ -1499,6 +1499,18 @@ select.compact {
   pointer-events: none;
 }
 
+.gantt-svg .empty-row {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.gantt-svg .draw-draft {
+  fill: color-mix(in srgb, var(--primary) 35%, transparent);
+  stroke: var(--primary);
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
 .gantt-svg .link-hit {
   fill: none;
   stroke: transparent;
