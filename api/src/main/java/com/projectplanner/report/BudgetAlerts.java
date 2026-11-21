@@ -7,6 +7,7 @@ import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
 import com.projectplanner.org.RateBook;
 import com.projectplanner.org.RatesChanged;
+import com.projectplanner.org.Role;
 import com.projectplanner.project.BudgetChanged;
 import com.projectplanner.project.Project;
 import com.projectplanner.report.BudgetCalculator.Budget;
@@ -21,8 +22,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Tells owners and managers when a project reaches 80 percent of a budget, and
- * when it reaches all of it. Hours and money are looked at separately and each
+ * Tells the people who run a project when it reaches 80 percent of a budget, and
+ * when it reaches all of it: the owners and managers, or the lead and the owners
+ * when it has a lead. Hours and money are looked at separately and each
  * has its own message. See {@link BudgetThresholds} for when an alert goes out.
  *
  * <p>The look happens in the transaction that changed the time, the budget or a
@@ -102,18 +104,40 @@ public class BudgetAlerts {
         String aboutHours = hours.alert() ? hoursMessage(project, budget) : null;
         String aboutMoney = amount.alert()
                 ? moneyMessage(project, budget, Organisation.<Organisation>findById(project.organisationId).currency) : null;
-        // Both go to the people who run projects and see their money. The two messages are
-        // separate, and only the second has amounts in it, so that the first can go to a wider
-        // audience one day without telling anybody what a project costs. No actor: the manager
-        // whose own entry crossed the line should hear about it too.
-        List<Long> managers = Membership.forOrganisation(project.organisationId).stream()
-                .filter(member -> member.role.canManage()).map(member -> member.userId).toList();
+        // No actor: the manager whose own entry crossed the line should hear about it too.
+        List<Membership> members = Membership.forOrganisation(project.organisationId);
         if (aboutHours != null) {
-            notifier.notifyAll(managers, project.organisationId, null, NotificationType.BUDGET_ALERT, aboutHours, project.id, null);
+            notifier.notifyAll(hearAboutHours(project, members), project.organisationId, null, NotificationType.BUDGET_ALERT,
+                    aboutHours, project.id, null);
         }
         if (aboutMoney != null) {
-            notifier.notifyAll(managers, project.organisationId, null, NotificationType.BUDGET_ALERT, aboutMoney, project.id, null);
+            notifier.notifyAll(hearAboutMoney(project, members), project.organisationId, null, NotificationType.BUDGET_ALERT,
+                    aboutMoney, project.id, null);
         }
+    }
+
+    /**
+     * Who hears that a project used much of its hours. Without a lead, everybody who runs
+     * projects: the owners and the managers. With one, the lead and the owners, and the other
+     * managers no longer hear about a project that is not theirs. A member can lead a project,
+     * and hears about its hours.
+     */
+    static List<Long> hearAboutHours(Project project, List<Membership> members) {
+        return members.stream()
+                .filter(m -> project.leadId == null ? m.role.canManage() : m.role == Role.OWNER || m.userId.equals(project.leadId))
+                .map(m -> m.userId).toList();
+    }
+
+    /**
+     * Who hears that a project used much of its money: the same people, but only those who
+     * see amounts. A member who leads a project never gets this one, which is what the two
+     * messages are kept apart for.
+     */
+    static List<Long> hearAboutMoney(Project project, List<Membership> members) {
+        return members.stream()
+                .filter(m -> m.role.canManage())
+                .filter(m -> project.leadId == null || m.role == Role.OWNER || m.userId.equals(project.leadId))
+                .map(m -> m.userId).toList();
     }
 
     /** Hours only: no amount, no rate, no currency. */
