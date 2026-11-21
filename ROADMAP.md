@@ -44,6 +44,13 @@ couple of weekends, **L** several weeks of spare time.
 | 21  | Schedule issues beyond the timeline        | Next  | both     | S    | -          |
 | 22  | Sign-in hardening                          | Next  | both     | S    | -          |
 | 23  | Project lead                               | Next  | both     | S    | -          |
+| 24  | Daily summary and automatic reminders      | Later | both     | M    | 19         |
+| 25  | Schedule alerts                            | Later | both     | S    | 23         |
+| 26  | Encrypted backups off the machine          | Later | infra    | M    | -          |
+| 27  | Invoices from approved time                | Later | both     | L    | -          |
+| 28  | Keyboard and drag on the timeline          | Later | frontend | M    | -          |
+| 29  | Calendar feed                              | Later | both     | M    | -          |
+| 30  | Browser tests                              | Later | frontend | M    | -          |
 
 ## Before starting on one
 
@@ -318,6 +325,270 @@ have the same problem.
 
 ## Later
 
+### 24. Daily summary and automatic reminders
+
+The follow-up that items 3 and 12 both left: notification mails go out when
+something happens, but nothing tells me in the morning what is due, and a
+missing timesheet is only chased when a manager clicks "Remind". Depends on
+item 19 for the page the summary links to. Uses item 23's lead when it is
+there.
+
+- One mail a day per person and organisation, at eight in the morning in
+  the organisation's time zone (`Organisation.zone()`), on its working days
+  only: no summary on a weekend or one of the organisation's holidays.
+- Content: how many of my tasks are due today and how many are overdue, and
+  for managers how many timesheets wait for review. Counts and a link to
+  `/my-tasks` or `/approvals`, no titles: item 12's mails carry no titles or
+  comment text, and a summary should not be the way around that.
+- Nothing to say means no mail. A summary of zeros every morning is the
+  quickest way to get all mail switched off.
+- A record of what was sent: `daily_summaries` (organisation, user, day,
+  sent at), unique on the first three (`V30__create_daily_summaries.sql`).
+  The job inserts the row before it sends, so two API instances never send
+  the same summary, the way item 12's claim does it for notifications.
+- Tricky: the API was down at eight. The job runs once a minute anyway
+  (`NotificationMailer` is on `quarkus-scheduler`); a summary still goes out
+  later that morning, and not at all after noon, when it is no longer a
+  morning summary. Daylight saving moves eight o'clock in UTC twice a year,
+  so work out the hour from the zone each day, never from a stored offset.
+- Preferences: a mail-only kind with on and off on the settings card, next to
+  the notification types, defaulting to on for managers and off for others.
+  The stop link of item 12 works for it too.
+- Automatic reminders: on the first working day of the week, the people who
+  logged time last week and did not submit it get the `TIMESHEET_REMINDER`
+  that "Remind all" would send, through `MissingTimesheets` and its limits
+  (once per person, week and day, five a day). An organisation setting
+  switches it on, off by default, since some teams submit on Monday
+  afternoon on purpose.
+- Links that carry the organisation (item 12 left it open): a link in any
+  mail opens in whichever organisation the browser has selected, so a mail
+  from my second organisation can open a project that "does not exist". Add
+  `org=` to every mailed link, and have `OrgContextService` switch to that
+  organisation when the person is a member before the route loads.
+- Tests: the job method called directly with `TestClock` at 07:59, 08:00 and
+  12:01 in a zone with daylight saving, on a holiday, with two instances
+  racing for the same row, and with `MockMailbox`.
+- Undecided: one mail for people in several organisations or one per
+  organisation. Item 12 leaned against preferences per organisation; I lean
+  towards one mail per organisation for the same reason, it keeps the link
+  and the counts in one place.
+
+### 25. Schedule alerts
+
+Improvement of item 10, which left "alerts for the schedule" open. A budget
+crossing 80% is announced. A project whose health turns off track, or whose
+plan now ends after the date promised to the client, is not, and that is the
+more common way a project goes wrong. Depends on item 23, so that the alert
+goes to the project's lead rather than to every manager.
+
+- What: the project's `HealthStatus` going from on track or at risk to off
+  track, and the forecast end (`forecastEnd`, the latest due date) moving past
+  `Project.endDate`. A new `NotificationType.SCHEDULE_ALERT` with the project
+  and no actor, opening the Overview like a budget alert.
+- State: the last status and end announced, on `projects`
+  (`V31__add_project_schedule_alert.sql`), like `hours_alert_pct`. Going back
+  on track takes it down again, so a later slip is announced again.
+- Tricky: when to look. A budget only changes when time or a rate changes.
+  Health changes when tasks move (`TaskService`, the cascade, status
+  changes), but also with nothing happening at all: an open task that passes
+  its due date overnight turns a project at risk. So both: a CDI event from
+  `TaskService` after a change, observed in the transaction as
+  `BudgetAlerts` does, and a daily pass over the active projects at the start
+  of the organisation's day.
+- Tricky: noise. A project that sits on the edge flips between at risk and
+  off track with every logged hour. Announce off track once, and only take
+  the state down when the project is back on track, not merely at risk.
+- Cost: the daily pass goes through `ProjectHealthService.summaries`, which
+  already handles a whole organisation in a fixed number of statements.
+- Undecided: whether the cascade of one move that pushes the end past the
+  deadline should say which move did it. The activity log already has the
+  move; the alert would just link to it. I would leave it out.
+
+### 26. Encrypted backups off the machine
+
+Improvement of item 6, which left three things open: the dumps are not
+encrypted, they stay on the machine unless `BACKUP_DIR` points elsewhere,
+and nothing warns when a dump fails apart from the service log. A backup
+that has quietly failed for a month is found on the day it is needed.
+
+- Encryption: with `BACKUP_ENCRYPT_TO` set to an `age` public key, each dump
+  and each attachments archive is encrypted as it is written, and only the
+  encrypted file ever touches the disk. `backup restore` takes the private
+  key from a file named in `BACKUP_DECRYPT_KEY`. Without the setting nothing
+  changes.
+- Tricky: `age` is not in `postgres:17-alpine`, and installing it at start
+  needs the network. Build a small image of our own on top of it
+  (`backup/Dockerfile`), which keeps `pg_dump` matching the server.
+  `docker compose build` already runs in CI.
+- Off the machine: `BACKUP_COPY_DIR`, a second folder (a mounted share or a
+  disk) that every finished dump is copied to and pruned in the same way.
+  Copying to an S3-compatible bucket is optional and only to one that can be
+  self-hosted (MinIO, Garage): `rclone` in the same image, configured by the
+  operator. A failed copy does not fail the dump, but counts as a failure.
+- A warning: the script writes a small status file after each run (time,
+  outcome, file), and the compose service gets a `healthcheck` that is
+  unhealthy when the newest good dump is older than twice the interval.
+  `docker compose ps` then shows it. The owners should hear about it too: the
+  API reads the status file from a read-only mount and shows a line on the
+  Settings page for owners, and mails them once when it turns bad, if mail
+  is set up.
+- Tricky: the clocks. Item 6 reads the age of a dump from its name, never
+  from modification times. The status file has the same rule.
+- `scripts/check-restore.sh` gets an encrypted round trip: a dump with a test
+  key, a restore with the private key, the row counts, and a restore with a
+  wrong key that leaves the database alone.
+- Upgrades: the README gets a section on moving to a new major version of
+  PostgreSQL, which is a dump with the old image and a restore with the new
+  one, the path the backup script already has.
+- Undecided: whether the API should know about backups at all. It makes the
+  warning visible to the people who care, at the cost of a mount that ties
+  the two services together. I lean towards yes, behind a setting.
+
+### 27. Invoices from approved time
+
+The app knows who worked how long on what, at which rate, and whether the
+week was approved. What an agency does next is send the client an invoice,
+and that happens in a spreadsheet built from the CSV export. Harvest and
+Productive both turn tracked time into invoices, and it is the step that
+makes the hours worth tracking.
+
+- First, on its own: an "approved time only" filter on the reports and the
+  CSV export, which item 9 left open. It needs the week's status next to
+  each entry in the grouped query (a join to `timesheets` on person and week
+  start), and it is useful without invoices.
+- Data (`V32__create_invoices.sql`): `invoices` (organisation, client,
+  number, period from and to, currency, status `DRAFT` or `ISSUED` or
+  `VOID`, issued at, totals), `invoice_lines` (invoice, project, task or
+  person, minutes, rate, amount, description) and a nullable `invoice_id` on
+  `time_entries`.
+- A draft is made for a client and a period from the billable entries of
+  approved weeks that are not on another invoice, grouped per project and
+  task or per person. Lines can be edited and removed in a draft, which
+  releases their entries.
+- Tricky: amounts change after the fact. Rates can change, and so can the
+  organisation's currency (`OrgResource` allows it). An issued invoice keeps
+  the rate, the amount and the currency it was issued with, copied onto its
+  lines. Pricing still goes through `RateResolver` and `Money.cost` per
+  entry, so a draft adds up to the cent to the report of the same entries,
+  and a test holds the two together as item 9 did.
+- Tricky: entries on an issued invoice must not change. Approved weeks are
+  locked for everybody already (`TimeService.checkUnlocked`), and nothing
+  takes an approval back today, but deletion still reaches them: a project's
+  time entries go with it (`on delete cascade` in `V11`), and a task's lose
+  their task (`on delete set null`). Refuse to delete a project that has an
+  issued invoice (`409 invoiced`), and copy the task's title and the
+  person's name onto each line so that a deleted task still reads. If a way
+  to reopen an approved week is ever added, it has to refuse invoiced weeks.
+  Voiding the invoice releases its entries.
+- Numbers: one sequence per organisation without gaps, which tax offices in
+  several countries want. Take the number when the invoice is issued, not
+  when the draft is made, under a lock on the organisation's row (uploads in
+  item 18 lock it the same way).
+- Output: a print page styled for paper, so the browser makes the PDF, and a
+  CSV of the lines. No PDF library: the bundle budget and the API's size are
+  reasons enough.
+- Budget alerts and reports are unchanged: invoicing does not change what
+  was spent.
+- Tricky: fixed-price projects (a money budget and no rate) do not fit an
+  invoice built from hours. Leave them out, and say so on the page.
+- Undecided: tax. A single tax rate per invoice, typed in, covers most small
+  agencies; anything more is accounting software's job. Also undecided:
+  whether client viewers see issued invoices of their client. I lean no for
+  now.
+
+### 28. Keyboard and drag on the timeline
+
+Improvement of items 5 and 8, which left a list of things the timeline cannot
+do yet. Each is small; together they are what makes the timeline the place
+where plans are edited instead of the task panel.
+
+- Draw a link from the keyboard. Today only the task panel's form does it.
+  A key on a focused bar (say `L`) starts a link, the arrow keys move
+  through the other bars as targets, Enter makes it and Escape gives up,
+  each step read out through the `Announcer`. The targets are the same as a
+  drag's drop targets in `gantt-edit.ts`.
+- Move the start date with a key: `Shift` and the arrows move the due date,
+  so `Alt` and the arrows for the start, with the same 300 ms grouping as
+  the other moves. Check that `Alt` with an arrow does not go Back in the
+  browser, as item 5 had to on the board.
+- Scroll while dragging: near the left or right edge the timeline scrolls,
+  so that two bars that are not on screen together can be linked at day
+  zoom. Pull the speed from the distance to the edge into a plain function
+  with a spec.
+- A bar for a task without dates: dragging across an empty row gives the
+  task a start and a due date, snapped to working days as any drag is.
+- A type for a drawn link. It is finish-to-start and can be changed in the
+  panel afterwards. Dropping on the left half of the target bar could make
+  it start-to-start; I would rather show a small menu after the drop, which
+  is clearer and works from the keyboard too.
+- Tricky: none of this can be asserted in jsdom beyond the arithmetic, which
+  is why the logic goes into `gantt-edit.ts` first. Item 30 would cover the
+  rest.
+- Undecided: whether resizing a parent moves its subtasks. A schedule issue
+  already reports a subtask outside its parent. I lean towards leaving them
+  and letting the issue say it.
+
+### 29. Calendar feed
+
+My due dates, my time off and the organisation's holidays only exist inside
+the app. Every comparable tool (OpenProject, Teamwork, Float) offers a
+calendar subscription, so that a due date shows up next to meetings.
+
+- `GET /api/calendar/{token}.ics`: an iCalendar feed of the tasks assigned to
+  me that have a due date, the milestones of the projects I can see, my time
+  off and the organisation's holidays, as all-day events. Calendar apps
+  cannot send a bearer token, so the token in the address is the
+  credential.
+- Data (`V33__create_calendar_feeds.sql`): one row per person and
+  organisation with a hash of the token, never the token itself, as the
+  reset links of item 11 do. Settings shows the address once when it is made,
+  with "Make a new address", which ends the old one.
+- Access is checked on every request, not when the address was made: a
+  person who left the organisation gets `404`, and a client viewer only gets
+  milestones of their client's projects, through `OrgAccess`.
+- Tricky: the format. It is small enough to write by hand rather than add a
+  library: lines end in CRLF and are folded at 75 octets, commas, semicolons
+  and backslashes are escaped, an all-day event's `DTEND` is the day after,
+  and each event has a stable `UID` (`task-123@` plus the host of `APP_URL`)
+  so that a moved task moves in the calendar instead of appearing twice. A
+  plain class with its own test, like `CsvWriter`.
+- Tricky: what leaves the app. A subscribed calendar copies task titles into
+  whichever calendar service the person uses, which is the thing item 12
+  avoided for mail. Offer "titles" and "only project codes" when the address
+  is made, and default to codes.
+- Calendar apps poll every few minutes to every few hours. Answer with an
+  `ETag` and `304` when nothing changed, and keep the queries to a fixed
+  number, with a `QueryCountTest` bound.
+- Undecided: a feed for a whole project (all its milestones) for a client.
+  It would be a second kind of token, owned by a project rather than a
+  person. Not here.
+
+### 30. Browser tests
+
+Improvement of items 5, 8 and 2. There are no browser tests, only jsdom, so
+the roadmap's own rules say that layout, real drag and drop and colours
+cannot be asserted. The timeline drag, the board drop and the grid's keys are
+the parts most likely to break quietly, and item 5 had to work contrast out
+from `styles.css` because axe could not check it in jsdom.
+
+- Playwright in `web/`, as a dev dependency, with its own
+  `npm run e2e`, separate from `npm test`. Nothing reaches the production
+  bundle.
+- Against a real API, not a mocked one: the point is that what the browser
+  draws and what the API saves agree. The stack with the demo data is
+  already started in CI by `scripts/check-restore.sh`; run the browser tests
+  after it against the same stack, with the web container added.
+- A handful of journeys, not a suite: drag a bar and see the saved date, drop
+  a card on another column, type into the weekly grid and Tab through it,
+  open the search with `Ctrl+K`, and axe with colour contrast on over the
+  main pages in both themes.
+- Tricky: the demo data's dates are relative to the day it runs, so the
+  tests find tasks by title and read dates from the page, never hard-code
+  them.
+- Tricky: time in CI. Cache the browser download, run Chromium only, and keep
+  the whole run under a few minutes.
+- Undecided: on every pull request or once a night. I lean towards every pull
+  request while it stays short.
 
 ### Follow-ups of 14. Performance on large projects
 
