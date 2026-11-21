@@ -81,7 +81,7 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
         <section class="card">
           <h2>Backups</h2>
           <p [class]="line.bad ? 'alert error' : 'muted'" [attr.role]="line.bad ? 'alert' : null">{{ line.text }}</p>
-          <p class="muted small">The backups are of the whole server. Every owner is mailed once when they stop.</p>
+          <p class="muted small">The backups are of the whole server. The owners of this organisation are mailed once when they stop.</p>
         </section>
       }
     </div>

@@ -32,12 +32,13 @@ public class BackupResource {
     @GET
     @Operation(summary = "How the backups of this server are doing",
             description = "For owners. From the status file of the backup service, when the server is set up to read it"
-                    + " (BACKUP_STATUS_FILE). The backups are of the whole server, not of one organisation. watched says whether"
-                    + " it reads them at all; without a status file yet there is no state. lastGoodAt is the time in the name of"
+                    + " (BACKUP_STATUS_FILE). The backups are of the whole server, and only the owners of its first organisation"
+                    + " see them: watched is false in every other one, and when the server does not read them at all; without a status file yet there is no state. lastGoodAt is the time in the name of"
                     + " the newest good dump, and lastOutcome is ok, dump_failed or copy_failed.")
     public BackupStatusResponse get(@PathParam("orgId") long orgId) {
         access.require(orgId, Role.OWNER);
-        if (!watch.enabled()) {
+        // Only the owners of the server's first organisation look after its backups.
+        if (!watch.enabled() || !Long.valueOf(orgId).equals(BackupWatch.serverOrganisationId())) {
             return new BackupStatusResponse(false, null, null, null, null, null);
         }
         Optional<BackupStatus> status = watch.read();

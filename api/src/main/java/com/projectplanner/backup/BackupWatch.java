@@ -4,6 +4,7 @@ import com.projectplanner.notification.Notification;
 import com.projectplanner.notification.NotificationType;
 import com.projectplanner.notification.Notifier;
 import com.projectplanner.org.Membership;
+import com.projectplanner.org.Organisation;
 import com.projectplanner.org.Role;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.scheduler.Scheduled;
@@ -26,9 +27,12 @@ import java.util.Optional;
 
 /**
  * Reads the status file of the backup service, from a read-only mount, when BACKUP_STATUS_FILE
- * names it. Every five minutes, when the backups have gone bad, every owner gets a
- * BACKUP_ALERT, once: not again while there is no newer good dump than the one there was when
- * they were told. A dump that keeps failing to be copied tells them once per dump.
+ * names it. The backups are of the whole server, and they are the business of whoever runs it:
+ * the owners of the first organisation, the one made when the server was set up. Everybody who
+ * signs up owns an organisation of their own, so "every owner" would be every account.
+ * Every five minutes, when the backups have gone bad, each of those owners gets a BACKUP_ALERT,
+ * once: not again while there is no newer good dump than the one there was when they were
+ * told. A dump that keeps failing to be copied tells them once per dump.
  */
 @ApplicationScoped
 public class BackupWatch {
@@ -50,6 +54,12 @@ public class BackupWatch {
 
     public boolean enabled() {
         return statusFile.isPresent();
+    }
+
+    /** The organisation whose owners look after the backups: the first one, or null on a server without any. */
+    public static Long serverOrganisationId() {
+        Organisation first = Organisation.<Organisation>find("order by id").firstResult();
+        return first == null ? null : first.id;
     }
 
     /** The status as it is now. Empty when the file is not there or is not one the backup service wrote. */
@@ -93,7 +103,11 @@ public class BackupWatch {
     private int tell(BackupState state, Instant since) {
         // The owners' memberships, locked in id order: two instances of the api that look at the
         // same moment wait for each other here, and the second finds the alerts of the first.
-        List<Membership> owners = Membership.<Membership>find("role = ?1 order by id", Role.OWNER)
+        Long server = serverOrganisationId();
+        if (server == null) {
+            return 0;
+        }
+        List<Membership> owners = Membership.<Membership>find("organisationId = ?1 and role = ?2 order by id", server, Role.OWNER)
                 .withLock(LockModeType.PESSIMISTIC_WRITE).list();
         Map<Long, Long> organisationOf = new LinkedHashMap<>();
         owners.forEach(m -> organisationOf.putIfAbsent(m.userId, m.organisationId));

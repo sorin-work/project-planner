@@ -1,7 +1,11 @@
 package com.projectplanner.backup;
 
+import com.projectplanner.auth.TokenService;
+import com.projectplanner.auth.User;
 import com.projectplanner.notification.Notification;
 import com.projectplanner.notification.NotificationType;
+import com.projectplanner.org.Membership;
+import com.projectplanner.org.Role;
 import com.projectplanner.support.Api;
 import com.projectplanner.support.Api.Account;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -29,6 +33,9 @@ class BackupWatchTest {
     @Inject
     BackupWatch watch;
 
+    @Inject
+    TokenService tokens;
+
     @AfterEach
     void removeStatus() throws IOException {
         Files.deleteIfExists(STATUS);
@@ -41,14 +48,30 @@ class BackupWatchTest {
                 + (now - goodAgo) + "\ninterval=" + DAY + "\n");
     }
 
-    private static long alerts(Account who) {
-        return QuarkusTransaction.requiringNew().call(() -> Notification.count("userId = ?1 and type = ?2", who.userId(),
+    private static long alerts(long userId) {
+        return QuarkusTransaction.requiringNew().call(() -> Notification.count("userId = ?1 and type = ?2", userId,
                 NotificationType.BACKUP_ALERT));
     }
 
+    /**
+     * An owner of the server's first organisation, the one whose owners look after the backups.
+     * Whichever test made it, its owner is signed in here with a token of their own.
+     */
+    private Account serverOwner() {
+        Api.signup("Somebody");
+        return QuarkusTransaction.requiringNew().call(() -> {
+            long org = BackupWatch.serverOrganisationId();
+            Membership owner = Membership.<Membership>find("organisationId = ?1 and role = ?2 order by id", org, Role.OWNER)
+                    .firstResult();
+            User user = User.findById(owner.userId);
+            return new Account(tokens.issue(user).value(), user.id, user.email, user.handle(), org);
+        });
+    }
+
     @Test
-    void ownersSeeTheStatusAndNobodyElse() throws IOException {
-        Account owner = Api.signup("Bea Backup");
+    void theOwnersOfTheFirstOrganisationSeeTheStatusAndNobodyElse() throws IOException {
+        Account owner = serverOwner();
+        Account other = Api.signup("Olga Other");
         Account manager = Api.signup("Mo Manager");
         Api.addMember(owner, manager, "MANAGER");
         String path = "/api/orgs/" + owner.orgId() + "/backup-status";
@@ -58,23 +81,31 @@ class BackupWatchTest {
         owner.as().get(path).then().statusCode(200).body("state", equalTo("OK")).body("lastGood", equalTo("planner-x.dump"))
                 .body("lastOutcome", equalTo("ok"));
         manager.as().get(path).then().statusCode(403);
-        Api.signup("Stranger").as().get(path).then().statusCode(404);
+        other.as().get(path).then().statusCode(404);
+        // An owner of any other organisation: not theirs to look after.
+        other.as().get("/api/orgs/" + other.orgId() + "/backup-status").then().statusCode(200)
+                .body("watched", equalTo(false)).body("state", nullValue());
     }
 
     @Test
-    void ownersAreToldOnceWhenTheBackupsStop() throws IOException {
-        // Everybody who signs up owns an organisation of their own, so every account here is an owner.
-        Account owner = Api.signup("Otto Owner");
+    void theyAreToldOnceWhenTheBackupsStop() throws IOException {
+        Account owner = serverOwner();
+        // Everybody who signs up owns an organisation of their own: that is not the server's.
+        Account other = Api.signup("Otto Other");
+        // Whatever they were told before is from long ago.
+        QuarkusTransaction.requiringNew().run(() -> Notification.update("createdAt = ?1 where userId = ?2 and type = ?3",
+                Instant.now().minusSeconds(10 * DAY), owner.userId(), NotificationType.BACKUP_ALERT));
+        long before = alerts(owner.userId());
 
         status("ok", 3600);
         watch.check();
-        assertThat(alerts(owner)).isZero();
+        assertThat(alerts(owner.userId())).isEqualTo(before);
 
         status("dump_failed", 3 * DAY);
         watch.check();
         watch.check();
-        assertThat(alerts(owner)).isEqualTo(1);
-        owner.as().get("/api/notifications").then().statusCode(200).body("[0].type", equalTo("BACKUP_ALERT"));
+        assertThat(alerts(owner.userId())).isEqualTo(before + 1);
+        assertThat(alerts(other.userId())).isZero();
 
         // Told four days ago; since then a good dump was made two days and an hour ago, and
         // the backups are late again: that is news, once more.
@@ -82,16 +113,21 @@ class BackupWatchTest {
                 Instant.now().minusSeconds(4 * DAY), owner.userId(), NotificationType.BACKUP_ALERT));
         status("dump_failed", 2 * DAY + 3600);
         watch.check();
-        assertThat(alerts(owner)).isEqualTo(2);
+        assertThat(alerts(owner.userId())).isEqualTo(before + 2);
     }
 
     @Test
     void nothingWithoutAStatusFileOrBeforeTheFirstDump() throws IOException {
-        Account owner = Api.signup("Nora New");
+        Account owner = serverOwner();
+        long before = alerts(owner.userId());
         watch.check();
         Files.createDirectories(STATUS.getParent());
         Files.writeString(STATUS, "not a status file");
         watch.check();
-        assertThat(alerts(owner)).isZero();
+        status("dump_failed", 0);
+        Files.writeString(STATUS, Files.readString(STATUS).replace("last_good=planner-x.dump", "last_good=")
+                .replaceAll("last_good_at=\\d+", "last_good_at="));
+        watch.check();
+        assertThat(alerts(owner.userId())).isEqualTo(before);
     }
 }

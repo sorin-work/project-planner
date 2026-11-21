@@ -696,13 +696,15 @@ healthcheck that is unhealthy when the newest good dump is older than twice the 
 or no longer there, so `docker compose ps` shows it.
 
 The API can read it too, from a read-only mount of `BACKUP_DIR`, when `BACKUP_STATUS_FILE`
-is set to `/backups/.backup-status`. Owners then see a line about the backups on the
-Settings page (`GET /api/orgs/{orgId}/backup-status`), and every owner gets a
+is set to `/backups/.backup-status`. The owners of the first organisation then see a line about the backups on the
+Settings page (`GET /api/orgs/{orgId}/backup-status`), and each of them gets a
 `BACKUP_ALERT`, mailed by default, when the newest good dump is older than twice the
-interval or a dump could not be copied. Each owner is told once: not again until there is
-a newer good dump than the one there was. The backups are of the whole server, so the
-owners of every organisation hear of it. Without the setting the API does not look at
-backups at all.
+interval or a dump could not be copied. Each is told once: not again until there is a
+newer good dump than the one there was. The backups are of the whole server, so they are
+the business of whoever runs it: the owners of the first organisation, the one made when
+the server was set up. Everybody who signs up owns an organisation of their own, so the
+owners of the others neither see the line nor get the mail. Without the setting the API
+does not look at backups at all.
 
 ### A new major version of PostgreSQL
 

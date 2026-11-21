@@ -1073,9 +1073,10 @@ of its own that a timeout (`BACKUP_COPY_TIMEOUT_SECONDS`) stops whole. A
 failed copy keeps the dump and is recorded as `copy_failed`. `.backup-status`
 is written after every run, by the time in the name; `backup.sh health` is the
 compose healthcheck, unhealthy past twice the interval. With
-`BACKUP_STATUS_FILE`, the API reads it from a read-only mount, shows it to
-owners on the Settings page and sends every owner one `BACKUP_ALERT` (mailed by
-default) per newest good dump when backups are late or a copy failed. The
+`BACKUP_STATUS_FILE`, the API reads it from a read-only mount, shows it on the
+Settings page to the owners of the first organisation, whose owners run the
+server, and sends each of them one `BACKUP_ALERT` (mailed by default) per newest
+good dump when backups are late or a copy failed. The
 README has a section on moving to a new major version of PostgreSQL.
 `check-backup-loop.sh` has stand-ins for `age` and `rclone` and cases for the
 encrypted dump, `age` and `pg_dump` failing under it, restores without and
@@ -1083,7 +1084,8 @@ with the wrong key, the copy folder, a hanging copy whose child is stopped and
 the healthcheck; `check-backup.sh`, which CI runs through `check-restore.sh`,
 has a real `age` round trip. Decided: the API knows about backups, behind the
 setting. Different from the design: the image is `backup/Dockerfile` with
-`rclone` optional; owners of every organisation hear of it, since the
-backups are of the whole server; the "once" is kept in the notifications (one
+`rclone` optional; only the first organisation's owners hear of it, since
+everybody who signs up owns an organisation and the backups are the server's;
+the "once" is kept in the notifications (one
 per owner since the newest good dump), so no migration was needed; and a
 dump that failed once is not mailed, only one that is late or not copied.
