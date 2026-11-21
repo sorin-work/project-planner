@@ -59,20 +59,41 @@ public class AutoReminders {
             }
             boolean due = QuarkusTransaction.requiringNew().call(
                     () -> TimesheetService.firstWorkingDayOfWeek(calendars.of(org.id), today));
-            if (!due || !claim(org.id, today)) {
+            if (!due) {
                 continue;
             }
-            List<Long> people = QuarkusTransaction.requiringNew().call(() -> timesheets.autoRemind(org.id));
-            LOG.debugf("Reminded %d people of organisation %d of last week's timesheet", people.size(), org.id);
-            reminded += people.size();
+            try {
+                reminded += QuarkusTransaction.requiringNew().call(() -> remindOnce(org.id, today));
+            } catch (RuntimeException e) {
+                // The day was not moved on, so the next run tries again this morning.
+                LOG.errorf("The automatic timesheet reminders of organisation %d failed and are tried again on the next run: %s",
+                        org.id, e.getClass().getSimpleName());
+                LOG.debug("The automatic reminders failed", e);
+            }
         }
         return reminded;
     }
 
-    /** Moves the organisation's reminder day on to today. False when it already is: another run sent them. */
-    private static boolean claim(long organisationId, LocalDate today) {
-        return QuarkusTransaction.requiringNew().call(() -> Organisation.update(
-                "remindersSentOn = ?1 where id = ?2 and (remindersSentOn is null or remindersSentOn < ?1)",
-                today, organisationId) == 1);
+    /**
+     * Moves the organisation's reminder day on to today and sends the reminders, in one
+     * transaction. The conditional update is the once-only guard: a second run waits for the
+     * row and then finds the day taken. When the reminders fail, the day goes back with them.
+     */
+    private int remindOnce(long organisationId, LocalDate today) {
+        int claimed = Organisation.update("remindersSentOn = ?1 where id = ?2 and (remindersSentOn is null or remindersSentOn < ?1)",
+                today, organisationId);
+        if (claimed == 0) {
+            return 0;
+        }
+        List<Long> people = failure.apply(timesheets.autoRemind(organisationId));
+        LOG.debugf("Reminded %d people of organisation %d of last week's timesheet", people.size(), organisationId);
+        return people.size();
     }
+
+    /** For tests: what happens to the people about to be reminded, to make a run fail half way. */
+    void failWith(java.util.function.UnaryOperator<List<Long>> hook) {
+        failure = hook;
+    }
+
+    private volatile java.util.function.UnaryOperator<List<Long>> failure = people -> people;
 }

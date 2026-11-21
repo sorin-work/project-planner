@@ -90,6 +90,22 @@ class AutoRemindersTest {
     }
 
     @Test
+    void aRunThatFailsLeavesTheDayForTheNextOne() {
+        Team team = team(true);
+        reminders.failWith(people -> {
+            throw new IllegalStateException("mail store down");
+        });
+        try {
+            runAt("2026-03-30T06:00:00Z");
+        } finally {
+            reminders.failWith(people -> people);
+        }
+        assertThat(remindersTo(team.late())).isEmpty();
+        runAt("2026-03-30T06:01:00Z");
+        assertThat(remindersTo(team.late())).hasSize(1);
+    }
+
+    @Test
     void offByDefaultAndNotAfterNoon() {
         Team off = team(false);
         runAt("2026-03-30T06:30:00Z");
