@@ -170,7 +170,9 @@ describe('ApprovalsPage', () => {
 
     expect(el.querySelector('[role=status]')?.textContent).toContain('No weeks approved.');
     expect(el.querySelector('.left-out')?.textContent).toContain('Samir Haddad, week of 4 Mar 2024: withdrawn and submitted again');
-    expect(boxes[1].checked).toBe(true);
+    // Samir's week was submitted again, so it is no longer ticked: the next click must not approve it unseen.
+    expect(boxes[1].checked).toBe(false);
+    expect(button(el, 'Approve selected').disabled).toBe(true);
 
     button(el, 'Approve all').click();
     const all = http.expectOne('/api/orgs/7/timesheets/approve');
