@@ -2019,10 +2019,6 @@ tr.context-row > td {
 }
 
 @media print {
-  body {
-    background: #fff;
-    color: #000;
-  }
 
   .no-print,
   .sidebar,
@@ -2042,11 +2038,5 @@ tr.context-row > td {
     padding: 0;
     border: none;
     box-shadow: none;
-    background: #fff;
-    color: #000;
-  }
-
-  .invoice-paper .muted {
-    color: #333;
   }
 }
