@@ -36,6 +36,13 @@ public class User extends PanacheEntityBase {
     @Column(name = "token_version", nullable = false)
     public int tokenVersion;
 
+    /** Wrong passwords from every address together, see {@link LoginLimits}. A right one or a new password sets it back to zero. */
+    @Column(name = "failed_logins", nullable = false)
+    public int failedLogins;
+
+    @Column(name = "last_failed_login_at")
+    public Instant lastFailedLoginAt;
+
     public static String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
     }
@@ -46,7 +53,9 @@ public class User extends PanacheEntityBase {
 
     /**
      * Sets a new password and ends every session that was started before, along with
-     * every reset link that still works.
+     * every reset link that still works. The wrong passwords counted against the account
+     * are forgotten, so that a reset lets the owner straight in when somebody else kept it
+     * waiting.
      * <p>
      * The version is counted up by the database, not read and written back here: the update
      * holds the row until the transaction ends, so a reset and a change at the same moment
@@ -58,6 +67,9 @@ public class User extends PanacheEntityBase {
         update("tokenVersion = tokenVersion + 1 where id = ?1", id);
         getEntityManager().refresh(this);
         passwordHash = newHash;
+        failedLogins = 0;
+        lastFailedLoginAt = null;
+        LoginFailure.delete("userId", id);
         PasswordReset.revokeAll(id, now);
     }
 
