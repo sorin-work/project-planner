@@ -168,6 +168,14 @@ the point is knowing whether a project will land on time and on budget.
   falls back under one (time deleted, the budget raised) can announce it again later.
   The check runs when time is logged, changed, moved, deleted or a timer stops, and when
   a budget or a rate changes. A project without a budget is never looked at.
+- **Schedule alerts**: owners and managers get a notification that opens the Overview
+  when a project goes off track, and when its plan (the latest due date) now ends after
+  the project's end date. Off track is announced once: only coming back on track takes
+  it down, so a project on the edge between at risk and off track is not announced with
+  every logged hour. A late end is announced once, until the plan ends in time again.
+  The check runs after every change to tasks, links, time, the budget or the project's
+  dates, and once at the start of each organisation's day over its active projects, for
+  the task that went overdue overnight with nobody touching anything.
 - **Reports**: logged time per project, client, person or task for this or last week
   or month, or any range up to two years, with the billable time and, for owners and
   managers, the billable amount. A click on a project shows its tasks. Utilisation
@@ -233,6 +241,7 @@ dependencies, so they are tested in isolation:
 | `BudgetCalculator`    | Hours and money burn against the budgets                             |
 | `HealthStatus`        | Turns progress and burn into on track / at risk / off track          |
 | `BudgetThresholds`    | The 80% and 100% budget alerts, once each per burn, upwards only     |
+| `ScheduleAlertRule`   | When off track and a late end are announced, and when that is taken down |
 | `WorkloadCalculator`  | Allocated hours per person per week vs capacity, and capacity for a range |
 | `TimeReport`          | Time per project, client, person or task, priced entry by entry in cents |
 | `Utilisation`         | Billable time as a share of capacity, per person and in total        |

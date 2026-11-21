@@ -45,7 +45,7 @@ couple of weekends, **L** several weeks of spare time.
 | 22  | Sign-in hardening                          | Next  | both     | S    | -          |
 | 23  | Project lead                               | Next  | both     | S    | -          |
 | 24  | Daily summary and automatic reminders      | Shipped | both     | M    | 19         |
-| 25  | Schedule alerts                            | Later | both     | S    | 23         |
+| 25  | Schedule alerts                            | Shipped | both     | S    | 23         |
 | 26  | Encrypted backups off the machine          | Later | infra    | M    | -          |
 | 27  | Invoices from approved time                | Later | both     | L    | -          |
 | 28  | Keyboard and drag on the timeline          | Later | frontend | M    | -          |
@@ -256,37 +256,6 @@ have the same problem.
   simplest is "lead plus owners" for both.
 
 ## Later
-
-### 25. Schedule alerts
-
-Improvement of item 10, which left "alerts for the schedule" open. A budget
-crossing 80% is announced. A project whose health turns off track, or whose
-plan now ends after the date promised to the client, is not, and that is the
-more common way a project goes wrong. Depends on item 23, so that the alert
-goes to the project's lead rather than to every manager.
-
-- What: the project's `HealthStatus` going from on track or at risk to off
-  track, and the forecast end (`forecastEnd`, the latest due date) moving past
-  `Project.endDate`. A new `NotificationType.SCHEDULE_ALERT` with the project
-  and no actor, opening the Overview like a budget alert.
-- State: the last status and end announced, on `projects`
-  (`V31__add_project_schedule_alert.sql`), like `hours_alert_pct`. Going back
-  on track takes it down again, so a later slip is announced again.
-- Tricky: when to look. A budget only changes when time or a rate changes.
-  Health changes when tasks move (`TaskService`, the cascade, status
-  changes), but also with nothing happening at all: an open task that passes
-  its due date overnight turns a project at risk. So both: a CDI event from
-  `TaskService` after a change, observed in the transaction as
-  `BudgetAlerts` does, and a daily pass over the active projects at the start
-  of the organisation's day.
-- Tricky: noise. A project that sits on the edge flips between at risk and
-  off track with every logged hour. Announce off track once, and only take
-  the state down when the project is back on track, not merely at risk.
-- Cost: the daily pass goes through `ProjectHealthService.summaries`, which
-  already handles a whole organisation in a fixed number of statements.
-- Undecided: whether the cascade of one move that pushes the end past the
-  deadline should say which move did it. The activity log already has the
-  move; the alert would just link to it. I would leave it out.
 
 ### 26. Encrypted backups off the machine
 
@@ -1145,3 +1114,21 @@ day it last ran are two columns on `organisations` in the same `V30`, since
 the item has one number; and the reminders run in the same morning window as
 the summary. Item 23's lead is not used. Still open: the link to My tasks
 needs item 19, which is built separately.
+
+### 25. Schedule alerts
+
+`NotificationType.SCHEDULE_ALERT`, with the project and no actor, opens the
+Overview like a budget alert. `ScheduleAlertRule` announces off track once and
+takes it down only on track (or done, or not started), and announces a forecast
+end past `Project.endDate` once until the plan ends in time again; the state is
+`off_track_announced` and `late_end_announced` on `projects` (`V31`). A
+`PlanChanged` event from `TaskService` (create, change, move, delete, a cascade
+after a link) and from `ProjectService.update`, and the existing `TimeChanged`
+and `BudgetChanged`, are observed in the transaction with the project's row
+locked. A daily pass, on the first run of each organisation's day, looks at
+its active projects through `ProjectHealthService.healths`, the bulk path of
+`summaries`, and `organisations.schedule_checked_on` (in the same `V31`) lets
+one instance take each day. Different from the design: item 23 has not
+landed, so the alerts go to every owner and manager, as budget alerts do; once
+the project lead is there they should go to the lead. Left out as the roadmap
+leaned: naming the move that pushed the end past the deadline.
