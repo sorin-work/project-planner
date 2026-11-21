@@ -60,6 +60,10 @@ public class TimeEntry extends PanacheEntityBase {
     @Column(name = "client_key")
     public String clientKey;
 
+    /** The invoice line this entry is billed on, if any. One column: an entry is never on two lines. */
+    @Column(name = "invoice_line_id")
+    public Long invoiceLineId;
+
     public boolean isRunning() {
         return startedAt != null && endedAt == null;
     }
