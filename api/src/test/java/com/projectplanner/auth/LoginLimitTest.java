@@ -233,4 +233,46 @@ class LoginLimitTest {
         assertThat(hasher.takeChecked()).containsExactly(stored);
         assertThat(hasher.dummyHash()).isNotEqualTo(stored).startsWith("$2");
     }
+
+    private static long pairs(Api.Account account) {
+        return QuarkusTransaction.requiringNew().call(() -> LoginFailure.count("userId", account.userId()));
+    }
+
+    @Test
+    void theHourlySweepDeletesPairsThatHaveBeenQuietForADay() {
+        Api.Account jo = Api.signup("Jo");
+        Instant start = Instant.now().plusSeconds(5);
+        TestClock.fix(start);
+        login(jo.email(), "wrong-password", ATTACKER).statusCode(401);
+        TestClock.fix(start.plus(LoginLimits.ACCOUNT_QUIET).minusSeconds(60));
+        login(jo.email(), "wrong-password", OWNER).statusCode(401);
+
+        TestClock.fix(start.plus(LoginLimits.ACCOUNT_QUIET).plusSeconds(1));
+        assertThat(limits.sweep()).isPositive();
+        assertThat(pairFailures(jo, ATTACKER)).isZero();
+        assertThat(pairFailures(jo, OWNER)).isEqualTo(1);
+    }
+
+    @Test
+    void anAccountKeepsAtMostSoManyPairsAndTheOldestGoFirst() {
+        Api.Account kim = Api.signup("Kim");
+        Instant start = Instant.now().plusSeconds(5);
+        QuarkusTransaction.requiringNew().run(() -> {
+            for (int i = 0; i < LoginLimits.MAX_PAIRS; i++) {
+                LoginFailure row = new LoginFailure();
+                row.userId = kim.userId();
+                row.address = "10.1." + (i / 256) + "." + (i % 256);
+                row.failures = 1;
+                row.lastFailedAt = start.minusSeconds(LoginLimits.MAX_PAIRS - i);
+                row.persist();
+            }
+        });
+        TestClock.fix(start);
+        login(kim.email(), "wrong-password", ATTACKER).statusCode(401);
+
+        assertThat(pairs(kim)).isEqualTo(LoginLimits.MAX_PAIRS);
+        assertThat(pairFailures(kim, "10.1.0.0")).as("the pair that failed least recently").isZero();
+        assertThat(pairFailures(kim, "10.1.0.1")).isEqualTo(1);
+        assertThat(pairFailures(kim, ATTACKER)).isEqualTo(1);
+    }
 }
