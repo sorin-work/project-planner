@@ -237,6 +237,10 @@ write_status() {
   } >"$status_file.partial" || ! chmod 644 "$status_file.partial" || ! mv "$status_file.partial" "$status_file"; then
     log "could not write $status_file" >&2
   fi
+  # Docker runs this as root: the folder and the file belong to whoever owns the backup folder, like the dumps.
+  if [ "$(id -u)" = 0 ]; then
+    chown "$(stat -c %u:%g "$dir")" "$status_dir" "$status_file" 2>/dev/null || true
+  fi
 }
 
 # Copies the files "$@" of the dump just written to BACKUP_COPY_DIR and
