@@ -265,6 +265,13 @@ export class TimelineTab {
           this.resizes.delete(taskId);
         }
       },
+      () => {
+        // Refused: what the keys asked for since was counted from a date that was never saved.
+        // It is dropped, and the next press counts from the dates the task really has.
+        waiting.next = null;
+        waiting.dueDate = undefined;
+        waiting.startDate = undefined;
+      },
     );
   }
 
@@ -294,7 +301,7 @@ export class TimelineTab {
    * Sends one edit. The timeline draws what the store holds and the store only takes
    * what the API answered, so a refused edit leaves the bar where it was.
    */
-  private apply<T>(request: Observable<T>, describe: (result: T) => string | null, after?: () => void): void {
+  private apply<T>(request: Observable<T>, describe: (result: T) => string | null, after?: () => void, refused?: () => void): void {
     this.error.set(null);
     this.message.set(null);
     request.subscribe({
@@ -307,6 +314,7 @@ export class TimelineTab {
       error: (err: unknown) => {
         // The error paragraph is an alert, which is read out as it appears.
         this.error.set(messageOf(err));
+        refused?.();
         after?.();
       },
     });
