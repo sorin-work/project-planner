@@ -56,12 +56,24 @@ public class TaskService {
         this.calendars = calendars;
     }
 
+    /**
+     * Takes the project's row before any task row is written. Rows are taken in one order
+     * everywhere: the organisation's, then the project's, then its tasks'. A time write
+     * locks the project and then reads the task, so a task write that took the task first
+     * and the project last could wait on it the other way round. Taking it twice in one
+     * transaction costs nothing more than a read.
+     */
+    void lockPlan(Project project) {
+        Project.locked(project.id);
+    }
+
     /** Moves and pushes in the working days of the project's organisation. */
     private Rescheduler rescheduler(Project project) {
         return new Rescheduler(calendars.of(project.organisationId));
     }
 
     public Task create(Membership me, Project project, CreateTaskRequest request) {
+        lockPlan(project);
         Instant now = Instant.now(clock);
         Task task = new Task();
         task.projectId = project.id;
@@ -99,6 +111,7 @@ public class TaskService {
     }
 
     public TaskChange update(Membership me, Project project, Task task, UpdateTaskRequest request) {
+        lockPlan(project);
         Instant now = Instant.now(clock);
         LocalDate oldStart = task.startDate;
         LocalDate oldDue = task.dueDate;
@@ -179,6 +192,7 @@ public class TaskService {
     }
 
     public void delete(Membership me, Project project, Task task) {
+        lockPlan(project);
         activity.record(project.organisationId, project.id, null, me.userId, "task.deleted", "Deleted " + task.title);
         TaskDependency.delete("predecessorId = ?1 or successorId = ?1", task.id);
         List<Task> subtasks = Task.list("parentId", task.id);
@@ -208,6 +222,7 @@ public class TaskService {
      * predecessor were not touched by the change, and stay where they are.
      */
     public List<Task> rescheduleFrom(Membership me, Project project, long successor) {
+        lockPlan(project);
         List<Task> moved = reschedule(me, project, Set.of(successor), true);
         if (!moved.isEmpty()) {
             planChanged.fire(new PlanChanged(project.id));

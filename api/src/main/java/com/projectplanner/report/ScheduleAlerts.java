@@ -57,14 +57,18 @@ public class ScheduleAlerts {
         check(event.projectId());
     }
 
+    /**
+     * Read again under the lock (the change itself took it first, see {@code TaskService}), so
+     * that two changes at the same moment see each other's announced state. Only what the
+     * alert needs is worked out: the status and the forecast end, not the schedule issues.
+     */
     private void check(long projectId) {
         Project.getEntityManager().flush();
-        Project project = Project.findById(projectId, LockModeType.PESSIMISTIC_WRITE);
+        Project project = Project.locked(projectId);
         if (project == null) {
             return;
         }
-        ProjectHealth h = health.health(project, reader(project.organisationId));
-        announce(project, h);
+        announce(project, health.forAlerts(project));
     }
 
     @Scheduled(identity = "schedule-alerts", every = "60s", delayed = "40s",
