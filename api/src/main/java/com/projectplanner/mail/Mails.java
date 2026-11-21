@@ -17,6 +17,7 @@ public class Mails {
 
     static final String SUBJECT_RESET = "Reset your project-planner password";
     static final String SUBJECT_INVITATION = "You are invited to project-planner";
+    static final String SUBJECT_SUMMARY = "Your morning on project-planner";
     static final String SUBJECT_ADDED = "You were added to an organisation on project-planner";
 
     @CheckedTemplate
@@ -28,6 +29,8 @@ public class Mails {
         static native MailTemplateInstance addedToOrganisation(String link);
 
         static native MailTemplateInstance notifications(List<Line> lines, String settingsLink, List<Line> stopLinks);
+
+        static native MailTemplateInstance dailySummary(List<Line> lines, String settingsLink, Line stop);
     }
 
     /** One line of a mail: fixed wording and where it leads. */
@@ -59,6 +62,12 @@ public class Mails {
                 : lines.size() + " new notifications on project-planner";
         return Templates.notifications(lines, settings.link("/settings"), stopLinks)
                 .from(settings.from()).to(to).subject(subject);
+    }
+
+    /** The morning summary: counts with a link each, never a title. */
+    public MailTemplateInstance dailySummary(String to, List<Line> lines, Line stop) {
+        return Templates.dailySummary(lines, settings.link("/settings"), stop)
+                .from(settings.from()).to(to).subject(SUBJECT_SUMMARY);
     }
 
     /** A link into the web app, from APP_URL. */

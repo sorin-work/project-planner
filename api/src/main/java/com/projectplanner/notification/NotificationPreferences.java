@@ -26,7 +26,29 @@ public class NotificationPreferences {
         map.put(NotificationType.ASSIGNED, Delivery.EMAIL);
         map.put(NotificationType.TIMESHEET_REJECTED, Delivery.EMAIL);
         map.put(NotificationType.TIMESHEET_REMINDER, Delivery.EMAIL);
+        // On for owners and managers, see summaryDefault; this is everybody else's.
+        map.put(NotificationType.DAILY_SUMMARY, Delivery.OFF);
         return Map.copyOf(map);
+    }
+
+    /** Whether the morning summary is on without a choice of the person's: for those who manage. */
+    public static Delivery summaryDefault(boolean manages) {
+        return manages ? Delivery.EMAIL : Delivery.OFF;
+    }
+
+    /**
+     * Who of {@code userIds} gets the morning summary, by user id: their choice, or the default
+     * for their role there. Anything but EMAIL is off. One query for all of them.
+     */
+    public Map<Long, Boolean> summaryWanted(Map<Long, Boolean> managesByUser) {
+        Map<Long, Boolean> wanted = new HashMap<>();
+        managesByUser.forEach((id, manages) -> wanted.put(id, summaryDefault(manages) == Delivery.EMAIL));
+        if (!managesByUser.isEmpty()) {
+            NotificationPreference.<NotificationPreference>list("userId in ?1 and type = ?2", managesByUser.keySet(),
+                            NotificationType.DAILY_SUMMARY)
+                    .forEach(p -> wanted.put(p.userId, p.delivery == Delivery.EMAIL));
+        }
+        return wanted;
     }
 
     /** Every type with the delivery that holds for the user. */

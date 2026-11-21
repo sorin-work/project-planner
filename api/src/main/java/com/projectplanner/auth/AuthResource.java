@@ -139,7 +139,10 @@ public class AuthResource {
         UnsubscribeLinks.Subscription subscription = unsubscribeLinks.read(request.token())
                 .filter(s -> User.findById(s.userId()) != null)
                 .orElseThrow(() -> ApiException.badRequest("invalid_link", "This link is not one of ours. Change your mails in the settings instead."));
-        if (preferences.of(subscription.userId(), subscription.type()) == Delivery.EMAIL) {
+        if (subscription.type().mailOnly()) {
+            // Nothing to show in the app instead: off, whatever the default for the role was.
+            preferences.set(subscription.userId(), subscription.type(), Delivery.OFF);
+        } else if (preferences.of(subscription.userId(), subscription.type()) == Delivery.EMAIL) {
             preferences.set(subscription.userId(), subscription.type(), Delivery.IN_APP);
         }
         return new UnsubscribeResponse(subscription.type());
