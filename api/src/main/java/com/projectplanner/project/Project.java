@@ -14,6 +14,7 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 @Entity
 @Table(name = "projects")
@@ -67,6 +68,13 @@ public class Project extends PanacheEntityBase {
     @Column(name = "updated_at", nullable = false)
     public Instant updatedAt;
 
+    /**
+     * Who leads the project, or nobody: a user who is an owner, a manager or a member of its
+     * organisation. With a lead, the budget alerts go to the lead and the owners only.
+     */
+    @Column(name = "lead_id")
+    public Long leadId;
+
     /** The highest threshold of the hours budget that has been announced: 0, 80 or 100. */
     @Column(name = "hours_alert_pct", nullable = false)
     public int hoursAlertPct;
@@ -97,5 +105,17 @@ public class Project extends PanacheEntityBase {
             getEntityManager().refresh(project, LockModeType.PESSIMISTIC_WRITE);
         }
         return project;
+    }
+
+    /**
+     * Stops {@code userId} leading any project of the organisation, for a membership that ends
+     * or turns into a client viewer. In the caller's transaction. The projects are locked
+     * in the order of their ids, as everything that writes several projects locks them, and
+     * only then cleared.
+     */
+    public static void clearLead(long organisationId, long userId) {
+        List<Project> led = Project.<Project>find("organisationId = ?1 and leadId = ?2 order by id", organisationId, userId)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).list();
+        led.forEach(project -> project.leadId = null);
     }
 }

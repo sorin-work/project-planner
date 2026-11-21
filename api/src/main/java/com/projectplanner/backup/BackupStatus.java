@@ -41,13 +41,18 @@ public record BackupStatus(Instant lastRunAt, String lastOutcome, String lastGoo
                 hasGood ? Instant.ofEpochSecond(goodAt) : null, interval));
     }
 
-    /** What the status means at {@code now}. A good dump dated ahead of the clock counts as made now. */
+    /**
+     * What the status means at {@code now}. A good dump dated ahead of the clock does not count
+     * as made now: its age is unknown, and that is bad until a correctly dated one is made.
+     */
     public BackupState state(Instant now) {
         if (lastGoodAt == null) {
             return BackupState.NO_GOOD_DUMP;
         }
-        Instant made = lastGoodAt.isAfter(now) ? now : lastGoodAt;
-        if (made.plusSeconds(2 * interval).isBefore(now)) {
+        if (lastGoodAt.isAfter(now)) {
+            return BackupState.FUTURE_DATED;
+        }
+        if (lastGoodAt.plusSeconds(2 * interval).isBefore(now)) {
             return BackupState.LATE;
         }
         return "copy_failed".equals(lastOutcome) ? BackupState.COPY_FAILED : BackupState.OK;
@@ -55,7 +60,7 @@ public record BackupStatus(Instant lastRunAt, String lastOutcome, String lastGoo
 
     /** Whether owners are to hear about it. No good dump yet is a new install, not a failure. */
     public static boolean bad(BackupState state) {
-        return state == BackupState.LATE || state == BackupState.COPY_FAILED;
+        return state == BackupState.LATE || state == BackupState.COPY_FAILED || state == BackupState.FUTURE_DATED;
     }
 
     private static Long number(String value) {

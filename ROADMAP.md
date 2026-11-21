@@ -43,7 +43,7 @@ couple of weekends, **L** several weeks of spare time.
 | 20  | Approve weeks in one go                    | Shipped | both     | S    | -          |
 | 21  | Schedule issues beyond the timeline        | Shipped | both     | S    | -          |
 | 22  | Sign-in hardening                          | Shipped | both     | S    | -          |
-| 23  | Project lead                               | Next  | both     | S    | -          |
+| 23  | Project lead                               | Shipped | both     | S    | -          |
 | 24  | Daily summary and automatic reminders      | Shipped | both     | M    | 19         |
 | 25  | Schedule alerts                            | Shipped | both     | S    | 23         |
 | 26  | Encrypted backups off the machine          | Shipped | infra    | M    | -          |
@@ -78,7 +78,8 @@ A few things hold for every item:
   to `V24`. Item 2 had none and took `V25` for the key on time entries,
   item 13 took `V26` for the second project of an activity entry, and the
   claim on notification mails took `V27`. Items 19 to 33 have
-  `V28` to `V36` written down in the same way, so the next free one is `V37`.
+  `V28` to `V36` written down in the same way, and item 26 took `V37` for the
+  marks of backup alerts, so the next free one is `V38`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -138,38 +139,8 @@ A few things hold for every item:
 
 ## Next
 
-Items 19 to 23 are new. Each is small and closes something a shipped item
-left open.
-
-### 23. Project lead
-
-Improvement of item 10, which left it open: "every manager hears about every
-project, since there is no project lead". In a team of five that is fine. In
-an agency with twenty projects and four managers, three of them get alerts
-about projects that are not theirs, and the daily summary of item 24 would
-have the same problem.
-
-- Data: `lead_id` on `projects`, nullable, a user of the organisation
-  (`V29__add_project_lead.sql`). Set in the project form and the Settings
-  tab by owners and managers.
-- Who can lead: an owner, a manager or a member. Not a client viewer
-  (`ApiException.badRequest` with a code of its own).
-- Budget alerts: with a lead, the lead and the owners hear about the
-  project, other managers do not. Without a lead, everybody as today. Keep
-  the money message for `role.canManage()` only: a member who leads a
-  project gets the hours alert and never the amounts, which is what item 10
-  kept the two messages apart for.
-- Tricky: a lead who leaves. The foreign key goes to `users`, so removing a
-  membership leaves the column pointing at somebody who is no longer in the
-  organisation. Clear it when a membership is removed, in the same
-  transaction, and test that alerts fall back to the managers.
-- Project list: a lead column and a "Led by me" filter. The project summary
-  carries the lead's name, from the people already loaded in one query.
-- Duplicating a project copies the lead only when the assignees are copied
-  (item 13's choice), since a template's lead is rarely the new project's.
-- Undecided: whether owners hear about every project anyway. I lean yes for
-  money and no for hours, but that is two rules where one would do; the
-  simplest is "lead plus owners" for both.
+Items 19 to 23 were small and closed something a shipped item left open. All of
+them have shipped, so nothing waits here for now.
 
 ## Later
 
@@ -1016,6 +987,28 @@ count, which is the price of never locking the owner out (an hourly sweep and a 
 of a thousand pairs per account keep the table bounded); HSTS is for whatever terminates TLS; and a list of sessions with "sign out
 this device" was left out, as the design suggested.
 
+### 23. Project lead
+
+`lead_id` on `projects` (`V29`), a user of the organisation who is an owner, a
+manager or a member; a client viewer is refused with `client_cannot_lead` and
+somebody from elsewhere with `unknown_lead`. Set in the project form and the
+Settings tab by owners and managers, and part of `PUT`, so leaving it out clears
+it like any other field. The project answers carry `leadId` and `leadName`; the
+list reads the names of all leads in one query, which is sent only when a project
+has a lead (`QueryCountTest` holds it to one statement). Budget alerts: without a
+lead, owners and managers as before; with one, the lead and the owners, and the
+money message only to those of them who can manage. Removing a membership clears
+the lead in the same transaction, and so does a change of role to client viewer.
+A copy keeps the lead only with `keepAssignees`. The project list has a Lead
+column and a "Led by me" filter in the page, offered when you lead one of the
+listed projects. The demo has Priya leading the Acme booking app and Lena the
+design system. Decided: the simplest rule, the lead plus the owners for both
+messages. The schedule alerts of item 25 go to the same people as the hours
+alert, and the mailer lets a member lead through for those two and never for
+the money one. Still open: the morning summary of item 24 still counts
+timesheets for owners and managers only, which is right, since a lead does not
+review time.
+
 ### 24. Daily summary and automatic reminders
 
 `DailySummaries` runs once a minute and sends one mail per person and
@@ -1054,9 +1047,8 @@ and `BudgetChanged`, are observed in the transaction with the project's row
 locked. A daily pass, on the first run of each organisation's day, looks at
 its active projects through `ProjectHealthService.healths`, the bulk path of
 `summaries`, and `organisations.schedule_checked_on` (in the same `V31`) lets
-one instance take each day. Different from the design: item 23 has not
-landed, so the alerts go to every owner and manager, as budget alerts do; once
-the project lead is there they should go to the lead. Left out as the roadmap
+one instance take each day. The alerts go to every owner and manager, as budget alerts do,
+or with a project lead (item 23) to the lead and the owners. Left out as the roadmap
 leaned: naming the move that pushed the end past the deadline.
 
 ### 26. Encrypted backups off the machine
@@ -1070,22 +1062,24 @@ dump once into nothing before it changes anything, then decrypts on the way
 into `pg_restore` and `tar`. Every finished dump is copied to `BACKUP_COPY_DIR`
 and `BACKUP_RCLONE_REMOTE` and pruned there by the names, in a process session
 of its own that a timeout (`BACKUP_COPY_TIMEOUT_SECONDS`) stops whole. A
-failed copy keeps the dump and is recorded as `copy_failed`. `.backup-status`
-is written after every run, by the time in the name; `backup.sh health` is the
-compose healthcheck, unhealthy past twice the interval. With
-`BACKUP_STATUS_FILE`, the API reads it from a read-only mount, shows it on the
-Settings page to the owners of the first organisation, whose owners run the
-server, and sends each of them one `BACKUP_ALERT` (mailed by default) per newest
-good dump when backups are late or a copy failed. The
-README has a section on moving to a new major version of PostgreSQL.
-`check-backup-loop.sh` has stand-ins for `age` and `rclone` and cases for the
-encrypted dump, `age` and `pg_dump` failing under it, restores without and
-with the wrong key, the copy folder, a hanging copy whose child is stopped and
-the healthcheck; `check-backup.sh`, which CI runs through `check-restore.sh`,
-has a real `age` round trip. Decided: the API knows about backups, behind the
-setting. Different from the design: the image is `backup/Dockerfile` with
-`rclone` optional; only the first organisation's owners hear of it, since
-everybody who signs up owns an organisation and the backups are the server's;
-the "once" is kept in the notifications (one
-per owner since the newest good dump), so no migration was needed; and a
-dump that failed once is not mailed, only one that is late or not copied.
+failed copy keeps the dump and is recorded as `copy_failed`, and its half file
+in the copy folder goes. Dumps dated in the future are never counted or pruned,
+anywhere, and are named in the log. `status/backup-status` is written after
+every run, by the time in the name; `backup.sh health` is the compose
+healthcheck, unhealthy past twice the interval or when the newest good dump is
+dated in the future. With `BACKUP_STATUS_FILE`, the API reads it from a
+read-only mount of that folder alone, shows it on the Settings page only to the
+accounts in `BACKUP_ALERT_EMAILS`, and mails those addresses once per change
+of the state or the dump (`backup_alert_marks`, `V37`). The README has a
+section on moving to a new major version of PostgreSQL. `check-backup-loop.sh`
+has stand-ins for `age` and `rclone` and cases for the encrypted dump, `age`
+and `pg_dump` failing under it, restores without and with the wrong key, the
+copy folder, a hanging copy whose child is stopped and whose half file goes,
+and the healthcheck; `check-backup.sh`, which CI runs through
+`check-restore.sh`, has a real `age` round trip. Decided: the API knows about
+backups, behind the setting. Different from the design: the image is
+`backup/Dockerfile` with `rclone` optional; the people told are the operators
+named in `BACKUP_ALERT_EMAILS`, not the owners, since everybody who signs up
+owns an organisation; the item had no migration number and took `V37`, the
+next free one; and a dump that failed once is not mailed, only backups that
+are late, dated in the future or not copied.

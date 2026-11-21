@@ -122,6 +122,8 @@ public class ProjectResource {
             description = "For owners and managers.")
     @Fails(status = 400, code = "invalid_dates", when = "endDate is before startDate")
     @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
+    @Fails(status = 400, code = "unknown_lead", when = "leadId is not somebody in this organisation")
+    @Fails(status = 400, code = "client_cannot_lead", when = "leadId is a client viewer, who cannot lead a project")
     @Fails(status = 409, code = "code_taken", when = "another project in the organisation already uses the code")
     public ProjectResponse create(@PathParam("orgId") long orgId, @Valid @NotNull ProjectRequest request) {
         Membership me = access.manager(orgId);
@@ -143,6 +145,8 @@ public class ProjectResource {
             description = "For owners and managers. The project is replaced: a field that is left out is cleared, apart from status and color.")
     @Fails(status = 400, code = "invalid_dates", when = "endDate is before startDate")
     @Fails(status = 400, code = "unknown_client", when = "clientId is not a client of this organisation")
+    @Fails(status = 400, code = "unknown_lead", when = "leadId is not somebody in this organisation")
+    @Fails(status = 400, code = "client_cannot_lead", when = "leadId is a client viewer, who cannot lead a project")
     @Fails(status = 409, code = "code_taken", when = "another project in the organisation already uses the code")
     public ProjectResponse update(@PathParam("projectId") long projectId, @Valid @NotNull ProjectRequest request) {
         Project project = access.project(projectId);

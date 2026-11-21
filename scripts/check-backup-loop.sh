@@ -187,14 +187,15 @@ run_loop
 expect 0 3
 grep -q "dated in the future" "$STATE/log" || fail "the log does not mention the dates"
 
-begin "dumps dated in the future next to an overdue one"
+begin "dumps dated in the future next to an overdue one: they neither count nor go"
 overdue=$(old_dump $((-2 * DAY)))
 old_dump $((2 * DAY)) >/dev/null
 old_dump $((3 * DAY)) >/dev/null
 run_loop
-expect 1 3
-[ ! -e "$BACKUP_DIR/$overdue" ] || fail "the overdue dump was kept instead of the new one"
+expect 1 4
+[ -e "$BACKUP_DIR/$overdue" ] || fail "the overdue dump was pruned to make room for dumps dated in the future"
 grep -lq new "$BACKUP_DIR"/*.dump || fail "the dump that was just written was pruned"
+grep -q "never removed and not counted" "$STATE/log" || fail "the log does not name the dumps dated in the future"
 
 begin "a file dated 31 February: not a dump to count or to remove"
 # From last year, so that it would be the oldest by its name and the first to go.
@@ -233,7 +234,7 @@ old_dump $((1 * DAY)) >/dev/null
 old_dump $((2 * DAY)) >/dev/null
 old_dump $((3 * DAY)) >/dev/null
 PATH="$work/bin:$PATH" sh "$here/backup.sh" once >"$STATE/log" 2>&1 || fail "once failed"
-[ "$(dump_count)" -eq 3 ] || fail "expected 3 dump files, found $(dump_count)"
+[ "$(dump_count)" -eq 4 ] || fail "expected the 3 dumps dated in the future to stay beside the new one, found $(dump_count)"
 grep -lq new "$BACKUP_DIR"/*.dump || fail "the dump that was just written was pruned"
 echo "ok: $case_name"
 
@@ -342,7 +343,7 @@ run_once() {
 }
 
 status_says() {
-  grep -q -x "$1" "$BACKUP_DIR/.backup-status" || fail "the status file does not say $1: $(tr '\n' ';' <"$BACKUP_DIR/.backup-status" 2>/dev/null)"
+  grep -q -x "$1" "$BACKUP_DIR/status/backup-status" || fail "the status file does not say $1: $(tr '\n' ';' <"$BACKUP_DIR/status/backup-status" 2>/dev/null)"
 }
 
 # pg_dump writes to stdout when it is given no --file, which is how it feeds age.
@@ -375,7 +376,7 @@ export BACKUP_ENCRYPT_TO=age1standin
 touch "$STATE/age-fails"
 run_once
 [ "$status" -ne 0 ] || fail "once reported success"
-[ -z "$(ls -A "$BACKUP_DIR" | grep -v '^\.backup-status$' || true)" ] || fail "something was left behind: $(ls -A "$BACKUP_DIR")"
+[ -z "$(ls -A "$BACKUP_DIR" | grep -v '^status$' || true)" ] || fail "something was left behind: $(ls -A "$BACKUP_DIR")"
 status_says "last_outcome=dump_failed"
 echo "ok: $case_name"
 
@@ -422,13 +423,18 @@ echo "ok: $case_name"
 
 begin "copies: a copy that hangs is stopped with everything it started, and counts as failed"
 touch "$STATE/hang"
-export BACKUP_RCLONE_REMOTE=standin:bucket BACKUP_COPY_TIMEOUT_SECONDS=2
+mkdir -p "$work/stopped-copies"
+echo half >"$work/stopped-copies/.planner-20260101T000000Z.dump.partial"
+export BACKUP_RCLONE_REMOTE=standin:bucket BACKUP_COPY_TIMEOUT_SECONDS=2 BACKUP_COPY_DIR="$work/stopped-copies"
 run_once
-unset BACKUP_RCLONE_REMOTE BACKUP_COPY_TIMEOUT_SECONDS
+unset BACKUP_RCLONE_REMOTE BACKUP_COPY_TIMEOUT_SECONDS BACKUP_COPY_DIR
+[ -z "$(ls -A "$work/stopped-copies" | grep '\.partial$' || true)" ] || fail "a half copy was left in the copy folder"
+rm -rf "$work/stopped-copies"
 [ "$status" -eq 0 ] || fail "a failed copy failed the dump"
 [ "$(dump_count)" -eq 1 ] || fail "the dump itself was not kept"
 status_says "last_outcome=copy_failed"
 grep -q "took longer than 2s and was stopped" "$STATE/log" || fail "the log does not say the copy was stopped"
+! grep -q "standin:bucket\|bucket" "$STATE/log" || fail "the log names more of the remote than its name: $(cat "$STATE/log")"
 child=$(cat "$STATE/child" 2>/dev/null || echo '')
 [ -n "$child" ] || fail "the copy did not start"
 ! kill -0 "$child" 2>/dev/null || fail "a process the copy started is still running"
@@ -437,12 +443,15 @@ echo "ok: $case_name"
 begin "health: a recent good dump is healthy, one older than twice the interval is not"
 run_once
 PATH="$work/bin:$PATH" sh "$here/backup.sh" health >"$STATE/log" 2>&1 || fail "unhealthy after a good dump: $(cat "$STATE/log")"
-good=$(sed -n 's/^last_good=//p' "$BACKUP_DIR/.backup-status")
-sed -i "s/^last_good_at=.*/last_good_at=$((now - 3 * DAY))/" "$BACKUP_DIR/.backup-status"
+good=$(sed -n 's/^last_good=//p' "$BACKUP_DIR/status/backup-status")
+sed -i "s/^last_good_at=.*/last_good_at=$((now - 3 * DAY))/" "$BACKUP_DIR/status/backup-status"
 ! PATH="$work/bin:$PATH" sh "$here/backup.sh" health >"$STATE/log" 2>&1 || fail "healthy with a good dump three days old"
 grep -q "more than twice the interval" "$STATE/log" || fail "it does not say why"
+sed -i "s/^last_good_at=.*/last_good_at=$((now + DAY))/" "$BACKUP_DIR/status/backup-status"
+! PATH="$work/bin:$PATH" sh "$here/backup.sh" health >"$STATE/log" 2>&1 || fail "healthy with a good dump dated tomorrow"
+grep -q "dated in the future" "$STATE/log" || fail "it does not say the dump is dated in the future"
 rm -f "$BACKUP_DIR/$good"
-sed -i "s/^last_good_at=.*/last_good_at=$now/" "$BACKUP_DIR/.backup-status"
+sed -i "s/^last_good_at=.*/last_good_at=$now/" "$BACKUP_DIR/status/backup-status"
 ! PATH="$work/bin:$PATH" sh "$here/backup.sh" health >/dev/null 2>&1 || fail "healthy while the last good dump is gone"
 echo "ok: $case_name"
 

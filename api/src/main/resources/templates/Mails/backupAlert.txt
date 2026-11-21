@@ -1,0 +1,6 @@
+{text}
+
+See the logs of the backup service: docker compose logs backup
+The Settings page shows the status: {settingsLink}
+
+This mail goes to the addresses in BACKUP_ALERT_EMAILS on this server.

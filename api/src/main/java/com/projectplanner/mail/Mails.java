@@ -17,6 +17,7 @@ public class Mails {
 
     static final String SUBJECT_RESET = "Reset your project-planner password";
     static final String SUBJECT_INVITATION = "You are invited to project-planner";
+    static final String SUBJECT_BACKUP = "The backups of project-planner need a look";
     static final String SUBJECT_SUMMARY = "Your morning on project-planner";
     static final String SUBJECT_ADDED = "You were added to an organisation on project-planner";
 
@@ -31,6 +32,8 @@ public class Mails {
         static native MailTemplateInstance notifications(List<Line> lines, String settingsLink, List<Line> stopLinks);
 
         static native MailTemplateInstance dailySummary(List<Line> lines, String settingsLink, Line stop);
+
+        static native MailTemplateInstance backupAlert(String text, String settingsLink);
     }
 
     /** One line of a mail: fixed wording and where it leads. */
@@ -68,6 +71,12 @@ public class Mails {
     public MailTemplateInstance dailySummary(String to, List<Line> lines, Line stop) {
         return Templates.dailySummary(lines, settings.link("/settings"), stop)
                 .from(settings.from()).to(to).subject(SUBJECT_SUMMARY);
+    }
+
+    /** To an operator: the backups need a look. {@code text} is one of the watch's fixed sentences. */
+    public MailTemplateInstance backupAlert(String to, String text) {
+        return Templates.backupAlert(text, settings.link("/settings"))
+                .from(settings.from()).to(to).subject(SUBJECT_BACKUP);
     }
 
     /** A link into the web app, from APP_URL. */

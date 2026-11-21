@@ -8,6 +8,11 @@ public enum BackupState {
     COPY_FAILED,
     /** The newest good dump is older than twice the interval. */
     LATE,
+    /**
+     * The newest good dump is dated ahead of the clock, so how old it is cannot be told. It
+     * stays so until a correctly dated dump has been made.
+     */
+    FUTURE_DATED,
     /** There has not been a good dump yet. */
     NO_GOOD_DUMP
 }

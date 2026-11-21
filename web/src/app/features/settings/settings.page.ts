@@ -81,7 +81,7 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
         <section class="card">
           <h2>Backups</h2>
           <p [class]="line.bad ? 'alert error' : 'muted'" [attr.role]="line.bad ? 'alert' : null">{{ line.text }}</p>
-          <p class="muted small">The backups are of the whole server. The owners of this organisation are mailed once when they stop.</p>
+          <p class="muted small">The backups are of the whole server. The addresses in BACKUP_ALERT_EMAILS are mailed once when they stop.</p>
         </section>
       }
     </div>
@@ -121,7 +121,7 @@ export class SettingsPage {
   private readonly http = inject(HttpClient);
 
   protected readonly organisation = signal<Organisation | null>(null);
-  /** For owners, when the server watches its backups. */
+  /** For the operators of the server, when it watches its backups. */
   protected readonly backup = signal<BackupLine | null>(null);
   protected readonly message = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
@@ -145,9 +145,7 @@ export class SettingsPage {
       if (orgId !== null) {
         this.orgApi.organisation(orgId).subscribe({ next: (o) => this.organisation.set({ ...o }) });
         this.backup.set(null);
-        if (this.org.isOwner()) {
-          this.orgApi.backupStatus(orgId).subscribe({ next: (b) => this.backup.set(backupLine(b, new Date())), error: () => undefined });
-        }
+        this.orgApi.backupStatus().subscribe({ next: (b) => this.backup.set(backupLine(b, new Date())), error: () => undefined });
       }
     });
   }

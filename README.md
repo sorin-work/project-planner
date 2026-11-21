@@ -163,6 +163,11 @@ the point is knowing whether a project will land on time and on budget.
   be mailed, shown in the app only or switched off in the settings, and every mail has
   a link that stops the mails of its types without signing in. Every mailed link names
   its organisation, and the app switches to it before the page opens.
+- **Project lead**: an owner, a manager or a member can lead a project, picked in the
+  project form and on the Settings tab by owners and managers. The project list has a
+  Lead column and a "Led by me" filter. Somebody who leaves the organisation, or becomes
+  a client viewer, stops leading their projects, which then have no lead. A copy of a
+  project keeps the lead only when it keeps the assignees.
 - **Morning summary**: on working days at eight in the organisation's time zone, one
   mail per person and organisation with how many of their tasks are due today and
   overdue and, for owners and managers, how many timesheets wait for review, with a
@@ -173,8 +178,11 @@ the point is knowing whether a project will land on time and on budget.
   gets the reminder "Remind all" would send, under the same limits.
 - **Budget alerts**: when a project's hours burn or money burn reaches 80% of its
   budget, and again when it reaches 100%, every owner and manager gets a notification
-  that opens the project's overview. Hours and money are announced separately, and the
-  hours message has no amounts in it. Each threshold is announced once. A burn that
+  that opens the project's overview. When the project has a lead, only the lead and the
+  owners do, so the other managers stop hearing about projects that are not theirs.
+  Hours and money are announced separately, and the hours message has no amounts in
+  it: a member who leads a project gets the hours message, in the app and by mail, and
+  never the money one. Each threshold is announced once. A burn that
   falls back under one (time deleted, the budget raised) can announce it again later.
   The check runs when time is logged, changed, moved, deleted or a timer stops, and when
   a budget or a rate changes. A project without a budget is never looked at.
@@ -185,7 +193,9 @@ the point is knowing whether a project will land on time and on budget.
   every logged hour. A late end is announced once, until the plan ends in time again.
   The check runs after every change to tasks, links, time, the budget or the project's
   dates, and once at the start of each organisation's day over its active projects, for
-  the task that went overdue overnight with nobody touching anything.
+  the task that went overdue overnight with nobody touching anything. A project with a
+  lead tells the lead and the owners instead, a member who leads it included, since
+  there are no amounts in it; by mail too, when that is how they want it.
 - **Reports**: logged time per project, client, person or task for this or last week
   or month, or any range up to two years, with the billable time and, for owners and
   managers, the billable amount. A click on a project shows its tasks. Utilisation
@@ -312,6 +322,9 @@ which it waits for, and the last tasks of the Globex patient portal are due afte
 the client's deadline. The Acme booking app also has a baseline, "Signed off at
 kick-off", from which its build and release phases have slipped a week, so its timeline
 has grey bars to compare with and its Overview a launch that is late.
+
+Priya leads the Acme booking app and Lena, a member, the studio design system, so the
+Lead column and "Led by me" have something to show when signing in as either of them.
 
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |
@@ -688,23 +701,27 @@ fails or is stopped does not undo the dump, but counts as a failure in the statu
 
 ### When backups stop
 
-After every run the service writes `.backup-status` in `BACKUP_DIR`: the newest good
-dump and the time in its name, how the last run went (`ok`, `dump_failed`,
+After every run the service writes `status/backup-status` in `BACKUP_DIR`: the newest
+good dump and the time in its name, how the last run went (`ok`, `dump_failed`,
 `copy_failed`) and the interval. Like the pruning it goes by the time in the name and
 never by a modification time. `backup.sh health` reads it, and the compose service has a
-healthcheck that is unhealthy when the newest good dump is older than twice the interval
-or no longer there, so `docker compose ps` shows it.
+healthcheck that is unhealthy when the newest good dump is older than twice the interval,
+no longer there, or dated in the future (its age cannot be told then, so it stays
+unhealthy until a correctly dated dump is made), so `docker compose ps` shows it. Dumps
+dated in the future, which a clock that was set back leaves behind, are never counted
+towards `BACKUP_KEEP` and never pruned, here, in the copy folder or on the remote; every
+prune names them in the log.
 
-The API can read it too, from a read-only mount of `BACKUP_DIR`, when `BACKUP_STATUS_FILE`
-is set to `/backups/.backup-status`. The owners of the first organisation then see a line about the backups on the
-Settings page (`GET /api/orgs/{orgId}/backup-status`), and each of them gets a
-`BACKUP_ALERT`, mailed by default, when the newest good dump is older than twice the
-interval or a dump could not be copied. Each is told once: not again until there is a
-newer good dump than the one there was. The backups are of the whole server, so they are
-the business of whoever runs it: the owners of the first organisation, the one made when
-the server was set up. Everybody who signs up owns an organisation of their own, so the
-owners of the others neither see the line nor get the mail. Without the setting the API
-does not look at backups at all.
+The API can read it too, when `BACKUP_STATUS_FILE` is set to `/backup-status/backup-status`:
+only the `status` folder is mounted into it, read only, so it never sees a dump. The
+backups are of the whole server, so they are the business of whoever runs it, and
+`BACKUP_ALERT_EMAILS` names those people. Only accounts with one of those addresses see
+the line about the backups on the Settings page (`GET /api/backup-status`; everybody else
+is told nothing). When the newest good dump is older than twice the interval, is dated in
+the future, or could not be copied, those addresses are mailed, whether or not they have
+an account. Each change of the state or of the dump it is about is mailed once:
+`backup_alert_marks` (`V37`) holds what was sent, and its unique key lets one instance of
+the API send it. Without `BACKUP_STATUS_FILE` the API does not look at backups at all.
 
 ### A new major version of PostgreSQL
 
@@ -821,7 +838,8 @@ npm start
 | `BACKUP_RCLONE_REMOTE`, `BACKUP_RCLONE_CONFIG` | empty (no copy)       | backup  |
 | `BACKUP_PACKAGES`      | empty (`rclone` to add it to the image)       | backup  |
 | `BACKUP_COPY_TIMEOUT_SECONDS` | `3600` (one hour)                      | backup  |
-| `BACKUP_STATUS_FILE`   | empty (`/backups/.backup-status` to watch)    | api     |
+| `BACKUP_STATUS_FILE`   | empty (`/backup-status/backup-status` to watch) | api   |
+| `BACKUP_ALERT_EMAILS`  | empty (the operators of the server)           | api     |
 
 `ATTACHMENTS_DIR` is where the API keeps the files attached to tasks; in compose it is
 the `attachments` volume. Requests can be up to 25 MB, in Quarkus and in nginx, so that a

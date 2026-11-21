@@ -3,7 +3,9 @@ package com.projectplanner.project;
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
+import com.projectplanner.auth.User;
 import com.projectplanner.org.Membership;
+import com.projectplanner.org.Role;
 import com.projectplanner.project.ProjectDtos.ProjectRequest;
 import com.projectplanner.project.ProjectDtos.ProjectResponse;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -75,10 +77,16 @@ public class ProjectService {
         BigDecimal budgetHours = project.budgetHours;
         BigDecimal budgetAmount = project.budgetAmount;
         BigDecimal hourlyRate = project.hourlyRate;
+        Long leadBefore = project.leadId;
         apply(project, request);
         write(project, () -> { });
         if (!same(budgetHours, project.budgetHours) || !same(budgetAmount, project.budgetAmount) || !same(hourlyRate, project.hourlyRate)) {
             budgetChanged.fire(new BudgetChanged(project.id));
+        }
+        if (!Objects.equals(leadBefore, project.leadId)) {
+            User lead = project.leadId == null ? null : User.findById(project.leadId);
+            activity.record(project.organisationId, project.id, null, me.userId, "project.lead",
+                    lead == null ? "Left " + project.name + " without a lead" : "Made " + lead.name + " the lead of " + project.name);
         }
         // The end date and the status are part of the schedule alerts.
         planChanged.fire(new PlanChanged(project.id));
@@ -104,6 +112,13 @@ public class ProjectService {
                 throw ApiException.badRequest("unknown_client", "Client not found in this organisation");
             }
         }
+        if (request.leadId() != null) {
+            Membership lead = Membership.find(project.organisationId, request.leadId())
+                    .orElseThrow(() -> ApiException.badRequest("unknown_lead", "The lead has to be somebody in this organisation"));
+            if (lead.role == Role.CLIENT) {
+                throw ApiException.badRequest("client_cannot_lead", "A client viewer cannot lead a project");
+            }
+        }
         project.name = request.name().trim();
         project.code = code;
         project.description = blankToNull(request.description());
@@ -116,6 +131,7 @@ public class ProjectService {
         project.budgetHours = request.budgetHours();
         project.budgetAmount = request.budgetAmount();
         project.hourlyRate = request.hourlyRate();
+        project.leadId = request.leadId();
         if (request.color() != null) {
             project.color = request.color().toLowerCase(Locale.ROOT);
         }
@@ -166,13 +182,29 @@ public class ProjectService {
             Client client = Client.findById(p.clientId);
             clientName = client == null ? null : client.name;
         }
-        return toResponse(p, showMoney, clientName);
+        User lead = p.leadId == null ? null : User.findById(p.leadId);
+        return toResponse(p, showMoney, clientName, lead == null ? null : lead.name);
     }
 
-    /** The same for a list of projects, with the names of their clients from one query. */
+    /**
+     * The same for a list of projects, with the names of their clients from one query and the
+     * names of their leads from one more, which is not sent when no project has a lead.
+     */
     public static List<ProjectResponse> toResponses(List<Project> projects, boolean showMoney) {
         Map<Long, String> clients = clientNames(projects);
-        return projects.stream().map(p -> toResponse(p, showMoney, p.clientId == null ? null : clients.get(p.clientId))).toList();
+        Map<Long, String> leads = leadNames(projects);
+        return projects.stream().map(p -> toResponse(p, showMoney, p.clientId == null ? null : clients.get(p.clientId),
+                p.leadId == null ? null : leads.get(p.leadId))).toList();
+    }
+
+    /** The name of the lead of each project that has one, by user id, from one query. */
+    static Map<Long, String> leadNames(List<Project> projects) {
+        Set<Long> ids = projects.stream().map(p -> p.leadId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> names = new HashMap<>();
+        if (!ids.isEmpty()) {
+            User.<User>list("id in ?1", ids).forEach(u -> names.put(u.id, u.name));
+        }
+        return names;
     }
 
     /** The name of the client of each project that has one, by client id, from one query. */
@@ -185,10 +217,10 @@ public class ProjectService {
         return names;
     }
 
-    private static ProjectResponse toResponse(Project p, boolean showMoney, String clientName) {
+    private static ProjectResponse toResponse(Project p, boolean showMoney, String clientName, String leadName) {
         return new ProjectResponse(p.id, p.organisationId, p.clientId, clientName, p.name, p.code, p.description,
                 p.status, p.startDate, p.endDate, p.budgetHours,
                 showMoney ? p.budgetAmount : null, showMoney ? p.hourlyRate : null,
-                p.color, p.createdAt, p.updatedAt, null, null);
+                p.color, p.createdAt, p.updatedAt, p.leadId, leadName, null, null);
     }
 }

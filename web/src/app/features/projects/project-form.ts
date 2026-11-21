@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Client, Project, ProjectStatus } from '../../core/models';
+import { Client, Member, Project, ProjectStatus } from '../../core/models';
 import { ProjectInput } from '../../core/project.api';
 import { PROJECT_STATUSES, PROJECT_STATUS_LABELS } from '../../shared/format';
 
@@ -31,6 +31,15 @@ const COLORS = ['#4f6bed', '#2f9e72', '#c2410c', '#7c3aed', '#0e7490', '#d97706'
           <option [ngValue]="null">Internal (no client)</option>
           @for (c of clients(); track c.id) {
             <option [ngValue]="c.id">{{ c.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="pf-lead">Lead</label>
+        <select id="pf-lead" formControlName="leadId">
+          <option [ngValue]="null">Nobody</option>
+          @for (m of leads(); track m.userId) {
+            <option [ngValue]="m.userId">{{ m.name }}</option>
           }
         </select>
       </div>
@@ -89,6 +98,17 @@ const COLORS = ['#4f6bed', '#2f9e72', '#c2410c', '#7c3aed', '#0e7490', '#d97706'
 export class ProjectForm {
   readonly project = input<Project | null>(null);
   readonly clients = input<Client[]>([]);
+  /** Who can lead: the team, without client viewers. */
+  readonly members = input<Member[]>([]);
+  protected readonly leads = computed<{ userId: number; name: string }[]>(() => {
+    const team = this.members().filter((m) => m.role !== 'CLIENT');
+    // A lead the list does not have yet (it is still loading) keeps its place in the select.
+    const p = this.project();
+    if (p?.leadId && p.leadName && !team.some((m) => m.userId === p.leadId)) {
+      return [{ userId: p.leadId, name: p.leadName }, ...team];
+    }
+    return team;
+  });
   readonly submitLabel = input('Save');
   readonly busy = input(false);
   readonly error = input<string | null>(null);
@@ -104,6 +124,7 @@ export class ProjectForm {
     name: ['', [Validators.required, Validators.maxLength(120)]],
     code: ['', [Validators.required, Validators.pattern(/^[A-Za-z0-9][A-Za-z0-9-]{0,15}$/)]],
     clientId: [null as number | null],
+    leadId: [null as number | null],
     status: ['PLANNED' as ProjectStatus],
     color: [COLORS[0]],
     startDate: [''],
@@ -122,6 +143,7 @@ export class ProjectForm {
           name: p.name,
           code: p.code,
           clientId: p.clientId ?? null,
+          leadId: p.leadId ?? null,
           status: p.status,
           color: p.color,
           startDate: p.startDate ?? '',
@@ -145,6 +167,7 @@ export class ProjectForm {
       name: v.name ?? '',
       code: (v.code ?? '').toUpperCase(),
       clientId: v.clientId,
+      leadId: v.leadId,
       status: v.status ?? 'PLANNED',
       color: v.color ?? COLORS[0],
       startDate: v.startDate || null,

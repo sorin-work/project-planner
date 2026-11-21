@@ -37,8 +37,10 @@ class BackupStatusTest {
         BackupStatus failing = BackupStatus.parse(file("dump_failed", "x.dump", NOW.getEpochSecond() - DAY)).orElseThrow();
         assertThat(failing.state(NOW)).isEqualTo(BackupState.OK);
         assertThat(BackupStatus.bad(failing.state(NOW))).isFalse();
-        // A dump dated ahead of the clock counts as made now.
-        assertThat(BackupStatus.parse(file("ok", "x.dump", NOW.getEpochSecond() + 5 * DAY)).orElseThrow().state(NOW)).isEqualTo(BackupState.OK);
+        // A dump dated ahead of the clock has an age nobody can tell: bad until a correctly dated one is made.
+        BackupStatus ahead = BackupStatus.parse(file("ok", "x.dump", NOW.getEpochSecond() + 5 * DAY)).orElseThrow();
+        assertThat(ahead.state(NOW)).isEqualTo(BackupState.FUTURE_DATED);
+        assertThat(BackupStatus.bad(BackupState.FUTURE_DATED)).isTrue();
     }
 
     @Test

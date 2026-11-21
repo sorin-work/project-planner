@@ -119,7 +119,9 @@ public class ProjectDuplicator {
         Project copy = projects.insert(source.organisationId, new ProjectRequest(request.name(), request.code(),
                 source.description, request.clientId(), ProjectStatus.PLANNED,
                 newStart(calendar, source, shift, request.startDate()), newEnd(source, shift),
-                source.budgetHours, source.budgetAmount, source.hourlyRate, source.color));
+                source.budgetHours, source.budgetAmount, source.hourlyRate, source.color,
+                // A template's lead is rarely the new project's: only copied along with the assignees.
+                source.leadId != null && team.contains(source.leadId) ? source.leadId : null));
         em.flush();
 
         OffsetDateTime now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);

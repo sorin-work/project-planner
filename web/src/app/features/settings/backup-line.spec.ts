@@ -16,6 +16,7 @@ describe('backupLine', () => {
       .toBe('Backups have stopped. The newest good backup is from 3 days ago. See the logs of the backup service.');
     expect(backupLine({ watched: true, state: 'COPY_FAILED', lastGoodAt: '2026-03-10T11:59:00Z' }, NOW)?.bad).toBe(true);
     expect(backupLine({ watched: true, state: 'NO_GOOD_DUMP' }, NOW)?.bad).toBe(true);
+    expect(backupLine({ watched: true, state: 'FUTURE_DATED', lastGoodAt: '2026-04-01T00:00:00Z' }, NOW)?.text).toContain('dated in the future');
     expect(backupLine({ watched: true }, NOW)?.text).toContain('no backup status');
   });
 

@@ -26,8 +26,6 @@ public class NotificationPreferences {
         map.put(NotificationType.ASSIGNED, Delivery.EMAIL);
         map.put(NotificationType.TIMESHEET_REJECTED, Delivery.EMAIL);
         map.put(NotificationType.TIMESHEET_REMINDER, Delivery.EMAIL);
-        // A backup that has quietly stopped is found on the day it is needed.
-        map.put(NotificationType.BACKUP_ALERT, Delivery.EMAIL);
         // On for owners and managers, see summaryDefault; this is everybody else's.
         map.put(NotificationType.DAILY_SUMMARY, Delivery.OFF);
         return Map.copyOf(map);

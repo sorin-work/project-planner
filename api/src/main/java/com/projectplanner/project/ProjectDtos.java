@@ -30,7 +30,8 @@ public final class ProjectDtos {
             @DecimalMin("0") @DecimalMax("1000000") BigDecimal budgetHours,
             @DecimalMin("0") @DecimalMax("100000000") BigDecimal budgetAmount,
             @DecimalMin("0") @DecimalMax("100000") BigDecimal hourlyRate,
-            @Pattern(regexp = "#[0-9a-fA-F]{6}", message = "must be a hex colour like #4f6bed") String color) {
+            @Pattern(regexp = "#[0-9a-fA-F]{6}", message = "must be a hex colour like #4f6bed") String color,
+            @Schema(description = "The user who leads the project: an owner, a manager or a member. Left out, nobody does.") Long leadId) {
     }
 
     /** Money fields are left out for members and client viewers. */
@@ -42,13 +43,15 @@ public final class ProjectDtos {
                                   @Schema(description = ApiDocs.MANAGERS_ONLY) BigDecimal budgetAmount,
                                   @Schema(description = "A fixed rate for all time on this project. " + ApiDocs.MANAGERS_ONLY) BigDecimal hourlyRate,
                                   String color, Instant createdAt, Instant updatedAt,
+                                  @Schema(description = "The user who leads the project. Left out when nobody does.") Long leadId,
+                                  @Schema(description = "The name of the lead.") String leadName,
                                   @Schema(description = "Only in the answer to a copy with copyAttachments: the files that were copied.") Integer attachmentsCopied,
                                   @Schema(description = "Only in the answer to a copy with copyAttachments: the files that were left out because "
                                           + "their file was missing on the server.") Integer attachmentsSkipped) {
 
         public ProjectResponse withCopiedFiles(int copied, int skipped) {
             return new ProjectResponse(id, organisationId, clientId, clientName, name, code, description, status, startDate, endDate,
-                    budgetHours, budgetAmount, hourlyRate, color, createdAt, updatedAt, copied, skipped);
+                    budgetHours, budgetAmount, hourlyRate, color, createdAt, updatedAt, leadId, leadName, copied, skipped);
         }
     }
 

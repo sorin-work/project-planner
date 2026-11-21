@@ -22,7 +22,7 @@
 # remote, for a bucket that can be self-hosted), and pruned there the same
 # way. A copy that fails does not undo the dump, but counts as a failure.
 #
-# After every run a status file, $BACKUP_DIR/.backup-status, says when the
+# After every run a status file, $BACKUP_DIR/status/backup-status, says when the
 # newest good dump was made (by its name), how the last run went and the
 # interval. "health" reads it, and so can the api.
 #
@@ -51,7 +51,9 @@ decrypt_key=${BACKUP_DECRYPT_KEY:-}
 copy_dir=${BACKUP_COPY_DIR:-}
 remote=${BACKUP_RCLONE_REMOTE:-}
 copy_timeout=${BACKUP_COPY_TIMEOUT_SECONDS:-3600}
-status_file="$dir/.backup-status"
+# In a folder of its own, so that the api can mount it alone, read only.
+status_dir="$dir/status"
+status_file="$status_dir/backup-status"
 
 # A dump holds the password hashes, the rates and every hour that was
 # logged: owner only.
@@ -155,14 +157,37 @@ warn_about_impossible_dates() {
   done
 }
 
-# Removes the oldest dumps until $keep are left. The dump that was just
-# written ($1) is never one of them: after the clock was set back it sorts
-# below older dumps, and it is still the one worth keeping.
+# The dumps of the folder $1 (the backup folder by default) that are not
+# dated in the future, newest first. Only these are counted and pruned.
+present_dumps() {
+  checked_at=$(date +%s)
+  dumps "${1:-$dir}" | while read -r name; do
+    [ "$(dump_time "$name")" -gt "$checked_at" ] || echo "$name"
+  done
+}
+
+# Names in the folder $1 that are dated in the future, which a clock that was
+# set back leaves behind. Said on every prune for as long as they are there.
+warn_about_future_dumps() {
+  checked_at=$(date +%s)
+  ahead=$(dumps "${1:-$dir}" | while read -r name; do
+    [ "$(dump_time "$name")" -le "$checked_at" ] || printf '%s ' "$name"
+  done)
+  if [ -n "$ahead" ]; then
+    log "warning: dated in the future, so never removed and not counted towards the $keep to keep: $ahead"
+  fi
+}
+
+# Removes the oldest dumps until $keep are left. Two kinds are never removed:
+# dumps dated in the future, which do not count towards $keep either, so that
+# a few stale files cannot push out every new day; and the dump that was just
+# written ($1), whatever the clock makes of it.
 prune() {
-  dumps | grep -v -x -F "$1" | tail -n +"$keep" | while read -r old; do
+  present_dumps | grep -v -x -F "$1" | tail -n +"$keep" | while read -r old; do
     rm -f "$dir/$old" "$dir/$(archive_of "$old")"
     log "removed $old"
   done
+  warn_about_future_dumps
   warn_about_impossible_dates
 }
 
@@ -196,6 +221,7 @@ sealed() {
 # Without $2 the newest good dump stays the one the file named before. The
 # time of a dump is the time in its name, as everywhere else.
 write_status() {
+  mkdir -p "$status_dir" && chmod 755 "$status_dir" 2>/dev/null || true
   good=${2:-}
   if [ -z "$good" ] && [ -f "$status_file" ]; then
     good=$(sed -n 's/^last_good=//p' "$status_file")
@@ -210,6 +236,10 @@ write_status() {
     echo "interval=$interval"
   } >"$status_file.partial" || ! chmod 644 "$status_file.partial" || ! mv "$status_file.partial" "$status_file"; then
     log "could not write $status_file" >&2
+  fi
+  # Docker runs this as root: the folder and the file belong to whoever owns the backup folder, like the dumps.
+  if [ "$(id -u)" = 0 ]; then
+    chown "$(stat -c %u:%g "$dir")" "$status_dir" "$status_file" 2>/dev/null || true
   fi
 }
 
@@ -238,6 +268,8 @@ copy_off() {
   kill -TERM "$watchdog_pid" 2>/dev/null || true
   wait "$watchdog_pid" 2>/dev/null || true
   stop_session "$copy_pid"
+  # A copy that was stopped or failed may leave its hidden half file behind.
+  [ -z "$copy_dir" ] || rm -f "$copy_dir"/.planner-*.partial
   if [ -e "$fired" ]; then
     rm -f "$fired"
     log "the copy of $(basename "$1") took longer than ${copy_timeout}s and was stopped. The dump itself is fine." >&2
@@ -247,7 +279,7 @@ copy_off() {
     log "the copy of $(basename "$1") failed (exit $copied). The dump itself is fine." >&2
     return 1
   fi
-  log "copied $(basename "$1") to ${copy_dir:+$copy_dir }${remote:+$remote}"
+  log "copied $(basename "$1")${copy_dir:+ to the copy folder}${remote:+ to $(remote_name)}"
 }
 
 # Ends whatever is left in the session $1 and waits until it is gone: up to
@@ -263,6 +295,12 @@ stop_session() {
     fi
     /bin/sleep 1
   done
+}
+
+# The name of the rclone remote, the part before the colon. The rest can be a
+# path or, for some backends, hold a key, so it is never logged.
+remote_name() {
+  echo "the remote ${remote%%:*}"
 }
 
 # "backup.sh copy <files>": what copy_off runs in its own session. Each file
@@ -284,21 +322,29 @@ copy_files() {
     fi
   done
   if [ -n "$copy_dir" ]; then
-    dumps "$copy_dir" | grep -v -x -F "$newest" | tail -n +"$keep" | while read -r old; do
+    present_dumps "$copy_dir" | grep -v -x -F "$newest" | tail -n +"$keep" | while read -r old; do
       rm -f "$copy_dir/$old" "$copy_dir/$(archive_of "$old")"
-      log "removed $old from $copy_dir"
+      log "removed $old from the copy folder"
     done
+    warn_about_future_dumps "$copy_dir"
   fi
   if [ -n "$remote" ]; then
     listed=$(rclone lsf --files-only "$remote") || exit 1
+    checked_at=$(date +%s)
     echo "$listed" | grep -E "$DUMP_NAME" | sort -r | while read -r old; do
-      [ -n "$(dump_time "$old")" ] && echo "$old"
+      made=$(dump_time "$old")
+      # Not counted and never removed when the date does not exist or lies in the future.
+      if [ -n "$made" ] && [ "$made" -le "$checked_at" ]; then
+        echo "$old"
+      elif [ -n "$made" ]; then
+        log "warning: $old on $(remote_name) is dated in the future, so it is never removed and not counted" >&2
+      fi
     done | grep -v -x -F "$newest" | tail -n +"$keep" | while read -r old; do
       rclone deletefile "$remote/$old" || exit 1
       if echo "$listed" | grep -q -x -F "$(archive_of "$old")"; then
         rclone deletefile "$remote/$(archive_of "$old")" || exit 1
       fi
-      log "removed $old from $remote"
+      log "removed $old from $(remote_name)"
     done
   fi
 }
@@ -419,8 +465,8 @@ run() {
   log "dumping $PGDATABASE to $dir every ${interval}s, keeping the newest $keep${encrypt_to:+, encrypted}"
   warn_about_impossible_dates
   # A folder from before the status file: the newest dump there is the last good one.
-  if [ ! -f "$status_file" ] && [ -n "$(dumps | head -n 1)" ]; then
-    write_status ok "$(dumps | head -n 1)"
+  if [ ! -f "$status_file" ] && [ -n "$(present_dumps | head -n 1)" ]; then
+    write_status ok "$(present_dumps | head -n 1)"
   fi
 
   now=$(date +%s)
@@ -458,7 +504,7 @@ run() {
 
 # The healthcheck: healthy while the newest good dump, by the time in its
 # name, is at most twice the interval old and still there. A time ahead of
-# the clock counts as now, as in the loop.
+# the clock is not taken for now: how old it is cannot be told.
 health() {
   is_positive_integer "$interval" || fail "BACKUP_INTERVAL_SECONDS must be a whole number above zero, got '$interval'"
   if [ ! -f "$status_file" ]; then
@@ -477,7 +523,11 @@ health() {
     exit 1
   fi
   checked_at=$(date +%s)
-  [ "$good_at" -le "$checked_at" ] || good_at=$checked_at
+  # Dated ahead of the clock, its age is unknown: unhealthy until a correctly dated dump is made.
+  if [ "$good_at" -gt "$checked_at" ]; then
+    echo "the last good dump, $good, is dated in the future, so how old the backups are cannot be told. Check the clock."
+    exit 1
+  fi
   age_s=$((checked_at - good_at))
   if [ "$age_s" -gt $((2 * interval)) ]; then
     echo "the last good dump, $good, is ${age_s}s old, more than twice the interval of ${interval}s (the last run: $outcome)"
