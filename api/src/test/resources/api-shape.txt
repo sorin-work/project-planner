@@ -1139,6 +1139,7 @@ paths /api/auth/login post requestBody content application/json schema $ref = #/
 paths /api/auth/login post requestBody required = true
 paths /api/auth/login post responses 200 content application/json schema $ref = #/components/schemas/AuthResponse
 paths /api/auth/login post responses 401 content application/json schema $ref = #/components/schemas/ApiError
+paths /api/auth/login post responses 429 content application/json schema $ref = #/components/schemas/ApiError
 paths /api/auth/login post responses default $ref = #/components/responses/Error
 paths /api/auth/login post tags = Auth
 paths /api/auth/options get operationId = AuthResource_options
