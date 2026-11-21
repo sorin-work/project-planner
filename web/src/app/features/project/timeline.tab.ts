@@ -13,7 +13,7 @@ import { Zoom } from '../gantt/gantt-layout';
 import { baselineDates, baselineLabels, changedItems, countsText, endText } from './baseline-text';
 import { injectOpenTask } from './open-task';
 import { ProjectStore } from './project.store';
-import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
+import { MoveTo, criticalNote, issueLines, moveCost, planEndNote } from './schedule-issues';
 
 @Component({
   selector: 'app-timeline-tab',
@@ -25,7 +25,9 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
           <button type="button" [class.active]="zoom() === z" (click)="zoom.set(z)">{{ z }}</button>
         }
       </div>
-      <label><input type="checkbox" [(ngModel)]="showCritical" /> Highlight critical path</label>
+      <label title="The tasks that move the end of the plan when they slip. A finished task stays where it was done and is never critical.">
+        <input type="checkbox" [(ngModel)]="showCritical" /> Highlight critical path
+      </label>
       @if (store.baselines().length) {
         <label>
           Compare with
@@ -50,6 +52,9 @@ import { MoveTo, issueLines, moveCost, planEndNote } from './schedule-issues';
       }
     </div>
     @if (endNote(); as note) {
+      <p class="muted small plan-end-note">{{ note }}</p>
+    }
+    @if (criticalNote(store.criticalPath()); as note) {
       <p class="muted small plan-end-note">{{ note }}</p>
     }
     @if (store.scheduleError(); as problem) {
@@ -145,6 +150,7 @@ export class TimelineTab {
   protected showCritical = true;
   protected readonly showIssues = signal(false);
   protected readonly lines = computed(() => issueLines(this.store.issues(), (id) => this.title(id)));
+  protected readonly criticalNote = criticalNote;
   protected readonly endNote = computed(() =>
     planEndNote(this.store.criticalPath()?.finish, this.store.tasks(), this.store.issues()),
   );

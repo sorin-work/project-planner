@@ -73,7 +73,8 @@ the point is knowing whether a project will land on time and on budget.
   timeline, so they show before anybody opens it.
 - **Critical path** (CPM forward/backward pass over working days) with float per task.
   A finished task stays at its own dates: what is done is no longer a plan, so it has no
-  float and is never critical, while the tasks that wait for it still follow it.
+  float and is never critical, while the tasks that wait for it still follow it. When
+  the plan ends with a finished task, no open task is critical, and the timeline says so.
 - **Views**: list grouped by phase, kanban board with drag and drop, and an SVG
   timeline (Gantt) with dependency arrows, the critical path, today line, collapsible
   phases and day/week/month zoom. Dependencies with a schedule issue are drawn red
