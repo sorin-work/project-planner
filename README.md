@@ -13,9 +13,9 @@ the point is knowing whether a project will land on time and on budget.
 - **Forgotten passwords**: with mail set up, "Forgot your password?" on the sign-in
   page mails a link that works for one hour. Setting a new password, there or in the
   settings, signs you out everywhere else.
-- **Sign-in limits**: after five wrong passwords for an account, or twenty from one
-  address, each further try waits longer, up to five minutes. An account is never
-  locked, and a password reset lets its owner straight in. The app is served with a
+- **Sign-in limits**: after five wrong passwords for an account from one address, each
+  further try from that address waits longer, up to five minutes. Other addresses are
+  not held back, so somebody guessing never keeps the owner out, and a reset clears it. The app is served with a
   Content-Security-Policy. See [Sign-in limits and security headers](#sign-in-limits-and-security-headers).
 - **Organisations and roles**: owners, managers, members and client viewers. Invite
   people by email; anyone who already has an account is added straight away, others
@@ -424,28 +424,42 @@ is at DEBUG. The API tests send to a mock mailbox and never to a server.
 
 ## Sign-in limits and security headers
 
-Wrong passwords are limited per account and per client address. Five wrong passwords in
-a row for an account pass. After that each further try waits, counted from the last
-wrong one: one second, then two, four and so on, up to five minutes. A try during the
-wait answers `429 too_many_attempts` with `Retry-After` in seconds, and the sign-in page
-says how long that is. The password is not looked at during the wait, so a right one
-gets the same answer as a wrong one, and the try does not make the wait longer. One
-client address gets twenty wrong passwords before it waits the same way, whatever the
-accounts, since a whole office may sign in from one address.
+Wrong passwords are limited per account and client address together. Five wrong
+passwords for an account from one address pass. After that each further try from that
+address for that account waits, counted from the last wrong one: one second, then two,
+four and so on, up to five minutes. A try during the wait answers
+`429 too_many_attempts` with `Retry-After` in seconds, and the sign-in page says how long
+that is. The password is not looked at during the wait, so a right one gets the same
+answer as a wrong one, and the try does not make the wait longer.
 
-An account is never locked. Somebody who tries passwords for an account that is not
-theirs can keep its owner waiting up to five minutes at a time, from many addresses, but
-not out. A password reset sets the count of the account back to zero, so the owner can
-sign in straight after it. Failures are forgotten after a day without one for an
-account, and after an hour for an address.
+That wait is the only thing that refuses a try, and it only holds back the address the
+wrong passwords came from. Somebody who keeps trying passwords for an account from one
+place keeps that place waiting, while the owner signs in from home or the office at once.
+A password reset clears the waits of the account everywhere.
 
-The counts per account are two columns on `users`, so they hold across a restart and
-across copies of the API. The counts per address are in memory, like the reset limit,
-and a restart resets them. The address is the one nginx saw (see
-[Mail](#mail) for `BEHIND_PROXY` and `TRUSTED_PROXIES`). A burst of tries at the same
-moment does not get past the wait: each try is counted as a failure before the password
-is checked, by an update that only matches the count it read, and taken back when the
-password was right.
+Two more counts slow guessing down without refusing anybody: wrong passwords for an
+account from all addresses together (twenty), and wrong passwords from one address for
+all accounts (a hundred in an hour). Past either, a new pair of account and address gets
+one free try instead of five before it waits. That makes guessing at one account from many
+addresses, and at many accounts from one address, slow, while the right password from a
+place that has not failed still goes straight in. A whole office behind one address keeps
+signing in, even when somebody there is trying passwords.
+
+The waits per account and address are a table, `login_failures`, and the counts per
+account two columns on `users`, so they hold across a restart and across copies of the
+API. A right password removes the row of its address, and rows that have been quiet for a
+day. The counts per address are in memory, like the reset limit, and a restart resets
+them. Failures are forgotten after a day without one (an hour for an address). A burst of
+tries at the same moment does not get past a wait: each try is counted before the
+password is checked, by an update that only matches the count it read, and taken back
+when the password was right.
+
+All of this goes by the address the API sees. In Compose that is the address nginx saw
+(see [Mail](#mail) for `BEHIND_PROXY` and `TRUSTED_PROXIES`). When something else
+terminates TLS in front of the web container, nginx sees that one address for everybody,
+and every client then shares one count per account. Let nginx take the client's address
+from the terminator with `set_real_ip_from` and `real_ip_header` (the lines are in
+`web/nginx.conf`, commented out).
 
 A sign-in with an unknown email checks the password against a dummy hash of the same
 cost, so that it takes as long as a wrong password and its time does not say whether
@@ -453,6 +467,9 @@ there is an account. That does not make account names secret: sign-up still answ
 `email_taken` for an address that has an account, and an account that waits answers
 429 where an unknown email answers 401. Both say that the account exists. I left them,
 since closing them would mean a sign-up that answers in the mail rather than on the page.
+For the same reason a known email still costs a few more database writes than an unknown
+one (the count of the pair and of the account), which the hash, at about a tenth of a
+second, mostly hides but does not cancel.
 
 The web container sends these headers with the app (`web/nginx.conf`):
 

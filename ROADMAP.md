@@ -1159,23 +1159,31 @@ pasted images, and storage other than the volume.
 
 ### 22. Sign-in hardening
 
-`LoginLimits` and `V28` (`failed_logins` and `last_failed_login_at` on `users`).
-Five wrong passwords for an account pass, twenty from one client address (in
-memory, like `ClientThrottle`); after that each try waits from the last wrong one,
-one second and doubling up to five minutes, with `429 too_many_attempts` and
-`Retry-After`. A try during the wait is refused before the password is checked
-and does not count, a right password sets the account back to zero, a reset or a
-change of password does too, and a day without failures forgets them (an hour for
-an address). Each try is counted before the hash is checked, with an update that
-only matches the count it read, so a burst at the same moment cannot get past the
-wait, and a right password takes its count back. An unknown email is checked
-against a dummy hash of the same cost. nginx sends a Content-Security-Policy,
-`nosniff` and `Referrer-Policy: same-origin` with the app, not on `/api/`.
-Differences from the design: `style-src` is `'self'` without `'unsafe-inline'` or
-a nonce, because the components have no styles of their own; the lint keeps it
-that way, and the build no longer inlines critical CSS, whose loader was an
-inline script. Still open: a waiting account answers 429 where an unknown email
-answers 401, which tells that it exists, like sign-up does (the README says so);
-somebody trying from many addresses can keep an owner waiting up to five minutes
-at a time; HSTS is for whatever terminates TLS; and a list of sessions with "sign
-out this device" was left out, as the design suggested.
+`LoginLimits` and `V28` (a `login_failures` table per account and client address,
+and `failed_logins` with `last_failed_login_at` on `users`). Five wrong passwords
+for an account from one address pass; after that each try from that address for
+that account waits from the last wrong one, one second and doubling up to five
+minutes, with `429 too_many_attempts` and `Retry-After`. A try during the wait is
+refused before the password is checked and does not count. Only that pair waits:
+a right password from any other address always goes in, so somebody hammering an
+account from one place cannot keep its owner out. Twenty wrong passwords for an
+account from all addresses, or a hundred from one address in an hour (in memory,
+like `ClientThrottle`), never refuse anything: they leave a new pair one free try
+instead of five. A right password clears its pair and the account's count, a reset
+or a change of password clears all of them, and a day without failures forgets
+them. Each try is counted before the hash is checked, with an update that only
+matches the count it read, so a burst at the same moment cannot get past a wait.
+An unknown email is checked against a dummy hash of the same cost. nginx sends a
+Content-Security-Policy, `nosniff` and `Referrer-Policy: same-origin` with the app,
+not on `/api/`, and has the `real_ip` lines for a TLS terminator in front,
+commented out. Differences from the design: the wait is per account and address
+rather than per account, since one address could otherwise keep an owner waiting
+for as long as it liked; `style-src` is `'self'` without `'unsafe-inline'` or a
+nonce, because the components have no styles of their own; the lint keeps it that
+way, and the build no longer inlines critical CSS, whose loader was an inline
+script. Still open: a waiting pair answers 429 where an unknown email answers 401,
+and a known email costs a few more writes than an unknown one, which both tell
+that it exists, like sign-up does (the README says so); somebody with many
+addresses gets five tries from each until the account's count brings new ones down
+to one; HSTS is for whatever terminates TLS; and a list of sessions with "sign out
+this device" was left out, as the design suggested.
