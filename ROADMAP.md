@@ -1109,5 +1109,5 @@ is nothing to say too, so a person is looked at once a morning, and a summary
 that fails to send is not tried again that day; the reminder setting and the
 day it last ran are two columns on `organisations` in the same `V30`, since
 the item has one number; and the reminders run in the same morning window as
-the summary. Item 23's lead is not used. Still open: the link to My tasks
-needs item 19, which is built separately.
+the summary. Item 23's lead is not used. The task lines link to item 19's
+My tasks page.
