@@ -39,7 +39,7 @@ couple of weekends, **L** several weeks of spare time.
 | 16  | Baselines                                  | Shipped | both     | M    | -          |
 | 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
-| 19  | My tasks page                              | Next  | both     | S    | -          |
+| 19  | My tasks page                              | Shipped | both     | S    | -          |
 | 20  | Approve weeks in one go                    | Shipped | both     | S    | -          |
 | 21  | Schedule issues beyond the timeline        | Shipped | both     | S    | -          |
 | 22  | Sign-in hardening                          | Shipped | both     | S    | -          |
@@ -140,49 +140,6 @@ A few things hold for every item:
 
 Items 19 to 23 are new. Each is small and closes something a shipped item
 left open.
-
-### 19. My tasks page
-
-Follow-up of item 4, which wrote it down and left it out. The dashboard lists
-my overdue tasks, the ones due within seven days (`DUE_SOON_DAYS` in
-`DashboardResource`) and the ones in progress. A to-do task due in three
-weeks, or one without a due date, shows up nowhere outside its project. To
-know what is on my plate I open every project and tick "Only mine".
-
-- API: `assigneeId` and `status` parameters on
-  `GET /api/orgs/{orgId}/search`, as item 4 planned, and `q` no longer needed
-  when one of them is given. Without text only tasks are returned, since a
-  project or a comment has no assignee. `SearchService` finds nothing under
-  two characters today, so that check moves behind the new case.
-- Visibility comes with the search: tasks are reached through the projects
-  of the organisation, and for a client viewer only through those of their
-  client. Keep it that way for the new form too, and test it with a client
-  viewer and with somebody from another organisation.
-- Tricky: the limit. `limit` is 1 to 20 hits of each kind, which is right for
-  the dialog and too few for a page. The task-only form needs a higher cap
-  (say 200), an order (due date, no date last, then project and position)
-  and a way to tell that there is more. Ask for one row more than the limit
-  and answer with a `more` flag; that also closes item 4's open point about
-  a kind cut off at the limit without saying so.
-- `nulls last` is accepted by H2 in PostgreSQL mode as well, but check it in
-  the endpoint test rather than trusting it.
-- Web: a `/my-tasks` route in the navigation. Groups Overdue, This week,
-  Later and No date, each row with the project's code, the due date, the
-  status and the priority. Done tasks hidden, with a "Show done" toggle. A
-  click opens the task in its project (`/projects/{id}/list?task=`, the
-  target `notificationTarget` already builds), and the row can be ticked done
-  through `TaskApi` without leaving the page.
-- Team members may pick another person in an assignee select (the list
-  filter already lets them see anybody's tasks in a project); client viewers
-  only get their own.
-- Tests: endpoint tests for the new parameters, and a `QueryCountTest` bound
-  for the task-only form on the large organisation. The grouping into
-  Overdue, This week and so on is a plain function with a spec, with the
-  organisation's date passed in.
-- Undecided: whether this stays the search endpoint or becomes
-  `GET /api/orgs/{orgId}/my-tasks`. The search already has the visibility
-  rules in its queries, which is the hard part. I lean towards the search
-  endpoint.
 
 ### 23. Project lead
 
@@ -1007,6 +964,24 @@ minutes even after access is taken away; and a file removed in the minute betwee
 archive is missing from that backup. Still open: attachments on comments,
 pasted images, and storage other than the volume.
 
+### 19. My tasks page
+
+`assigneeId` and a repeatable `status` on `GET /api/orgs/{orgId}/search`: with either,
+only tasks are found, `q` is optional, the limit goes up to 200, and they come by
+due date with no date last, then by project code and position. Every kind of the
+search now asks for one row more than its limit and names the kinds cut off in
+`more`, which closes item 4's open point. The task hits carry the due date, the
+status and the priority, and the task-only answer carries `today`, the
+organisation's date. The visibility stays in the query: the organisation's
+projects, and a client viewer's client. A `/my-tasks` page groups the tasks into
+Overdue, This week (up to Sunday), Later, No date, and Done when "Show done" is on
+or a task was just ticked; a box ticks a task done in place and unticking restores
+its earlier status. Team members pick another person in a select. Decided: it
+stays the search endpoint. Different from the design: the page and its link are for
+the team only, since a client viewer can never be assigned a task; the API still
+answers a client viewer, within their client's projects, for whoever they ask
+about. Still open: the page lists at most 200 and says so, with no paging.
+
 ### 20. Approve weeks in one go
 
 `POST /api/orgs/{orgId}/timesheets/approve` takes the weeks as they were on
@@ -1103,8 +1078,8 @@ is nothing to say too, so a person is looked at once a morning, and a summary
 that fails to send is not tried again that day; the reminder setting and the
 day it last ran are two columns on `organisations` in the same `V30`, since
 the item has one number; and the reminders run in the same morning window as
-the summary. Item 23's lead is not used. Still open: the link to My tasks
-needs item 19, which is built separately.
+the summary. Item 23's lead is not used. The task lines link to item 19's
+My tasks page.
 
 ### 25. Schedule alerts
 

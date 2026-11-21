@@ -17,6 +17,8 @@ interface Option {
 interface Group {
   label: string;
   options: Option[];
+  /** The search had more hits of this kind than it listed. */
+  more: boolean;
 }
 
 const KINDS: { type: SearchHitType; label: string }[] = [
@@ -60,8 +62,8 @@ function storage(): Storage | null {
         <p class="sr-only" role="status">{{ announcement() }}</p>
         <div id="search-results" class="search-results" role="listbox" aria-label="Results" [class.stale]="quick.waiting()">
           @for (group of groups(); track group.label) {
-            <div role="group" [attr.aria-label]="group.label">
-              <p class="search-group" aria-hidden="true">{{ group.label }}</p>
+            <div role="group" [attr.aria-label]="group.more ? group.label + ', the first ' + group.options.length + ' of more' : group.label">
+              <p class="search-group" aria-hidden="true">{{ group.label }}@if (group.more) {<span class="muted"> · the first {{ group.options.length }}, type more to narrow it down</span>}</p>
               @for (option of group.options; track option.id) {
                 <div role="option" class="search-option" [id]="option.id" [attr.aria-selected]="option.index === highlighted()"
                   [class.active]="option.index === highlighted()" (mousedown)="$event.preventDefault(); go(option.hit)">
@@ -113,16 +115,21 @@ export class SearchDialog {
     const results = this.quick.results();
     const lists = this.typing()
       ? results
-        ? [results.projects, results.tasks, results.comments].map((hits, i) => ({ label: KINDS[i].label, hits }))
+        ? [results.projects, results.tasks, results.comments].map((hits, i) => ({
+            label: KINDS[i].label,
+            hits,
+            more: (results.more ?? []).includes(KINDS[i].type),
+          }))
         : []
       : this.text() === ''
-        ? [{ label: 'Recent', hits: this.recent() }]
+        ? [{ label: 'Recent', hits: this.recent(), more: false }]
         : [];
     let index = 0;
     return lists
       .filter((list) => list.hits.length > 0)
       .map((list) => ({
         label: list.label,
+        more: list.more,
         options: list.hits.map((hit) => ({ hit, index, id: `search-option-${index++}` })),
       }));
   });
