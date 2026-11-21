@@ -121,37 +121,13 @@ export function issueLines(issues: ScheduleIssue[], titleOf: TitleOf): IssueLine
 }
 
 /**
- * Finished tasks that start on or before the due date of a task they wait for.
- * The schedule check leaves finished tasks out, but the critical path still moves
- * them, so they can push the end of the plan without an issue to show for it.
- * This compares the dates as they are: a lag or a weekend in between is not
- * looked at, that would be the API's arithmetic.
- */
-export function finishedOverlaps(tasks: Task[]): Task[] {
-  const byId = new Map(tasks.map((t) => [t.id, t]));
-  return tasks.filter((task) => {
-    const start = task.startDate;
-    if (task.status !== 'DONE' || !start || !task.dueDate) {
-      return false;
-    }
-    // Only plain finish-to-start links: a start-to-start link or a lead overlaps on purpose.
-    return task.predecessors.some((d) => {
-      if (d.type !== 'FS' || d.lagDays < 0) {
-        return false;
-      }
-      const waitedFor = byId.get(d.predecessorId);
-      return !!waitedFor?.startDate && !!waitedFor.dueDate && start <= waitedFor.dueDate;
-    });
-  });
-}
-
-/**
  * Why "Plan ends" on the timeline is not the latest due date, or null when the
  * two are the same day. The critical path works the end out again from the
  * dependencies, in working days and from tasks with both dates; the latest due
  * date is the last one that was typed in. The note names the cause that can be
- * seen from here: tasks with an open too-early issue, finished tasks that
- * overlapped a task they waited for, or a task the critical path does not count.
+ * seen from here: tasks with an open too-early issue, or a task the critical path
+ * does not count. A finished task stays at its own dates on the critical path, so
+ * an overlap that was kept on purpose is no cause.
  */
 export function planEndNote(finish: string | null | undefined, tasks: Task[], issues: ScheduleIssue[]): string | null {
   const latestDue = maxDate(tasks.map((t) => t.dueDate));
@@ -166,21 +142,14 @@ export function planEndNote(finish: string | null | undefined, tasks: Task[], is
       : `${latest} The plan ends earlier because the critical path counts working days only.`;
   }
   const early = new Set(issues.filter((i) => i.type === 'STARTS_TOO_EARLY').map((i) => i.taskId)).size;
-  const finished = finishedOverlaps(tasks).length;
-  const causes: string[] = [];
-  if (early) {
-    causes.push(early === 1 ? 'a task that starts too early' : `${early} tasks that start too early`);
-  }
-  if (finished) {
-    causes.push(
-      finished === 1
-        ? 'a finished task that overlapped a task it waited for'
-        : `${finished} finished tasks that overlapped a task they waited for`,
-    );
-  }
-  if (!causes.length) {
+  if (!early) {
     return `${latest} The plan ends later because the critical path counts every task from the first working day its dependencies allow.`;
   }
-  const their = early + finished === 1 ? 'its' : 'their';
-  return `${latest} The plan ends later because the critical path counts ${causes.join(' and ')} from the first day ${their} dependencies allow.`;
+  const what = early === 1 ? 'a task that starts too early' : `${early} tasks that start too early`;
+  return `${latest} The plan ends later because the critical path counts ${what} from the first day ${early === 1 ? 'its' : 'their'} dependencies allow.`;
+}
+
+/** "1 schedule issue", "3 schedule issues". */
+export function scheduleIssuesText(count: number): string {
+  return `${count} schedule ${count === 1 ? 'issue' : 'issues'}`;
 }

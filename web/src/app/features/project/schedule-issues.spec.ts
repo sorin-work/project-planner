@@ -1,7 +1,7 @@
 import { ScheduleIssue, Task } from '../../core/models';
 import { formatDate } from '../../shared/dates';
 import {
-  brokenLinks, finishedOverlaps, issueLines, issueText, linkIssue, linkKey, linkNote, moveCost, moveTo, planEndNote,
+  brokenLinks, issueLines, issueText, linkIssue, linkKey, linkNote, moveCost, moveTo, planEndNote, scheduleIssuesText,
 } from './schedule-issues';
 
 const titles: Record<number, string> = { 1: 'Design', 2: 'Build', 3: 'Endpoints', 4: 'Copy' };
@@ -42,13 +42,6 @@ describe('schedule issues', () => {
     expect(issueText(finish, titleOf)).toBe('Ends 3 working days too early for Design');
     expect(linkNote({ ...early, linkType: 'SF' })).toBe('Ends 3 working days too early for this');
     expect(linkNote({ ...early, linkType: 'SS' })).toBe('Starts 3 working days too early for this');
-  });
-
-  it('does not count an overlap that a start-to-start link or a lead asks for as a finished task in the way', () => {
-    const done = { ...build, status: 'DONE' as const };
-    expect(finishedOverlaps([design, done])).toHaveLength(1);
-    expect(finishedOverlaps([design, { ...done, predecessors: [{ ...build.predecessors[0], type: 'SS' as const }] }])).toEqual([]);
-    expect(finishedOverlaps([design, { ...done, predecessors: [{ ...build.predecessors[0], lagDays: -3 }] }])).toEqual([]);
   });
 
   it('has a short form for the row of the task it waits for', () => {
@@ -111,26 +104,15 @@ describe('schedule issues', () => {
     );
   });
 
-  it('explains it by a finished task that overlapped, which has no issue of its own', () => {
-    // Build is done: the check leaves it out, the critical path still moves it behind Design.
+  it('no longer blames a finished task that overlapped, since the critical path keeps it where it was done', () => {
+    // The API's finish is then the latest due date, and there is nothing to explain.
     const done = { ...build, status: 'DONE' as const };
-    expect(finishedOverlaps([design, done]).map((t) => t.id)).toEqual([2]);
-    expect(planEndNote('2026-03-11', [design, done], [])).toBe(
-      `The latest due date is ${SIXTH}. The plan ends later because the critical path counts a finished task that overlapped a task it waited for from the first day its dependencies allow.`,
-    );
-    const other = task(3, '2026-03-05', { startDate: '2026-03-03', predecessors: [{ id: 51, predecessorId: 1, successorId: 3, lagDays: 0, type: 'FS' }] });
-    expect(planEndNote('2026-03-11', [design, done, other], [{ ...early, taskId: 3 }])).toBe(
-      `The latest due date is ${SIXTH}. The plan ends later because the critical path counts a task that starts too early and a finished task that overlapped a task it waited for from the first day their dependencies allow.`,
-    );
+    expect(planEndNote('2026-03-06', [design, done], [])).toBeNull();
   });
 
-  it('only calls a finished task an overlap when the dates say so', () => {
-    const after = { ...build, status: 'DONE' as const, startDate: '2026-03-07' }; // the Saturday after Design is due
-    const open = build; // overlaps, but it is not finished: that is an issue, not this
-    const undatedBefore = { ...build, status: 'DONE' as const, predecessors: [{ id: 52, predecessorId: 4, successorId: 2, lagDays: 0, type: 'FS' as const }] };
-    expect(finishedOverlaps([design, after])).toEqual([]);
-    expect(finishedOverlaps([design, open])).toEqual([]);
-    expect(finishedOverlaps([design, task(4), undatedBefore])).toEqual([]);
+  it('counts the issues of a plan in a few words', () => {
+    expect(scheduleIssuesText(1)).toBe('1 schedule issue');
+    expect(scheduleIssuesText(3)).toBe('3 schedule issues');
   });
 
   it('still says something when the plan ends later for a reason it cannot see', () => {
