@@ -233,6 +233,8 @@ export interface HealthSummary {
   overdueTasks: number;
   openTasks: number;
   scheduleVarianceHours: number;
+  /** How many issues the timeline lists for the plan. In the project list only. */
+  scheduleIssues?: number;
 }
 
 export interface ProjectListItem {
@@ -310,7 +312,8 @@ export interface TaskTiming {
   earlyFinish: string;
   lateStart: string;
   lateFinish: string;
-  floatDays: number;
+  /** Missing for a finished task, which stays at its own dates and has no float. */
+  floatDays?: number;
   critical: boolean;
 }
 
@@ -385,6 +388,8 @@ export interface ProjectHealth {
   plannedEnd?: string;
   forecastEnd?: string;
   endVarianceDays?: number;
+  /** How many issues the timeline lists for the plan. */
+  scheduleIssues: number;
 }
 
 export interface Comment {

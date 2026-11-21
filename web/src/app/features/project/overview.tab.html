@@ -31,6 +31,9 @@
           {{ h.endVarianceDays > 0 ? h.endVarianceDays + ' working days late' : 'on or before ' + formatDate(h.plannedEnd) }}
         </span>
       }
+      @if (h.scheduleIssues) {
+        <a class="small issue-marker" routerLink="../timeline">{{ scheduleIssuesText(h.scheduleIssues) }} on the timeline</a>
+      }
     </div>
   </section>
 
