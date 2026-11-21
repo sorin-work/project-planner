@@ -520,7 +520,7 @@ export interface BackupStatus {
   /** Whether the server reads the status at all (BACKUP_STATUS_FILE). */
   watched: boolean;
   /** Missing when there is no status file yet. */
-  state?: 'OK' | 'COPY_FAILED' | 'LATE' | 'NO_GOOD_DUMP';
+  state?: 'OK' | 'COPY_FAILED' | 'LATE' | 'FUTURE_DATED' | 'NO_GOOD_DUMP';
   lastGood?: string;
   lastGoodAt?: string;
   lastRunAt?: string;
@@ -687,7 +687,6 @@ export type NotificationType =
   | 'TIMESHEET_REMINDER'
   | 'BUDGET_ALERT'
   | 'SCHEDULE_ALERT'
-  | 'BACKUP_ALERT'
   /** Mail only: on (EMAIL) or OFF, never a notification in the app. */
   | 'DAILY_SUMMARY';
 

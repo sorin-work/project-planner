@@ -27,9 +27,9 @@ export class OrgApi {
     return this.http.get<Organisation>(`/api/orgs/${orgId}`);
   }
 
-  /** For owners: how the backups of the server are doing. */
-  backupStatus(orgId: number): Observable<BackupStatus> {
-    return this.http.get<BackupStatus>(`/api/orgs/${orgId}/backup-status`);
+  /** For the operators of the server: how its backups are doing. Everybody else gets watched: false. */
+  backupStatus(): Observable<BackupStatus> {
+    return this.http.get<BackupStatus>('/api/backup-status');
   }
 
   updateOrganisation(orgId: number, body: Partial<Organisation>): Observable<Organisation> {

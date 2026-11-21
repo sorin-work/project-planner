@@ -52,12 +52,14 @@ services:
       # Files attached to tasks, on their own volume. The backup service archives it with every dump.
       ATTACHMENTS_DIR: /data/attachments
       # The status file of the backup service, for the line on the Settings page and the
-      # mail to owners when backups stop. Off when empty; /backups/.backup-status turns it on.
+      # mail to the operators when backups stop. Off when empty; /backup-status/backup-status turns it on.
       BACKUP_STATUS_FILE: ${BACKUP_STATUS_FILE:-}
+      # Who runs this server: mailed when backups stop, and the only accounts that see their status.
+      BACKUP_ALERT_EMAILS: ${BACKUP_ALERT_EMAILS:-}
     volumes:
       - attachments:/data/attachments
-      # Read only, for the status file. The api never writes or reads a dump.
-      - ${BACKUP_DIR:-./backups}:/backups:ro
+      # Only the folder of the status file, read only. The api never sees a dump.
+      - ${BACKUP_DIR:-./backups}/status:/backup-status:ro
     depends_on:
       db:
         condition: service_healthy

@@ -1,15 +1,11 @@
 package com.projectplanner.backup;
 
-import com.projectplanner.notification.Notification;
-import com.projectplanner.notification.NotificationType;
-import com.projectplanner.notification.Notifier;
-import com.projectplanner.org.Membership;
-import com.projectplanner.org.Organisation;
-import com.projectplanner.org.Role;
+import com.projectplanner.mail.MailOutbox;
+import com.projectplanner.mail.MailSettings;
+import com.projectplanner.mail.Mails;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.persistence.LockModeType;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
@@ -19,20 +15,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
  * Reads the status file of the backup service, from a read-only mount, when BACKUP_STATUS_FILE
  * names it. The backups are of the whole server, and they are the business of whoever runs it:
- * the owners of the first organisation, the one made when the server was set up. Everybody who
- * signs up owns an organisation of their own, so "every owner" would be every account.
- * Every five minutes, when the backups have gone bad, each of those owners gets a BACKUP_ALERT,
- * once: not again while there is no newer good dump than the one there was when they were
- * told. A dump that keeps failing to be copied tells them once per dump.
+ * the addresses in BACKUP_ALERT_EMAILS. Only accounts with one of those addresses see the
+ * status in the app, and those addresses are mailed when it goes bad, whether or not they
+ * have an account.
+ * <p>
+ * Every five minutes, when the backups are bad, the operators are mailed once for each change
+ * of the state or of the dump it is about: a copy that failed and, later, backups that
+ * stopped are two mails, and the same state of the same dump is never a second one. The
+ * marker of what was mailed is a row of {@code backup_alert_marks}, whose unique key lets one
+ * instance of the api send it.
  */
 @ApplicationScoped
 public class BackupWatch {
@@ -40,26 +39,39 @@ public class BackupWatch {
     private static final Logger LOG = Logger.getLogger(BackupWatch.class);
     /** Larger than any status file the backup service writes. */
     private static final long MAX_BYTES = 4096;
+    private static final String KIND = "backup alert";
 
     private final Optional<String> statusFile;
-    private final Notifier notifier;
+    private final List<String> operators;
+    private final MailSettings mail;
+    private final Mails mails;
+    private final MailOutbox outbox;
     private final Clock clock;
 
-    public BackupWatch(@ConfigProperty(name = "planner.backup.status-file") Optional<String> statusFile, Notifier notifier,
-                       Clock clock) {
+    public BackupWatch(@ConfigProperty(name = "planner.backup.status-file") Optional<String> statusFile,
+                       @ConfigProperty(name = "planner.backup.alert-emails") Optional<String> operators,
+                       MailSettings mail, Mails mails, MailOutbox outbox, Clock clock) {
         this.statusFile = statusFile.filter(path -> !path.isBlank());
-        this.notifier = notifier;
+        this.operators = operators.map(BackupWatch::addresses).orElse(List.of());
+        this.mail = mail;
+        this.mails = mails;
+        this.outbox = outbox;
         this.clock = clock;
+    }
+
+    /** The addresses of a comma or space separated list, in lower case. */
+    static List<String> addresses(String list) {
+        return Arrays.stream(list.split("[,\\s]+")).map(String::trim).filter(a -> a.contains("@"))
+                .map(a -> a.toLowerCase(Locale.ROOT)).distinct().toList();
     }
 
     public boolean enabled() {
         return statusFile.isPresent();
     }
 
-    /** The organisation whose owners look after the backups: the first one, or null on a server without any. */
-    public static Long serverOrganisationId() {
-        Organisation first = Organisation.<Organisation>find("order by id").firstResult();
-        return first == null ? null : first.id;
+    /** Whether the account with this address looks after the backups. */
+    public boolean isOperator(String email) {
+        return email != null && operators.contains(email.toLowerCase(Locale.ROOT));
     }
 
     /** The status as it is now. Empty when the file is not there or is not one the backup service wrote. */
@@ -85,51 +97,58 @@ public class BackupWatch {
         check();
     }
 
-    /** Tells the owners when the backups are bad and they have not heard of it yet. Answers how many were told. */
-    public int check() {
+    /** Mails the operators when the backups are bad in a way they have not been mailed about. Answers whether it did. */
+    public boolean check() {
         Optional<BackupStatus> status = read();
-        if (status.isEmpty()) {
-            return 0;
+        if (status.isEmpty() || operators.isEmpty()) {
+            return false;
         }
-        Instant now = clock.instant();
-        BackupState state = status.get().state(now);
+        BackupState state = status.get().state(clock.instant());
         if (!BackupStatus.bad(state)) {
-            return 0;
+            return false;
         }
-        Instant since = status.get().lastGoodAt();
-        return QuarkusTransaction.requiringNew().call(() -> tell(state, since));
+        String marker = state + ":" + (status.get().lastGood() == null ? "" : status.get().lastGood());
+        if (!mark(marker)) {
+            return false;
+        }
+        String text = switch (state) {
+            case LATE -> "The backups of this server have stopped: the newest good dump is more than twice the interval old.";
+            case COPY_FAILED -> "The newest backup of this server could not be copied off the machine.";
+            case FUTURE_DATED -> "The newest backup of this server is dated in the future, so how old the backups are cannot be told."
+                    + " Check the clock of the machine.";
+            default -> "The backups of this server need a look.";
+        };
+        if (!mail.enabled()) {
+            LOG.warnf("Backups are %s, and this server sends no mail to tell the operators", state);
+            return true;
+        }
+        int sent = 0;
+        for (String to : operators) {
+            if (outbox.deliver(KIND, mails.backupAlert(to, text))) {
+                sent++;
+            }
+        }
+        LOG.warnf("Backups are %s; mailed %d of %d operators", state, sent, operators.size());
+        return true;
     }
 
-    private int tell(BackupState state, Instant since) {
-        // The owners' memberships, locked in id order: two instances of the api that look at the
-        // same moment wait for each other here, and the second finds the alerts of the first.
-        Long server = serverOrganisationId();
-        if (server == null) {
-            return 0;
+    /** Writes the marker, in a transaction of its own. False when it was there already: that was mailed. */
+    private boolean mark(String marker) {
+        if (QuarkusTransaction.requiringNew().call(() -> BackupAlertMark.count("marker", marker) > 0)) {
+            return false;
         }
-        List<Membership> owners = Membership.<Membership>find("organisationId = ?1 and role = ?2 order by id", server, Role.OWNER)
-                .withLock(LockModeType.PESSIMISTIC_WRITE).list();
-        Map<Long, Long> organisationOf = new LinkedHashMap<>();
-        owners.forEach(m -> organisationOf.putIfAbsent(m.userId, m.organisationId));
-        if (organisationOf.isEmpty()) {
-            return 0;
+        try {
+            Instant now = clock.instant();
+            QuarkusTransaction.requiringNew().run(() -> {
+                BackupAlertMark mark = new BackupAlertMark();
+                mark.marker = marker.length() > 300 ? marker.substring(0, 300) : marker;
+                mark.sentAt = now;
+                mark.persist();
+            });
+            return true;
+        } catch (RuntimeException e) {
+            // Another instance wrote it first.
+            return false;
         }
-        List<Long> told = Notification.<Notification>list("userId in ?1 and type = ?2 and createdAt >= ?3",
-                        organisationOf.keySet(), NotificationType.BACKUP_ALERT, since).stream()
-                .map(n -> n.userId).distinct().toList();
-        String message = state == BackupState.LATE
-                ? "The backups of this server have stopped: the newest good dump is more than two intervals old"
-                : "The newest backup of this server could not be copied off the machine";
-        List<Long> telling = new ArrayList<>();
-        organisationOf.forEach((userId, organisationId) -> {
-            if (!told.contains(userId)) {
-                telling.add(userId);
-                notifier.notify(userId, organisationId, null, NotificationType.BACKUP_ALERT, message, null, null);
-            }
-        });
-        if (!telling.isEmpty()) {
-            LOG.warnf("Backups are %s; told %d owners", state, telling.size());
-        }
-        return telling.size();
     }
 }

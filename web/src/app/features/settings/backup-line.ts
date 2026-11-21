@@ -35,6 +35,8 @@ export function backupLine(status: BackupStatus | null, now: Date): BackupLine |
       return { text: `The newest backup was made but could not be copied off the machine. ${last}`, bad: true };
     case 'LATE':
       return { text: `Backups have stopped. ${last} See the logs of the backup service.`, bad: true };
+    case 'FUTURE_DATED':
+      return { text: 'The newest backup is dated in the future, so how old the backups are cannot be told. Check the clock.', bad: true };
     case 'NO_GOOD_DUMP':
       return { text: 'No backup has worked yet. See the logs of the backup service.', bad: true };
   }
