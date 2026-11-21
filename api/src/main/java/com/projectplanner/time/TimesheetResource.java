@@ -196,9 +196,13 @@ public class TimesheetResource {
         return check(orgId, Timesheet.findById(sheetId));
     }
 
-    /** Locked until the review is committed, so that a withdrawal at the same moment waits for it. */
+    /**
+     * Locked until the review is committed, so that a withdrawal at the same moment waits for it.
+     * The organisation is part of the locked query, so a week of another one is never locked.
+     */
     private static Timesheet findForReview(long orgId, long sheetId) {
-        return check(orgId, Timesheet.findById(sheetId, LockModeType.PESSIMISTIC_WRITE));
+        return check(orgId, Timesheet.<Timesheet>find("id = ?1 and organisationId = ?2", sheetId, orgId)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).firstResult());
     }
 
     private static Timesheet check(long orgId, Timesheet sheet) {
