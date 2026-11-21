@@ -2,7 +2,7 @@ import { DefaultUrlSerializer, Route } from '@angular/router';
 import { routes } from './app.routes';
 
 /** The pages the API puts into mails, with the organisation, as in NotificationMailer and DailySummaries. */
-const MAILED = ['/approvals?org=7', '/time?week=2026-03-02&org=7', '/notifications?org=7', '/projects/4/overview?org=7'];
+const MAILED = ['/my-tasks?org=7', '/approvals?org=7', '/time?week=2026-03-02&org=7', '/notifications?org=7', '/projects/4/overview?org=7'];
 
 /** The route a path lands on among the signed-in pages, or null when only the catch-all takes it. */
 function landsOn(url: string): string | null {

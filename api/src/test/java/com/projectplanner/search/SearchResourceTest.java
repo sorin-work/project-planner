@@ -52,7 +52,8 @@ class SearchResourceTest {
                 // The title before the description, and the description with the text around the match.
                 .body("tasks.id", contains((int) byTitle, (int) byDescription))
                 .body("tasks[0]", equalTo(Map.of("type", "TASK", "id", (int) byTitle, "projectId", (int) website,
-                        "projectCode", "ZW-WEB", "taskId", (int) byTitle, "title", "Zeppelin landing page")))
+                        "projectCode", "ZW-WEB", "taskId", (int) byTitle, "title", "Zeppelin landing page",
+                        "status", "TODO", "priority", "MEDIUM")))
                 .body("tasks[1].snippet", equalTo("…the printer for a quote. The zeppelin poster comes first."))
                 .body("tasks[1].projectCode", equalTo("INTRANET"))
                 // A comment leads to its task.
@@ -116,7 +117,9 @@ class SearchResourceTest {
             Api.createTask(owner, projectId, Map.of("title", "Chapter " + i));
         }
 
-        search(owner, "chapter").body("tasks", hasSize(8));
+        search(owner, "chapter").body("tasks", hasSize(8)).body("more", contains("TASK"));
+        owner.as().queryParam("q", "chapter 1").queryParam("limit", 20).get("/api/orgs/" + owner.orgId() + "/search")
+                .then().body("tasks", hasSize(11)).body("more", empty());
         owner.as().queryParam("q", "chapter").queryParam("limit", 3).get("/api/orgs/" + owner.orgId() + "/search")
                 .then().body("tasks", hasSize(3));
         owner.as().queryParam("q", "chapter").queryParam("limit", 1000).get("/api/orgs/" + owner.orgId() + "/search")
@@ -248,5 +251,88 @@ class SearchResourceTest {
 
         // Somebody outside the organisation gets the same answer as for any other of its paths.
         recent(Api.signup("Zed"), owner.orgId(), picks).statusCode(404);
+    }
+
+    private static ValidatableResponse tasksOf(Account who, long orgId, Map<String, Object> params) {
+        return who.as().queryParams(params).get("/api/orgs/" + orgId + "/search").then();
+    }
+
+    @Test
+    void byAssigneeOnlyTasksComeEarliestDueFirstAndWithoutADateLast() {
+        Account owner = Api.signup("Hal");
+        Account ida = Api.signup("Ida");
+        Api.addMember(owner, ida, "MEMBER");
+        long web = Api.createProject(owner, "WEB");
+        long app = Api.createProject(owner, "APP");
+        long undated = Api.createTask(owner, web, Map.of("title", "Someday", "assigneeId", ida.userId()));
+        long late = Api.createTask(owner, app, Map.of("title", "Late", "assigneeId", ida.userId(), "dueDate", "2026-01-10"));
+        long webSameDay = Api.createTask(owner, web, Map.of("title", "Same day web", "assigneeId", ida.userId(), "dueDate", "2026-03-01"));
+        long appSameDay = Api.createTask(owner, app, Map.of("title", "Same day app", "assigneeId", ida.userId(), "dueDate", "2026-03-01",
+                "priority", "HIGH", "status", "IN_PROGRESS"));
+        long done = Api.createTask(owner, web, Map.of("title", "Finished", "assigneeId", ida.userId(), "status", "DONE"));
+        Api.createTask(owner, web, Map.of("title", "Somebody else's", "assigneeId", owner.userId()));
+        // A project whose code is the text: with assigneeId only tasks are looked for.
+        Api.createProject(owner, "SAME-DAY");
+
+        tasksOf(owner, owner.orgId(), Map.of("assigneeId", ida.userId())).statusCode(200)
+                .body("query", equalTo(""))
+                .body("projects", empty()).body("comments", empty())
+                // Due date with no date last, then the project's code, then the place in it.
+                .body("tasks.id", contains((int) late, (int) appSameDay, (int) webSameDay, (int) undated, (int) done))
+                .body("tasks[1].status", equalTo("IN_PROGRESS"))
+                .body("tasks[1].priority", equalTo("HIGH"))
+                .body("tasks[1].dueDate", equalTo("2026-03-01"))
+                .body("tasks[1].projectCode", equalTo("APP"))
+                .body("tasks[3].dueDate", nullValue())
+                .body("more", empty())
+                .body("today", org.hamcrest.Matchers.notNullValue());
+
+        // By status: done ones left out the way the page asks for it, and by text as well.
+        tasksOf(ida, owner.orgId(), Map.of("assigneeId", ida.userId(), "status", List.of("TODO", "IN_PROGRESS", "IN_REVIEW")))
+                .statusCode(200).body("tasks.id", contains((int) late, (int) appSameDay, (int) webSameDay, (int) undated));
+        tasksOf(ida, owner.orgId(), Map.of("status", "DONE")).statusCode(200).body("tasks.id", contains((int) done));
+        tasksOf(ida, owner.orgId(), Map.of("assigneeId", ida.userId(), "q", "same day")).statusCode(200)
+                .body("tasks.id", contains((int) appSameDay, (int) webSameDay));
+
+        // Up to the limit, and more says that there is more.
+        tasksOf(ida, owner.orgId(), Map.of("assigneeId", ida.userId(), "limit", 2)).statusCode(200)
+                .body("tasks.id", contains((int) late, (int) appSameDay)).body("more", contains("TASK"));
+    }
+
+    @Test
+    void theTaskFormGoesUpToTwoHundred() {
+        Account owner = Api.signup("Jon");
+        long projectId = Api.createProject(owner, "BULK");
+        for (int i = 0; i < 25; i++) {
+            Api.createTask(owner, projectId, Map.of("title", "Item " + i, "assigneeId", owner.userId()));
+        }
+        tasksOf(owner, owner.orgId(), Map.of("assigneeId", owner.userId(), "limit", 1000)).statusCode(200)
+                .body("tasks", hasSize(25)).body("more", empty());
+        tasksOf(owner, owner.orgId(), Map.of("assigneeId", owner.userId())).statusCode(200)
+                .body("tasks", hasSize(8)).body("more", contains("TASK"));
+    }
+
+    @Test
+    void theTaskFormKeepsToWhatTheCallerMaySee() {
+        Account owner = Api.signup("Kai");
+        Account viewer = Api.signup("Lea");
+        Account member = Api.signup("Max");
+        long acme = Api.createClient(owner, "Acme Quay");
+        Api.addMember(owner, viewer, "CLIENT", acme);
+        Api.addMember(owner, member, "MEMBER");
+        long theirs = Api.createProject(owner, "QUAY", acme);
+        long internal = Api.createProject(owner, "QUAY-INT");
+        long theirTask = Api.createTask(owner, theirs, Map.of("title", "Quay drawings", "assigneeId", member.userId()));
+        Api.createTask(owner, internal, Map.of("title", "Quay pricing", "assigneeId", member.userId()));
+
+        tasksOf(member, owner.orgId(), Map.of("assigneeId", member.userId())).statusCode(200).body("tasks", hasSize(2));
+        // A client viewer only reaches the projects of their client, whoever the tasks are for.
+        tasksOf(viewer, owner.orgId(), Map.of("assigneeId", member.userId())).statusCode(200)
+                .body("tasks.id", contains((int) theirTask));
+        tasksOf(viewer, owner.orgId(), Map.of("status", "TODO")).statusCode(200).body("tasks.id", contains((int) theirTask));
+        // Somebody from another organisation gets nothing, not even an empty list.
+        Account stranger = Api.signup("Ned");
+        tasksOf(stranger, owner.orgId(), Map.of("assigneeId", member.userId())).statusCode(404).body("code", equalTo("not_found"));
+        tasksOf(stranger, stranger.orgId(), Map.of("assigneeId", member.userId())).statusCode(200).body("tasks", empty());
     }
 }

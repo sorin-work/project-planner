@@ -42,6 +42,7 @@ export const routes: Routes = [
     runGuardsAndResolvers: 'pathParamsOrQueryParamsChange',
     children: [
       { path: '', title: 'Dashboard', loadComponent: () => import('./features/dashboard/dashboard.page').then((m) => m.DashboardPage) },
+      { path: 'my-tasks', title: 'My tasks', loadComponent: () => import('./features/my-tasks/my-tasks.page').then((m) => m.MyTasksPage) },
       { path: 'projects', title: 'Projects', loadComponent: () => import('./features/projects/projects.page').then((m) => m.ProjectsPage) },
       {
         path: 'projects/:projectId',
