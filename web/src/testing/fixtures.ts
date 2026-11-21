@@ -138,6 +138,16 @@ export const ME = {
   organisations: [{ organisationId: 3, organisationName: 'Brightline', role: 'OWNER', currency: 'EUR' }],
 };
 
+/** The My tasks page: one overdue, one due this week or later, one without a date. */
+const MY_TASKS = {
+  query: '', projects: [], comments: [], more: [], today: day(0),
+  tasks: [
+    { type: 'TASK', id: 1, projectId: 7, projectCode: 'WEB', taskId: 1, title: 'Design', dueDate: day(-2), status: 'IN_PROGRESS', priority: 'HIGH' },
+    { type: 'TASK', id: 2, projectId: 7, projectCode: 'WEB', taskId: 2, title: 'Build', dueDate: day(9), status: 'TODO', priority: 'MEDIUM' },
+    { type: 'TASK', id: 3, projectId: 7, projectCode: 'WEB', taskId: 3, title: 'Write the copy', status: 'TODO', priority: 'LOW' },
+  ],
+};
+
 const taskFrom = (req: HttpRequest<unknown>) => TASKS.find((t) => req.url.endsWith(`/tasks/${t.id}`)) ?? TASKS[0];
 
 export const FIXTURES: FakeRoute[] = [
@@ -157,6 +167,7 @@ export const FIXTURES: FakeRoute[] = [
   { path: /^\/orgs\/3\/activity$/, body: ACTIVITY },
   { path: /^\/orgs\/3\/clients$/, body: CLIENTS },
   { path: /^\/orgs\/3\/members$/, body: MEMBERS },
+  { path: /^\/orgs\/3\/search$/, body: MY_TASKS },
   { path: /^\/orgs\/3\/invitations$/, body: [{ id: 1, email: 'new@example.com', role: 'MEMBER', createdAt: now }] },
   { path: /^\/orgs\/3\/role-rates$/, body: [{ role: 'MEMBER', hourlyRate: 80 }] },
   { path: /^\/orgs\/3\/holidays$/, body: [{ id: 1, date: day(2), name: 'Founders day' }] },
