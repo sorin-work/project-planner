@@ -185,3 +185,68 @@ export function barAt(bars: GanttBar[], x: number, y: number): GanttBar | undefi
     return x >= bar.x - DROP_MARGIN && x <= bar.x + bar.width + DROP_MARGIN && y >= top && y < top + ROW_HEIGHT;
   });
 }
+
+/**
+ * The bars a link drawn from the keyboard can go to, top to bottom: every bar but the one
+ * it starts from, which is what a drop of the connector can land on too.
+ */
+export function linkTargets(bars: GanttBar[], fromId: number): GanttBar[] {
+  return bars.filter((bar) => bar.task.id !== fromId).sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/**
+ * The target an arrow key goes to: the next one down or up from {@code currentId}, round
+ * from the last to the first. With nothing picked yet, the first going down and the last
+ * going up.
+ */
+export function stepTarget(targets: GanttBar[], currentId: number | null, step: 1 | -1): GanttBar | undefined {
+  if (!targets.length) {
+    return undefined;
+  }
+  const at = currentId === null ? -1 : targets.findIndex((bar) => bar.task.id === currentId);
+  if (at < 0) {
+    return step > 0 ? targets[0] : targets[targets.length - 1];
+  }
+  return targets[(at + step + targets.length) % targets.length];
+}
+
+/** How close to the left or right edge of the timeline a drag starts to scroll it, in pixels. */
+export const EDGE_ZONE = 48;
+/** The fastest the timeline scrolls while dragging, in pixels per frame, with the pointer on the edge or past it. */
+export const MAX_EDGE_SPEED = 18;
+
+/**
+ * How far to scroll the timeline in one frame while dragging with the pointer at
+ * {@code x}: nothing in the middle, faster the closer to an edge, leftwards as a negative
+ * number. {@code left} and {@code right} are the edges of the visible part.
+ */
+export function edgeScrollSpeed(x: number, left: number, right: number, zone = EDGE_ZONE, max = MAX_EDGE_SPEED): number {
+  const width = Math.min(zone, (right - left) / 3);
+  if (width <= 0) {
+    return 0;
+  }
+  if (x < left + width) {
+    return -Math.ceil(max * Math.min(1, (left + width - x) / width));
+  }
+  if (x > right - width) {
+    return Math.ceil(max * Math.min(1, (x - (right - width)) / width));
+  }
+  return 0;
+}
+
+/** The day of the column at {@code x} on the chart. */
+export function dateAt(x: number, start: string, dayWidth: number): string {
+  return addDays(start, Math.floor(x / dayWidth));
+}
+
+/**
+ * The dates a drag across the empty row of a task without dates gives it: from the day it
+ * started on to the day it ended on, whichever way it went, each end snapped inwards onto
+ * a working day. A drag that only covers days off gives the first working day after them.
+ */
+export function drawnDates(a: string, b: string, holidays: Holidays = NO_HOLIDAYS): { startDate: string; dueDate: string } {
+  const [from, to] = a <= b ? [a, b] : [b, a];
+  const startDate = snapToWorkingDay(from, 1, holidays);
+  const due = snapToWorkingDay(to, -1, holidays);
+  return { startDate, dueDate: due < startDate ? startDate : due };
+}

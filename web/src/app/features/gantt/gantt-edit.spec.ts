@@ -2,6 +2,11 @@ import { Task } from '../../core/models';
 import { addDays, diffDays, formatDate, isWeekend, workingDaysBetween } from '../../shared/dates';
 import {
   barAt, barDates, barHandles, dragHint, dropDate, moveWorkingDays, previewDates, resizeDates, shiftedDates, snapToWorkingDay,
+  dateAt,
+  drawnDates,
+  edgeScrollSpeed,
+  linkTargets,
+  stepTarget,
 } from './gantt-edit';
 import { HEADER_HEIGHT, ROW_HEIGHT, layoutGantt } from './gantt-layout';
 
@@ -311,3 +316,66 @@ describe('dragging on the timeline', () => {
     expect(barAt(layout.bars, b.x + 10, HEADER_HEIGHT + 2 * ROW_HEIGHT)).toBeUndefined();
   });
 });
+
+describe('drawing a link from the keyboard', () => {
+  const bars = layoutGantt(
+    [task(1, MON, THU, { position: 0 }), task(2, NEXT_MON, NEXT_MON, { position: 1 }), task(3, FRI, FRI, { position: 2 })],
+    [],
+    { zoom: 'day', critical: new Set(), collapsed: new Set(), today: MON },
+  ).bars;
+  const order = [...bars].sort((a, b) => a.y - b.y).map((b) => b.task.id);
+
+  it('goes through every other bar from the top', () => {
+    expect(linkTargets(bars, 2).map((b) => b.task.id)).toEqual(order.filter((id) => id !== 2));
+    expect(linkTargets(bars, 1).map((b) => b.task.id)).toEqual(order.filter((id) => id !== 1));
+  });
+
+  it('steps down and up, round at the ends, and starts at the first going down or the last going up', () => {
+    const targets = linkTargets(bars, 1);
+    const [first, second] = targets.map((b) => b.task.id);
+    expect(stepTarget(targets, null, 1)?.task.id).toBe(first);
+    expect(stepTarget(targets, null, -1)?.task.id).toBe(second);
+    expect(stepTarget(targets, first, 1)?.task.id).toBe(second);
+    expect(stepTarget(targets, second, 1)?.task.id).toBe(first);
+    expect(stepTarget(targets, first, -1)?.task.id).toBe(second);
+    expect(stepTarget([], null, 1)).toBeUndefined();
+  });
+});
+
+describe('scrolling near an edge while dragging', () => {
+  it('does nothing in the middle and goes faster closer to an edge, leftwards as a negative number', () => {
+    expect(edgeScrollSpeed(500, 0, 1000)).toBe(0);
+    expect(edgeScrollSpeed(1000 - 48, 0, 1000)).toBe(0);
+    expect(edgeScrollSpeed(1000 - 24, 0, 1000)).toBe(9);
+    expect(edgeScrollSpeed(1000, 0, 1000)).toBe(18);
+    expect(edgeScrollSpeed(1200, 0, 1000)).toBe(18);
+    expect(edgeScrollSpeed(24, 0, 1000)).toBe(-9);
+    expect(edgeScrollSpeed(-50, 0, 1000)).toBe(-18);
+  });
+
+  it('keeps the zone to a third of a narrow timeline, and does nothing without one', () => {
+    expect(edgeScrollSpeed(50, 0, 90)).toBe(0);
+    expect(edgeScrollSpeed(5, 0, 90)).toBeLessThan(0);
+    expect(edgeScrollSpeed(10, 10, 10)).toBe(0);
+  });
+});
+
+describe('dates for a task without them', () => {
+  it('reads the day of a column', () => {
+    expect(dateAt(0, MON, 28)).toBe(MON);
+    expect(dateAt(27, MON, 28)).toBe(MON);
+    expect(dateAt(28 * 4 + 1, MON, 28)).toBe(FRI);
+  });
+
+  it('takes the days in order and snaps both ends inwards onto working days', () => {
+    expect(drawnDates(THU, MON)).toEqual({ startDate: MON, dueDate: THU });
+    expect(drawnDates(SAT, '2026-03-11')).toEqual({ startDate: NEXT_MON, dueDate: '2026-03-11' });
+    expect(drawnDates(THU, SUN)).toEqual({ startDate: THU, dueDate: FRI });
+    expect(drawnDates(MON, '2026-03-04', new Set(['2026-03-02']))).toEqual({ startDate: '2026-03-03', dueDate: '2026-03-04' });
+  });
+
+  it('gives a drag over days off alone the first working day after them', () => {
+    expect(drawnDates(SAT, SUN)).toEqual({ startDate: NEXT_MON, dueDate: NEXT_MON });
+  });
+});
+

@@ -10,6 +10,7 @@ import { renderPage as render } from '../testing/render-page';
  */
 const PAGES = [
   '/',
+  '/my-tasks',
   '/projects',
   '/projects/7/overview',
   '/projects/7/list',
