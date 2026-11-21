@@ -95,7 +95,8 @@ class MissingTimesheetsResourceTest {
                 .body("people.status", contains("DRAFT", "REJECTED", "DRAFT", "DRAFT"))
                 .body("people.totalMinutes", contains(0, 480, 120, 0))
                 .body("people[2].userId", equalTo((int) draft.userId()))
-                .body("people[2].weeklyCapacityHours", Api.num(40))
+                .body("people[2].capacityHours", Api.num(40))
+                .body("people[2].away", equalTo(false))
                 .body("people[2].remindedToday", equalTo(false));
         // Without a week it is the last one that is over.
         owner.as().get(missing(owner)).then().statusCode(200)
@@ -104,6 +105,38 @@ class MissingTimesheetsResourceTest {
         // The dashboard counts the late weeks that have time in them, for managers only.
         owner.as().get("/api/orgs/" + owner.orgId() + "/dashboard").then().statusCode(200).body("missingTimesheets", equalTo(2));
         draft.as().get("/api/orgs/" + owner.orgId() + "/dashboard").then().statusCode(200).body("missingTimesheets", equalTo(0));
+    }
+
+    @Test
+    void capacityIsTheWeeksAsInTheWorkload() {
+        Account owner = Api.signup("Cora");
+        Account partTime = Api.signup("Pip");
+        Account away = Api.signup("Abe");
+        Api.addMember(owner, partTime, "MEMBER");
+        Api.addMember(owner, away, "MEMBER");
+        joinedLongAgo(owner);
+        long projectId = Api.createProject(owner, "CAP");
+        String org = "/api/orgs/" + owner.orgId();
+        owner.as().body(Map.of("weeklyCapacityHours", 20)).patch(org + "/members/" + memberId(owner, partTime)).then().statusCode(200);
+        // A holiday on the Wednesday for everybody, a day off on the Thursday for Pip, and the whole week off for Abe.
+        owner.as().body(Map.of("date", WEEK.plusDays(2).toString(), "name", "Feast")).post(org + "/holidays").then().statusCode(201);
+        partTime.as().body(Map.of("firstDay", WEEK.plusDays(3).toString(), "lastDay", WEEK.plusDays(3).toString()))
+                .post(org + "/time-off").then().statusCode(201);
+        away.as().body(Map.of("firstDay", WEEK.minusDays(2).toString(), "lastDay", WEEK.plusDays(8).toString()))
+                .post(org + "/time-off").then().statusCode(201);
+        // Abe worked a little anyway, so he is late and not only away.
+        logTime(away, owner, projectId, WEEK.plusDays(1), 60);
+
+        owner.as().queryParam("weekStart", WEEK.toString()).get(missing(owner)).then().statusCode(200)
+                .body("people.userName", contains("Abe", "Cora", "Pip"))
+                .body("people.capacityHours", contains(Api.num(0), Api.num(32), Api.num(12)))
+                .body("people.away", contains(true, false, false))
+                .body("people[0].totalMinutes", equalTo(60));
+    }
+
+    private static Object memberId(Account owner, Account member) {
+        return owner.as().get("/api/orgs/" + owner.orgId() + "/members").then().statusCode(200)
+                .extract().path("find { it.userId == " + member.userId() + " }.id");
     }
 
     @Test
