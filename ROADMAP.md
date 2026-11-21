@@ -1166,5 +1166,5 @@ them. `LinkRule`, the rescheduler and the schedule check are unchanged. The
 line under the timeline's toolbar lost the finished-task case. Decided: every
 issue counts, a task due after the project's end included. Different from the
 design: the dashboard's project cards do not count issues, so the dashboard
-keeps its bound, and an open task that only a finished task waited for now has
-float up to the end of the plan.
+keeps its bound, and an open task that nothing open waits for (only a finished
+task) now has float up to the end of the plan.

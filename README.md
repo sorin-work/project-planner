@@ -677,9 +677,9 @@ of fifty projects with a thousand tasks and twenty thousand time entries on one 
 (`support/LargeOrganisation`, built by the test, not by the demo seed). The counts come
 from Hibernate's statistics, which are on in the test profile, and each has a fixed
 bound. A change that queries per row fails there instead of getting slow later. The
-project list is ten statements, one of them for the links behind its count of schedule issues. Approving five weeks at once reads as much as
-approving one, and only writes more: a notification and a line in the activity log for
-each week.
+project list is ten statements, one of them for the links behind its count of
+schedule issues. Approving five weeks at once reads as much as approving one, and only
+writes more: a notification and a line in the activity log for each week.
 
 A restore that is never tested is not a backup, so CI also runs
 `scripts/check-restore.sh` once the images are built. It is the only check that starts
