@@ -12,7 +12,7 @@ import { TimeApi } from '../../core/time.api';
 import { addDays, dayName, formatDate } from '../../shared/dates';
 import { TIMESHEET_LABELS, formatMinutes, formatMoney } from '../../shared/format';
 import { buildGrid } from '../time/timesheet-grid';
-import { ApproveSummary, approveSummary, canApprove, sheetsToApprove } from './bulk-approval';
+import { ApproveSummary, approveSummary, canApprove, keepTicked, sheetsToApprove, untick } from './bulk-approval';
 import {
   APPROVALS_TABS,
   ApprovalsTab,
@@ -210,8 +210,8 @@ export class ApprovalsPage {
   protected readonly notice = signal<string | null>(null);
   /** What the last "Approve selected" or "Approve all" did, and which weeks it left out. */
   protected readonly approveNotice = signal<ApproveSummary | null>(null);
-  /** The ticked weeks of the queue, by timesheet id. */
-  protected readonly chosen = signal<ReadonlySet<number>>(new Set());
+  /** The ticked weeks of the queue: the submittedAt each had when it was ticked, by timesheet id. */
+  protected readonly chosen = signal<ReadonlyMap<number, string | undefined>>(new Map());
   protected readonly sending = signal(false);
   protected readonly selected = signal<Week | null>(null);
   protected readonly grid = signal<ReturnType<typeof buildGrid> | null>(null);
@@ -224,7 +224,7 @@ export class ApprovalsPage {
 
   protected readonly myId = computed(() => this.auth.user()?.id ?? null);
   protected readonly chosenToApprove = computed(() =>
-    sheetsToApprove(this.sheets(), this.chosen(), this.myId(), this.org.isOwner()),
+    sheetsToApprove(this.sheets(), new Set(this.chosen().keys()), this.myId(), this.org.isOwner()),
   );
   protected readonly allToApprove = computed(() => sheetsToApprove(this.sheets(), null, this.myId(), this.org.isOwner()));
   protected readonly allChosen = computed(() => this.allToApprove().length > 0 && this.chosenToApprove().length === this.allToApprove().length);
@@ -266,7 +266,7 @@ export class ApprovalsPage {
       this.selected.set(null);
       this.notice.set(null);
       this.approveNotice.set(null);
-      this.chosen.set(new Set());
+      this.chosen.set(new Map());
       if (orgId === null) {
         return;
       }
@@ -280,10 +280,10 @@ export class ApprovalsPage {
   }
 
   choose(id: number, on: boolean): void {
-    this.chosen.update((ids) => {
-      const next = new Set(ids);
+    this.chosen.update((ticked) => {
+      const next = new Map(ticked);
       if (on) {
-        next.add(id);
+        next.set(id, this.sheets().find((s) => s.id === id)?.submittedAt);
       } else {
         next.delete(id);
       }
@@ -292,7 +292,7 @@ export class ApprovalsPage {
   }
 
   chooseAll(on: boolean): void {
-    this.chosen.set(new Set(on ? this.allToApprove().map((s) => s.id) : []));
+    this.chosen.set(new Map(on ? this.allToApprove().map((s) => [s.id, s.submittedAt] as const) : []));
   }
 
   approveChosen(): void {
@@ -319,6 +319,8 @@ export class ApprovalsPage {
           return;
         }
         this.approveNotice.set(approveSummary(result, shown));
+        // A week that was left out is no longer ticked: one submitted again must be looked at first.
+        this.chosen.set(untick(this.chosen(), [...result.approved, ...result.skipped.map((s) => s.timesheetId)]));
         const open = this.selected()?.timesheetId;
         if (open && result.approved.includes(open)) {
           this.opened++;
@@ -339,15 +341,15 @@ export class ApprovalsPage {
       next: (s) => {
         if (listed === this.listed) {
           this.sheets.set(s);
-          // A ticked week that left the queue is no longer ticked.
-          this.chosen.update((ids) => new Set(s.filter((sheet) => ids.has(sheet.id)).map((sheet) => sheet.id)));
+          // A ticked week that left the queue, or was submitted again since it was ticked, is no longer ticked.
+          this.chosen.update((ticked) => keepTicked(ticked, s));
         }
       },
       error: (err: unknown) => {
         if (listed === this.listed) {
           // The sheets on screen are those of another tab or organisation.
           this.sheets.set([]);
-          this.chosen.set(new Set());
+          this.chosen.set(new Map());
           this.error.set(messageOf(err));
         }
       },
@@ -436,7 +438,7 @@ export class ApprovalsPage {
         this.show(week, opened);
         this.sheets.update((all) => all.filter((s) => s.id !== w.timesheetId));
         if (w.timesheetId) {
-          this.choose(w.timesheetId, false);
+          this.chosen.set(untick(this.chosen(), [w.timesheetId]));
         }
       },
       error: (err: unknown) => this.error.set(messageOf(err)),

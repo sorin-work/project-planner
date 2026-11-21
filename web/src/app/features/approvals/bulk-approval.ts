@@ -49,3 +49,21 @@ export function approveSummary(result: ApproveResult, sheets: TimesheetSummary[]
   });
   return { headline, leftOut };
 }
+
+/** The ticks without these weeks. */
+export function untick(ticked: ReadonlyMap<number, string | undefined>, ids: number[]): Map<number, string | undefined> {
+  const next = new Map(ticked);
+  ids.forEach((id) => next.delete(id));
+  return next;
+}
+
+/**
+ * The ticks that still hold after the queue was loaded again: the week is still in it, and
+ * it was not submitted again since it was ticked.
+ */
+export function keepTicked(
+  ticked: ReadonlyMap<number, string | undefined>,
+  sheets: TimesheetSummary[],
+): Map<number, string | undefined> {
+  return new Map(sheets.filter((s) => ticked.has(s.id) && ticked.get(s.id) === s.submittedAt).map((s) => [s.id, s.submittedAt]));
+}

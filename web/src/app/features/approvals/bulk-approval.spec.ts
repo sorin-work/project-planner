@@ -1,5 +1,5 @@
 import { TimesheetSummary } from '../../core/models';
-import { approveSummary, canApprove, sheetsToApprove } from './bulk-approval';
+import { approveSummary, canApprove, keepTicked, sheetsToApprove, untick } from './bulk-approval';
 
 function sheet(id: number, userId: number, userName: string, submittedAt?: string): TimesheetSummary {
   return {
@@ -57,5 +57,20 @@ describe('approveSummary', () => {
     expect(summary.headline).toBe('No weeks approved.');
     expect(summary.leftOut).toEqual(['Tom Becker, week of 4 Mar 2024: no longer waiting for review.']);
     expect(approveSummary({ approved: [11, 12], skipped: [] }, queue)).toEqual({ headline: 'Approved 2 weeks.', leftOut: [] });
+  });
+});
+
+describe('ticks', () => {
+  const ticked = new Map([[11, tom.submittedAt], [12, samir.submittedAt]]);
+
+  it('keeps a tick only while the week is in the queue as it was when it was ticked', () => {
+    const again = { ...samir, submittedAt: '2026-03-10T07:00:00Z' };
+    expect([...keepTicked(ticked, [tom, again, mine]).keys()]).toEqual([11]);
+    expect([...keepTicked(ticked, [samir]).keys()]).toEqual([12]);
+  });
+
+  it('drops the ticks of the weeks a request approved or left out', () => {
+    expect([...untick(ticked, [12, 99]).keys()]).toEqual([11]);
+    expect(ticked.size).toBe(2);
   });
 });
