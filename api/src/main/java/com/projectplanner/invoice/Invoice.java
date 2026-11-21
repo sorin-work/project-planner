@@ -18,13 +18,6 @@ import java.time.LocalDate;
 @Table(name = "invoices")
 public class Invoice extends PanacheEntityBase {
 
-    public enum Kind { INVOICE, CREDIT_NOTE }
-
-    public enum Status { DRAFT, ISSUED }
-
-    /** How the time becomes lines: one per project and task, or one per project and person. */
-    public enum GroupBy { TASK, PERSON }
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     public Long id;
@@ -40,7 +33,7 @@ public class Invoice extends PanacheEntityBase {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    public Kind kind = Kind.INVOICE;
+    public InvoiceKind kind = InvoiceKind.INVOICE;
 
     @Column(name = "credits_invoice_id")
     public Long creditsInvoiceId;
@@ -49,7 +42,7 @@ public class Invoice extends PanacheEntityBase {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    public Status status = Status.DRAFT;
+    public InvoiceStatus status = InvoiceStatus.DRAFT;
 
     @Column(name = "period_from", nullable = false)
     public LocalDate periodFrom;
@@ -62,7 +55,7 @@ public class Invoice extends PanacheEntityBase {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "group_by", nullable = false)
-    public GroupBy groupBy;
+    public InvoiceGrouping groupBy;
 
     /** The tax rate in basis points: 2000 is 20%. */
     @Column(name = "tax_rate_bp", nullable = false)

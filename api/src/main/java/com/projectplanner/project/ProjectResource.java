@@ -3,6 +3,7 @@ package com.projectplanner.project;
 import com.projectplanner.attachment.Attachment;
 import com.projectplanner.attachment.AttachmentFiles;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
@@ -155,10 +156,15 @@ public class ProjectResource {
     @Transactional
     @ResponseStatus(204)
     @Operation(summary = "Delete a project",
-            description = "For owners and managers. Its phases, tasks and logged time are deleted with it.")
+            description = "For owners and managers. Its phases, tasks and logged time are deleted with it. A project with time on an invoice, a draft included, is kept.")
+    @Fails(status = 409, code = "invoiced", when = "time of the project is on an invoice or a draft")
     public void delete(@PathParam("projectId") long projectId) {
         Project project = access.project(projectId);
         access.manageProject(project);
+        // Its entries would go with it, and an issued invoice must keep what it was made from.
+        if (com.projectplanner.invoice.InvoiceLine.count("projectId", project.id) > 0) {
+            throw ApiException.conflict("invoiced", "Time of this project is on an invoice. Archive it, or take it off the draft first.");
+        }
         // The rows go by the foreign keys; the files of the attachments go once the deletion is committed.
         attachmentFiles.deleteAfterCommit(Attachment.keysOfProject(project.id));
         project.delete();

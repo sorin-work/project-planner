@@ -1988,3 +1988,65 @@ tr.context-row > td {
   border-color: var(--primary);
   background: color-mix(in srgb, var(--primary) 8%, var(--surface));
 }
+
+/* Invoices: the paper part is what the browser prints. */
+.print-only {
+  display: none;
+}
+
+.invoice-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.invoice-head h2,
+.invoice-head p {
+  margin: 0 0 0.25rem;
+}
+
+.invoice-lines tfoot th {
+  font-weight: normal;
+}
+
+.invoice-lines input {
+  width: 100%;
+}
+
+.invoice-notes {
+  white-space: pre-wrap;
+}
+
+@media print {
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .no-print,
+  .sidebar,
+  .topbar,
+  aside,
+  nav {
+    display: none !important;
+  }
+
+  .print-only {
+    display: inline;
+  }
+
+  .main,
+  .invoice-paper {
+    margin: 0;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    background: #fff;
+    color: #000;
+  }
+
+  .invoice-paper .muted {
+    color: #333;
+  }
+}

@@ -103,11 +103,12 @@ public class ClientResource {
     @Transactional
     @ResponseStatus(204)
     @Operation(summary = "Delete a client",
-            description = "For owners and managers. A client that has projects is archived instead, so that the history stays intact.")
+            description = "For owners and managers. A client that has projects or invoices is archived instead, so that the history stays intact.")
     public void delete(@PathParam("orgId") long orgId, @PathParam("clientId") long clientId) {
         access.manager(orgId);
         Client client = find(orgId, clientId);
-        if (Project.count("clientId", clientId) > 0) {
+        // Its projects and its invoices keep the history.
+        if (Project.count("clientId", clientId) > 0 || com.projectplanner.invoice.Invoice.count("clientId", clientId) > 0) {
             client.archived = true;
         } else {
             client.delete();

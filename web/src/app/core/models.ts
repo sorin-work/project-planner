@@ -701,3 +701,60 @@ export interface NotificationPreferences {
   mailAvailable: boolean;
   preferences: NotificationPreference[];
 }
+
+export type InvoiceKind = 'INVOICE' | 'CREDIT_NOTE';
+export type InvoiceStatus = 'DRAFT' | 'ISSUED';
+export type InvoiceGrouping = 'TASK' | 'PERSON';
+
+/** One line of an invoice. Amounts are in cents of the invoice's currency. */
+export interface InvoiceLine {
+  id: number;
+  position: number;
+  projectId?: number;
+  projectName: string;
+  taskTitle?: string;
+  personName?: string;
+  description: string;
+  minutes: number;
+  rateCents: number;
+  amountCents: number;
+}
+
+export interface Invoice {
+  id: number;
+  kind: InvoiceKind;
+  status: InvoiceStatus;
+  /** There once the invoice is issued. */
+  number?: number;
+  clientId: number;
+  clientName: string;
+  periodFrom: string;
+  periodTo: string;
+  currency: string;
+  groupBy: InvoiceGrouping;
+  taxRatePercent: number;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  notes?: string;
+  createdAt: string;
+  issuedAt?: string;
+  /** For a credit note: the invoice it cancels. */
+  creditsInvoiceId?: number;
+  /** For a cancelled invoice: its credit note. */
+  creditedById?: number;
+  lines: InvoiceLine[];
+  /** Projects of the client that a new draft left out, such as fixed price ones. */
+  leftOut?: { projectId: number; projectName: string; reason: string }[];
+}
+
+export type InvoiceSummary = Omit<Invoice, 'lines' | 'leftOut' | 'groupBy' | 'taxRatePercent' | 'subtotalCents' | 'taxCents' | 'notes' | 'createdAt'>;
+
+export interface InvoiceDraftInput {
+  clientId: number;
+  from: string;
+  to: string;
+  groupBy: InvoiceGrouping;
+  taxRatePercent: number;
+  notes?: string;
+}

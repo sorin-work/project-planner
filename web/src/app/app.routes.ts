@@ -50,6 +50,11 @@ export const routes: Routes = [
         loadChildren: () => import('./features/project/project.routes').then((m) => m.projectRoutes),
       },
       { path: 'time', title: 'Timesheet', loadComponent: () => import('./features/time/timesheet.page').then((m) => m.TimesheetPage) },
+      { path: 'invoices', title: 'Invoices', loadComponent: () => import('./features/invoices/invoices.page').then((m) => m.InvoicesPage) },
+      {
+        path: 'invoices/:invoiceId',
+        title: 'Invoice', loadComponent: () => import('./features/invoices/invoice.page').then((m) => m.InvoicePage),
+      },
       { path: 'approvals', title: 'Approvals', loadComponent: () => import('./features/approvals/approvals.page').then((m) => m.ApprovalsPage) },
       { path: 'workload', title: 'Workload', loadComponent: () => import('./features/workload/workload.page').then((m) => m.WorkloadPage) },
       { path: 'clients', title: 'Clients', loadComponent: () => import('./features/clients/clients.page').then((m) => m.ClientsPage) },
