@@ -153,7 +153,31 @@ class ApproveAllResourceTest {
                 .body("code", equalTo("validation_failed"));
         owner.as().body(Map.of("sheets", List.of(Map.of("id", onScreen.getFirst().get("id"))))).post(path(owner) + "/approve")
                 .then().statusCode(400).body("code", equalTo("validation_failed"));
+        // 200 weeks at most: one more is refused as a whole, and nothing is approved.
+        List<Map<String, Object>> tooMany = new ArrayList<>();
+        for (int i = 0; i < 201; i++) {
+            tooMany.add(onScreen.getFirst());
+        }
+        owner.as().body(Map.of("sheets", tooMany)).post(path(owner) + "/approve").then().statusCode(400)
+                .body("code", equalTo("validation_failed"));
         assertThat(QuarkusTransaction.requiringNew().call(() -> Timesheet.statusOf(owner.orgId(), member.userId(), WEEK)))
                 .isEqualTo(TimesheetStatus.SUBMITTED);
+    }
+
+    @Test
+    void aWeekSentTwiceIsApprovedOnceAndAnsweredOnce() {
+        Account owner = Api.signup("Uli");
+        Account member = Api.signup("Val");
+        Api.addMember(owner, member, "MEMBER");
+        long projectId = Api.createProject(owner, "TWICE");
+        logAndSubmit(member, owner, projectId, WEEK);
+        Map<String, Object> week = queue(owner, owner).getFirst();
+
+        owner.as().body(Map.of("sheets", List.of(week, week, week))).post(path(owner) + "/approve").then().statusCode(200)
+                .body("approved", contains(sheetId(owner, member))).body("skipped", empty());
+        assertThat(QuarkusTransaction.requiringNew().call(() -> Notification.count("userId = ?1 and type = ?2",
+                member.userId(), NotificationType.TIMESHEET_APPROVED))).isEqualTo(1);
+        assertThat(QuarkusTransaction.requiringNew().call(() -> ActivityEntry.count("organisationId = ?1 and action = ?2",
+                owner.orgId(), "timesheet.approved"))).isEqualTo(1);
     }
 }
