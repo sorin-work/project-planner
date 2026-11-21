@@ -3,6 +3,7 @@ package com.projectplanner.auth;
 import com.projectplanner.common.ApiException;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -35,7 +36,7 @@ class LoginLimitsTest {
 
     @Test
     void anAddressIsPressedAfterItsFreeFailuresAndForgetsThemAfterAnHour() {
-        LoginLimits limits = new LoginLimits(100);
+        LoginLimits limits = new LoginLimits(Clock.systemUTC(), 100);
         for (int i = 0; i < LoginLimits.ADDRESS_FREE - 1; i++) {
             limits.addressFailed("10.0.0.1", NOW);
         }
@@ -48,7 +49,7 @@ class LoginLimitsTest {
 
     @Test
     void remembersAtMostSoManyAddresses() {
-        LoginLimits limits = new LoginLimits(3);
+        LoginLimits limits = new LoginLimits(Clock.systemUTC(), 3);
         for (String address : new String[] {"a", "b", "c", "d"}) {
             limits.addressFailed(address, NOW);
         }

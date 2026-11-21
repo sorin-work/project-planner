@@ -10,6 +10,7 @@ import { formatRange } from '../../shared/dates';
 import { PROJECT_STATUSES, PROJECT_STATUS_LABELS, formatHours, formatPercent } from '../../shared/format';
 import { HealthBadge } from '../../shared/health-badge';
 import { ProgressBar } from '../../shared/progress-bar';
+import { scheduleIssuesText } from '../project/schedule-issues';
 import { DuplicateForm } from './duplicate-form';
 import { ProjectForm } from './project-form';
 
@@ -111,6 +112,10 @@ import { ProjectForm } from './project-form';
                 @if (item.health.overdueTasks) {
                   <span class="danger small">{{ item.health.overdueTasks }} overdue</span>
                 }
+                @if (item.health.scheduleIssues) {
+                  <a class="warning small issue-marker" [routerLink]="['/projects', item.project.id, 'timeline']"
+                    (click)="$event.stopPropagation()">{{ scheduleIssuesText(item.health.scheduleIssues) }}</a>
+                }
               </td>
             </tr>
           } @empty {
@@ -148,6 +153,7 @@ export class ProjectsPage {
   protected readonly formatRange = formatRange;
   protected readonly formatPercent = formatPercent;
   protected readonly formatHours = formatHours;
+  protected readonly scheduleIssuesText = scheduleIssuesText;
 
   constructor() {
     effect(() => {

@@ -49,7 +49,7 @@ const CLIENTS: Client[] = [{ id: 5, name: 'Acme', contactName: 'Ruth', archived:
 
 const LIST_ITEM: ProjectListItem = {
   project: PROJECT,
-  health: { status: 'AT_RISK', progressPct: 40, hoursBurnPct: 55, amountBurnPct: 50, overdueTasks: 1, openTasks: 3, scheduleVarianceHours: -4 },
+  health: { status: 'AT_RISK', progressPct: 40, hoursBurnPct: 55, amountBurnPct: 50, overdueTasks: 1, openTasks: 3, scheduleVarianceHours: -4, scheduleIssues: 2 },
 };
 
 const HEALTH: ProjectHealth = {
@@ -59,7 +59,7 @@ const HEALTH: ProjectHealth = {
   budget: { budgetHours: 200, loggedHours: 60, billableHours: 50, nonBillableHours: 10, remainingHours: 140, hoursBurnPct: 30,
     budgetAmount: 20000, spentAmount: 6000, remainingAmount: 14000, amountBurnPct: 30 },
   overdue: [{ id: 1, title: 'Design', dueDate: day(-1), assigneeId: 1, daysOverdue: 1 }],
-  plannedEnd: day(28), forecastEnd: day(30), endVarianceDays: 2,
+  plannedEnd: day(28), forecastEnd: day(30), endVarianceDays: 2, scheduleIssues: 2,
 };
 
 const CRITICAL: CriticalPath = {

@@ -30,7 +30,7 @@ import static org.hamcrest.Matchers.lessThan;
  * <p>
  * Every signed-in request also sends one statement of its own before the endpoint runs: the
  * session check in {@code CurrentUser.id()}, which reads the account's token version. The
- * bounds below include it, so "under ten" for the project list is nine of the endpoint's own
+ * bounds below include it, so eleven for the project list is ten of the endpoint's own
  * plus that one.
  */
 @QuarkusTest
@@ -64,12 +64,13 @@ class QueryCountTest {
     }
 
     @Test
-    void theProjectListIsUnderTenStatementsForEveryRole() {
-        // The roadmap's target. The projects, the organisation, the clients, the tasks of all
-        // projects, the rates (three), the holidays and the time of all projects, besides the caller
+    void theProjectListIsElevenStatementsForEveryRole() {
+        // The roadmap's target was under ten. The projects, the organisation, the clients, the tasks
+        // of all projects, the rates (three), the holidays, the time of all projects and, for the
+        // count of schedule issues, the links of all projects, besides the caller
         // and the session check.
         for (Account who : java.util.List.of(org.owner(), org.members().getFirst(), org.clientViewer())) {
-            assertThat(statements(who, r -> r.get(orgPath("/projects")))).isLessThanOrEqualTo(10);
+            assertThat(statements(who, r -> r.get(orgPath("/projects")))).isLessThanOrEqualTo(11);
         }
         assertThat(statements(org.owner(), r -> r.get(orgPath("/projects/options")))).isLessThanOrEqualTo(4);
     }

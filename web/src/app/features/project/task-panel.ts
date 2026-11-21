@@ -16,7 +16,7 @@ import { ProjectStore } from './project.store';
 import { TaskAttachments } from './task-attachments';
 import { baselineLabel } from './baseline-text';
 import { DEPENDENCY_TYPES, dependencyPhrase } from './dependency-text';
-import { issueText, linkIssue, linkNote, moveCost, moveTo } from './schedule-issues';
+import { floatText, issueText, linkIssue, linkNote, moveCost, moveTo } from './schedule-issues';
 
 @Component({
   selector: 'app-task-panel',
@@ -84,6 +84,7 @@ export class TaskPanel {
   protected readonly handles = computed(() => new Set(this.store.members().map((m) => m.handle)));
   protected readonly canEdit = computed(() => this.org.isTeam());
   protected readonly isCritical = computed(() => this.store.criticalIds().has(this.taskId()));
+  protected readonly floatText = floatText;
   protected readonly timing = computed(() => this.store.criticalPath()?.tasks.find((t) => t.taskId === this.taskId()));
   protected readonly timerHere = computed(() => this.timer.running()?.taskId === this.taskId());
 

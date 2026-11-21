@@ -16,8 +16,8 @@
         }
         @if (isCritical()) {
           <span class="badge critical-badge" title="Any delay here delays the project end">Critical path</span>
-        } @else if (timing(); as timing) {
-          <span class="badge" title="How long this can slip without moving the project end">{{ timing.floatDays }} days float</span>
+        } @else if (floatText(timing()); as float) {
+          <span class="badge" title="How long this can slip without moving the project end">{{ float }}</span>
         }
       </div>
     </header>

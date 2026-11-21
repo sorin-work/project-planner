@@ -2,9 +2,13 @@ package com.projectplanner.auth;
 
 import com.projectplanner.common.ApiException;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.persistence.PersistenceException;
+import jakarta.transaction.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -54,19 +58,23 @@ public class LoginLimits {
     static final Duration ACCOUNT_QUIET = Duration.ofDays(1);
     static final Duration ADDRESS_QUIET = Duration.ofHours(1);
     static final int MAX_CLIENTS = 10_000;
+    static final int MAX_PAIRS = 1_000;
     private static final int CLAIM_ATTEMPTS = 3;
 
     /** The failures of one address and when the last one was. */
     record Tally(int failures, Instant last) {
     }
 
+    private final Clock clock;
     private final Map<String, Tally> addresses;
 
-    public LoginLimits() {
-        this(MAX_CLIENTS);
+    @Inject
+    public LoginLimits(Clock clock) {
+        this(clock, MAX_CLIENTS);
     }
 
-    LoginLimits(int maxClients) {
+    LoginLimits(Clock clock, int maxClients) {
+        this.clock = clock;
         // In order of use, so that the eldest entry is the address that tried least recently.
         this.addresses = new LinkedHashMap<>(256, 0.75f, true) {
             @Override
@@ -153,7 +161,13 @@ public class LoginLimits {
         throw tooMany(FIRST_WAIT);
     }
 
-    /** The first failure of a pair. False when another try made the row at the same moment. */
+    /**
+     * The first failure of a pair. False when another try made the row at the same moment.
+     * An account keeps at most {@link #MAX_PAIRS} of them: past that the pairs that failed
+     * least recently go, so that trying from ever more addresses cannot grow the table
+     * without end. Such an address starts again with a fresh count, but by then the account
+     * has long passed {@link #ACCOUNT_FREE} and a new pair has one free try.
+     */
     private static boolean insert(long userId, String address, Instant at) {
         try {
             QuarkusTransaction.requiringNew().run(() -> {
@@ -163,6 +177,7 @@ public class LoginLimits {
                 row.failures = 1;
                 row.lastFailedAt = at;
                 row.persist();
+                trim(userId);
             });
             return true;
         } catch (PersistenceException e) {
@@ -173,6 +188,31 @@ public class LoginLimits {
             }
             throw e;
         }
+    }
+
+    /** Deletes the pairs of the account beyond the newest {@link #MAX_PAIRS}. */
+    static void trim(long userId) {
+        if (LoginFailure.count("userId", userId) <= MAX_PAIRS) {
+            return;
+        }
+        Object[] oldestKept = LoginFailure.getEntityManager().createQuery(
+                        "select f.lastFailedAt, f.id from LoginFailure f where f.userId = ?1 order by f.lastFailedAt desc, f.id desc",
+                        Object[].class)
+                .setParameter(1, userId).setFirstResult(MAX_PAIRS - 1).setMaxResults(1).getSingleResult();
+        LoginFailure.delete("userId = ?1 and (lastFailedAt < ?2 or (lastFailedAt = ?2 and id < ?3))",
+                userId, oldestKept[0], oldestKept[1]);
+    }
+
+    /** Deletes the pairs that have been quiet long enough to be forgotten anyway, every hour. */
+    @Scheduled(every = "1h", delayed = "5m", identity = "login-failure-sweep")
+    void scheduledSweep() {
+        sweep();
+    }
+
+    /** Deletes the pairs quiet for {@link #ACCOUNT_QUIET} and says how many. */
+    @Transactional
+    public long sweep() {
+        return LoginFailure.delete("lastFailedAt < ?1", clock.instant().minus(ACCOUNT_QUIET));
     }
 
     /** The password was wrong: it counts for the account and for the address too. */

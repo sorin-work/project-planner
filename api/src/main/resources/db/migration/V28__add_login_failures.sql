@@ -12,6 +12,9 @@ create table login_failures (
     constraint uq_login_failures_user_address unique (user_id, address)
 );
 
+-- For the hourly sweep of the pairs that have been quiet for a day.
+create index ix_login_failures_last_failed_at on login_failures (last_failed_at);
+
 -- Wrong passwords for the account from every address together. It never refuses a try:
 -- past a number of them, a new address gets fewer free tries before it has to wait.
 alter table users add column failed_logins integer default 0 not null;

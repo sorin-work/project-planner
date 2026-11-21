@@ -60,6 +60,32 @@ class CriticalPathTest {
     }
 
     @Test
+    void aFinishedTaskStaysAtItsOwnDatesAndIsNeverCritical() {
+        // B was done on Tuesday to Wednesday, overlapping A, which it waited for. C waits for B.
+        var a = new ScheduledTask(1, day(0), day(2));
+        var b = new ScheduledTask(2, day(1), day(2));
+        var c = new ScheduledTask(3, day(3), day(4));
+        CriticalPath.Result result = cpm.calculate(List.of(a, b, c), List.of(new Link(1, 2), new Link(2, 3)), java.util.Set.of(2L));
+
+        // "Plan ends" is the latest due date, not two days later for the overlap kept on purpose.
+        assertThat(result.finish()).isEqualTo(day(4));
+        CriticalPath.TaskTiming timingB = result.tasks().stream().filter(t -> t.taskId() == 2).findFirst().orElseThrow();
+        assertThat(timingB.earlyStart()).isEqualTo(day(1));
+        assertThat(timingB.earlyFinish()).isEqualTo(day(2));
+        assertThat(timingB.floatDays()).isNull();
+        assertThat(timingB.critical()).isFalse();
+        // C still follows B. Nothing that is still open waits for A, so A has float up to the end.
+        assertThat(result.criticalTaskIds()).containsExactly(3L);
+        CriticalPath.TaskTiming timingA = result.tasks().stream().filter(t -> t.taskId() == 1).findFirst().orElseThrow();
+        assertThat(timingA.floatDays()).isEqualTo(2);
+
+        // Open, B is moved after A as before, and the plan ends two days later.
+        CriticalPath.Result open = cpm.calculate(List.of(a, b, c), List.of(new Link(1, 2), new Link(2, 3)));
+        assertThat(open.finish()).isEqualTo(day(8));
+        assertThat(open.criticalTaskIds()).containsExactly(1L, 2L, 3L);
+    }
+
+    @Test
     void lagCountsTowardsThePath() {
         var a = new ScheduledTask(1, day(0), day(0));
         var b = new ScheduledTask(2, day(3), day(3));

@@ -41,7 +41,7 @@ couple of weekends, **L** several weeks of spare time.
 | 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
 | 19  | My tasks page                              | Next  | both     | S    | -          |
 | 20  | Approve weeks in one go                    | Shipped | both     | S    | -          |
-| 21  | Schedule issues beyond the timeline        | Next  | both     | S    | -          |
+| 21  | Schedule issues beyond the timeline        | Shipped | both     | S    | -          |
 | 22  | Sign-in hardening                          | Shipped | both     | S    | -          |
 | 23  | Project lead                               | Next  | both     | S    | -          |
 | 24  | Daily summary and automatic reminders      | Later | both     | M    | 19         |
@@ -183,40 +183,6 @@ know what is on my plate I open every project and tick "Only mine".
   `GET /api/orgs/{orgId}/my-tasks`. The search already has the visibility
   rules in its queries, which is the hard part. I lean towards the search
   endpoint.
-
-### 21. Schedule issues beyond the timeline
-
-Improvement of item 1, which left both open.
-
-- Today the list of schedule issues is only on the timeline tab
-  (`GET /api/projects/{projectId}/schedule-issues`). The project list and the
-  Overview tab do not show that a plan has issues, so nobody sees them until
-  they open the timeline. Add a count to the project's summary and show it as
-  a small marker in the project list and a line on the Overview with a link
-  to the timeline.
-- Tricky: cost. `ProjectHealthService.summaries` takes the tasks of all
-  listed projects in one query, and the project list is nine statements for
-  every role (`QueryCountTest`). The check also needs the links of every
-  project: one more query for all of them, grouped by project in Java, and
-  the organisation's calendar, which `OrgCalendars` already reads once per
-  request. Raise the bound by exactly one.
-- Finished tasks on the critical path. `CriticalPath` counts a finished task
-  from the day its predecessor allows, so "Plan ends" stays later than the
-  latest due date for every overlap that was kept on purpose, and the line
-  under the toolbar has to explain it. I lean towards fixing done tasks at
-  their own dates in both passes: what is done is no longer a plan. Their
-  float is then meaningless and they are never critical.
-- Tricky: `LinkRule` serves `CriticalPath`, `Rescheduler` and
-  `ScheduleCheck`. Change only the critical path, and only for done tasks.
-  The rescheduler still pushes an open successor after a finished
-  predecessor, which is what people expect when they reopen a task.
-- `CriticalPathTest` gets a done task that overlaps its predecessor, with
-  "Plan ends" equal to the latest due date. The line under the toolbar loses
-  the case it no longer needs.
-- Undecided: whether the count leaves out the issue "a task due after the
-  project's end date", which the overview already shows as forecast end
-  against planned end. I would count it like the others and let the overview
-  say both.
 
 ### 23. Project lead
 
@@ -1143,6 +1109,25 @@ reads the time off for its count of missing weeks, one statement more (24).
 Left out as the roadmap leaned: "Send back all", since a rejection needs a
 note for each person.
 
+### 21. Schedule issues beyond the timeline
+
+`HealthSummary` and `ProjectHealth` have `scheduleIssues`, the length of the
+timeline's list, worked out by one `ScheduleIssues.check` that the
+`schedule-issues` endpoint uses too, so the two always agree. The project list
+reads the links of all its projects in one query, grouped in Java, with the
+calendar `OrgCalendars` already holds: ten statements of its own instead of
+nine, and the `QueryCountTest` bound is one higher. The list shows a marker
+with the count that links to the timeline, and the Overview a line under the
+end date. The critical path keeps finished tasks at their own dates in both
+passes, by leaving out the links into them: they have no float (`floatDays`
+is left out) and are never critical, and the tasks after them still follow
+them. `LinkRule`, the rescheduler and the schedule check are unchanged. The
+line under the timeline's toolbar lost the finished-task case. Decided: every
+issue counts, a task due after the project's end included. Different from the
+design: the dashboard's project cards do not count issues, so the dashboard
+keeps its bound, and an open task that nothing open waits for (only a finished
+task) now has float up to the end of the plan.
+
 ### 22. Sign-in hardening
 
 `LoginLimits` and `V28` (a `login_failures` table per account and client address,
@@ -1169,7 +1154,8 @@ nonce, because the components have no styles of their own; the lint keeps it tha
 way, and the build no longer inlines critical CSS, whose loader was an inline
 script. Still open: a waiting pair answers 429 where an unknown email answers 401,
 and a known email costs a few more writes than an unknown one, which both tell
-that it exists, like sign-up does (the README says so); somebody with many
-addresses gets five tries from each until the account's count brings new ones down
-to one; HSTS is for whatever terminates TLS; and a list of sessions with "sign out
+that it exists, like sign-up does (the README says so); guessing grows with
+the number of addresses, about 300 tries a day each once the account is past its
+count, which is the price of never locking the owner out (an hourly sweep and a cap
+of a thousand pairs per account keep the table bounded); HSTS is for whatever terminates TLS; and a list of sessions with "sign out
 this device" was left out, as the design suggested.
