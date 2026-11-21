@@ -120,9 +120,10 @@ public class ScheduleAlerts {
         if (!step.announceOffTrack() && !step.announceLateEnd()) {
             return 0;
         }
-        // The people who run projects, as for a budget alert. No actor: whoever moved the task hears of it too.
-        List<Long> managers = Membership.forOrganisation(project.organisationId).stream()
-                .filter(member -> member.role.canManage()).map(member -> member.userId).toList();
+        // The people who hear about a project's hours: the owners and managers, or with a lead the
+        // lead and the owners. A member who leads hears of it too, since there are no amounts in it.
+        // No actor: whoever moved the task hears of it too.
+        List<Long> managers = BudgetAlerts.hearAboutHours(project, Membership.forOrganisation(project.organisationId));
         int alerts = 0;
         if (step.announceOffTrack()) {
             notifier.notifyAll(managers, project.organisationId, null, NotificationType.SCHEDULE_ALERT,

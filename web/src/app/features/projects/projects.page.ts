@@ -1,8 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
-import { Client, Project, ProjectListItem, ProjectStatus } from '../../core/models';
+import { Client, Member, Project, ProjectListItem, ProjectStatus } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { ProjectApi, ProjectInput } from '../../core/project.api';
@@ -42,7 +43,7 @@ import { ProjectForm } from './project-form';
         @if (copyFrom(); as source) {
           <app-duplicate-form [source]="source" [clients]="clients()" (created)="open($event.id)" (cancelled)="stopCreating()" />
         } @else {
-          <app-project-form [clients]="clients()" submitLabel="Create project" [busy]="saving()" [error]="formError()"
+          <app-project-form [clients]="clients()" [members]="members()" submitLabel="Create project" [busy]="saving()" [error]="formError()"
             (saved)="create($event)" (cancelled)="stopCreating()" />
         }
       </section>
@@ -57,6 +58,12 @@ import { ProjectForm } from './project-form';
           }
         </select>
       </label>
+      @if (ledByMe() || leadsSome()) {
+        <label>
+          <input type="checkbox" [checked]="ledByMe()" (change)="ledByMe.set(!ledByMe())" />
+          Led by me
+        </label>
+      }
       @if (clients().length > 1) {
         <label>Client
           <select [(ngModel)]="clientId" (ngModelChange)="load()">
@@ -79,6 +86,7 @@ import { ProjectForm } from './project-form';
           <tr>
             <th>Project</th>
             <th>Client</th>
+            <th>Lead</th>
             <th>Status</th>
             <th>Dates</th>
             <th class="num">Progress</th>
@@ -95,6 +103,7 @@ import { ProjectForm } from './project-form';
                 <span class="muted small code">{{ item.project.code }}</span>
               </td>
               <td>{{ item.project.clientName || 'Internal' }}</td>
+              <td>{{ item.project.leadName || '' }}</td>
               <td>{{ statusLabels[item.project.status] }}</td>
               <td class="nowrap">{{ formatRange(item.project.startDate, item.project.endDate) }}</td>
               <td class="num">
@@ -119,7 +128,7 @@ import { ProjectForm } from './project-form';
               </td>
             </tr>
           } @empty {
-            <tr><td colspan="7" class="muted">{{ loading() ? 'Loading…' : 'No projects yet.' }}</td></tr>
+            <tr><td colspan="8" class="muted">{{ loading() ? 'Loading…' : ledByMe() ? 'You lead none of these projects.' : 'No projects yet.' }}</td></tr>
           }
         </tbody>
       </table>
@@ -131,10 +140,12 @@ export class ProjectsPage {
   private readonly api = inject(ProjectApi);
   private readonly orgApi = inject(OrgApi);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
   protected readonly org = inject(OrgContext);
 
   protected readonly items = signal<ProjectListItem[]>([]);
   protected readonly clients = signal<Client[]>([]);
+  protected readonly members = signal<Member[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly creating = signal(false);
@@ -147,7 +158,14 @@ export class ProjectsPage {
   protected status: ProjectStatus | '' = '';
   protected clientId: number | null = null;
 
-  protected readonly visible = computed(() => this.items());
+  /** Only the projects the person signed in leads. */
+  protected readonly ledByMe = signal(false);
+  private readonly me = computed(() => this.auth.user()?.id ?? null);
+  /** Whether the person leads any project in the list, which is when the filter is offered. */
+  protected readonly leadsSome = computed(() => this.items().some((item) => item.project.leadId === this.me()));
+  protected readonly visible = computed(() =>
+    this.ledByMe() ? this.items().filter((item) => item.project.leadId === this.me()) : this.items(),
+  );
   protected readonly statuses = PROJECT_STATUSES;
   protected readonly statusLabels = PROJECT_STATUS_LABELS;
   protected readonly formatRange = formatRange;
@@ -161,6 +179,10 @@ export class ProjectsPage {
       if (orgId !== null) {
         this.load();
         this.orgApi.clients(orgId).subscribe({ next: (c) => this.clients.set(c) });
+        if (this.org.canManage()) {
+          // For the lead of a project, which owners and managers set.
+          this.orgApi.members(orgId).subscribe({ next: (m) => this.members.set(m) });
+        }
       }
     });
   }
