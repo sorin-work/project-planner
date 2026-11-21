@@ -9,7 +9,7 @@ import { Delivery, NotificationPreferences, NotificationType, Organisation } fro
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { HolidaysCard } from './holidays.card';
-import { DELIVERY_LABELS, NOTIFICATION_LABELS } from './notification-labels';
+import { NOTIFICATION_LABELS, deliveriesFor, deliveryLabel } from './notification-labels';
 
 const TIMEZONES = ['UTC', 'Europe/London', 'Europe/Berlin', 'Europe/Bucharest', 'America/New_York', 'America/Los_Angeles', 'Asia/Singapore'];
 const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
@@ -60,6 +60,11 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
               <div class="field"><label for="o-rate">Default hourly rate</label>
                 <input id="o-rate" name="rate" type="number" min="0" [(ngModel)]="o.defaultHourlyRate" [disabled]="!org.isOwner()" /></div>
             }
+            <div class="field span-2 checkbox">
+              <label><input type="checkbox" name="autoReminders" [(ngModel)]="o.autoReminders" [disabled]="!org.isOwner()" />
+                Remind people of last week's timesheet on the first working day of the week</label>
+              <p class="muted small">Off by default: some teams submit on Monday afternoon on purpose. "Remind all" works either way.</p>
+            </div>
             @if (org.isOwner()) {
               <div class="actions span-2"><button type="submit" class="primary">Save organisation</button></div>
             } @else {
@@ -86,8 +91,8 @@ const CURRENCIES = ['EUR', 'GBP', 'USD', 'RON', 'CHF', 'SEK'];
                 <td>
                   <select [attr.aria-label]="labels[pref.type]" [value]="pref.delivery"
                     (change)="setDelivery(pref.type, $any($event.target).value)">
-                    @for (d of deliveries; track d) {
-                      <option [value]="d" [selected]="d === pref.delivery">{{ deliveryLabels[d] }}</option>
+                    @for (d of deliveriesFor(pref.type); track d) {
+                      <option [value]="d" [selected]="d === pref.delivery">{{ deliveryLabel(pref.type, d) }}</option>
                     }
                   </select>
                 </td>
@@ -117,8 +122,8 @@ export class SettingsPage {
   private readonly inbox = inject(InboxApi);
   protected readonly preferences = signal<NotificationPreferences | null>(null);
   protected readonly labels = NOTIFICATION_LABELS;
-  protected readonly deliveryLabels = DELIVERY_LABELS;
-  protected readonly deliveries: Delivery[] = ['EMAIL', 'IN_APP', 'OFF'];
+  protected readonly deliveriesFor = deliveriesFor;
+  protected readonly deliveryLabel = deliveryLabel;
 
   constructor() {
     this.inbox.preferences().subscribe({ next: (p) => this.preferences.set(p) });
@@ -176,6 +181,7 @@ export class SettingsPage {
         currency: o.currency,
         timezone: o.timezone,
         defaultHourlyRate: o.defaultHourlyRate,
+        autoReminders: o.autoReminders,
       }),
       'Organisation saved.',
       () => this.auth.loadMe().subscribe(),

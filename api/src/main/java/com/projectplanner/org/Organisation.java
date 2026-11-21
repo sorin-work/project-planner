@@ -36,6 +36,14 @@ public class Organisation extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
+    /** Remind people of last week's timesheet on the first working day of the week, without a manager clicking. */
+    @Column(name = "auto_reminders", nullable = false)
+    public boolean autoReminders;
+
+    /** The day the automatic reminders last went out. */
+    @Column(name = "reminders_sent_on")
+    public LocalDate remindersSentOn;
+
     public ZoneId zone() {
         return ZoneId.of(timezone);
     }

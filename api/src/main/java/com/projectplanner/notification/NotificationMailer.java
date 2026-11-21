@@ -196,7 +196,7 @@ public class NotificationMailer {
     }
 
     private Batch batch(String token, User user, List<Notification> mailed) {
-        List<Line> lines = mailed.stream().map(n -> new Line(sentence(n), mails.link(target(n)))).toList();
+        List<Line> lines = mailed.stream().map(n -> new Line(sentence(n), mails.link(targetIn(n)))).toList();
         Set<NotificationType> types = new LinkedHashSet<>();
         mailed.forEach(n -> types.add(n.type));
         List<Line> stop = types.stream()
@@ -265,6 +265,7 @@ public class NotificationMailer {
             case TIMESHEET_REJECTED -> "Your timesheet" + week + " was sent back.";
             case TIMESHEET_REMINDER -> "You were reminded to submit your timesheet" + week + ".";
             case BUDGET_ALERT -> "A project passed a budget threshold.";
+            case DAILY_SUMMARY -> "Your morning summary.";
         };
     }
 
@@ -278,6 +279,7 @@ public class NotificationMailer {
             case TIMESHEET_REJECTED -> "timesheets sent back";
             case TIMESHEET_REMINDER -> "timesheet reminders";
             case BUDGET_ALERT -> "budget alerts";
+            case DAILY_SUMMARY -> "the morning summary";
         };
     }
 
@@ -296,5 +298,15 @@ public class NotificationMailer {
             return "/time?week=" + n.weekStart;
         }
         return n.type.name().startsWith("TIMESHEET_") ? "/time" : "/notifications";
+    }
+
+    /** {@link #target} with the organisation, so that the web app opens it there and not in the one it has selected. */
+    static String targetIn(Notification n) {
+        return withOrganisation(target(n), n.organisationId);
+    }
+
+    /** A page of the web app with {@code org=} added. */
+    public static String withOrganisation(String page, long organisationId) {
+        return page + (page.contains("?") ? "&" : "?") + "org=" + organisationId;
     }
 }

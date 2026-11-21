@@ -1,0 +1,8 @@
+<p>Your morning on project-planner:</p>
+<ul>
+{#for line in lines}
+  <li><a href="{line.link}">{line.text}</a></li>
+{/for}
+</ul>
+<p><a href="{settingsLink}">Choose which mails you get.</a></p>
+<p><a href="{stop.link}">{stop.text}</a></p>
