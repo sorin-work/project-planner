@@ -4,7 +4,6 @@ import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.User;
 import com.projectplanner.client.Client;
 import com.projectplanner.common.ApiException;
-import com.projectplanner.common.Money;
 import com.projectplanner.invoice.InvoiceDtos.DraftChange;
 import com.projectplanner.invoice.InvoiceDtos.DraftRequest;
 import com.projectplanner.invoice.InvoiceDtos.InvoiceResponse;
@@ -120,8 +119,9 @@ public class InvoiceService {
             Task.<Task>list("id in ?1", taskIds).forEach(t -> tasks.put(t.id, t.title));
         }
 
-        // One line per project, task (or person) and rate. Each entry is priced on its own and
-        // rounded to the cent, as the reports price it, so a line adds up to their amount.
+        // One line per project, task (or person) and rate, priced once from its minutes, so that
+        // its hours times its rate are its amount. The reports round entry by entry, so an
+        // invoice can differ from them by a cent or so per line.
         Map<String, InvoiceLine> lines = new LinkedHashMap<>();
         Map<InvoiceLine, List<TimeEntry>> entriesOf = new HashMap<>();
         for (TimeEntry e : entries) {
@@ -146,13 +146,13 @@ public class InvoiceService {
                 return l;
             });
             line.minutes += e.minutes;
-            line.amountCents += InvoiceMath.cents(Money.cost(e.minutes, rate));
             entriesOf.computeIfAbsent(line, l -> new ArrayList<>()).add(e);
         }
         List<InvoiceLine> ordered = new ArrayList<>(lines.values());
         ordered.sort(Comparator.comparing((InvoiceLine l) -> l.projectName).thenComparing(l -> l.description));
         int position = 0;
         for (InvoiceLine line : ordered) {
+            line.amountCents = InvoiceMath.lineAmount(line.minutes, line.rateCents);
             line.position = position++;
             line.persist();
             for (TimeEntry e : entriesOf.get(line)) {
@@ -351,9 +351,11 @@ public class InvoiceService {
 
     InvoiceResponse response(Invoice i, List<InvoiceLine> lines, List<LeftOut> leftOut) {
         Invoice credit = i.kind == InvoiceKind.INVOICE ? Invoice.<Invoice>find("creditsInvoiceId", i.id).firstResult() : null;
+        Invoice credited = i.creditsInvoiceId == null ? null : Invoice.findById(i.creditsInvoiceId);
         return new InvoiceResponse(i.id, i.kind, i.status, i.number, i.clientId, i.clientName, i.periodFrom, i.periodTo, i.currency,
                 i.groupBy, BigDecimal.valueOf(i.taxRateBp, 2), i.subtotalCents, i.taxCents, i.totalCents, i.notes, i.createdAt,
-                i.issuedAt, i.creditsInvoiceId, credit == null ? null : credit.id,
+                i.issuedAt, i.creditsInvoiceId, credited == null ? null : credited.number, credit == null ? null : credit.id,
+                credit == null ? null : credit.number,
                 lines.stream().map(LineResponse::of).toList(), leftOut.isEmpty() ? null : leftOut);
     }
 }

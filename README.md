@@ -219,7 +219,9 @@ the point is knowing whether a project will land on time and on budget.
   task or per project and person, with a tax rate. A draft can be changed and lines
   taken off; issuing gives it the next number, and from then on it never changes. A
   mistake is corrected with a credit note, which frees the time to be invoiced again.
-  The invoice page prints on paper (the browser makes the PDF), and its lines download
+  A line is its hours at its rate, rounded once, so an invoice can differ from the
+  report by a cent or so per line. The invoice page prints on paper (the browser makes
+  the PDF), and its lines download
   as CSV.
 - **Backups**: with Docker, an optional service dumps the whole database once a day
   and keeps the last seven dumps, and the same script puts one back. See
@@ -1309,9 +1311,11 @@ has a line per week.
 draft (`POST`, with `clientId`, `from`, `to`, `groupBy=TASK|PERSON` and
 `taxRatePercent`) takes the billable entries of the client's projects in the period
 whose week is approved and that are on no line yet (`409 nothing_to_invoice`
-otherwise). Each entry is priced on its own at today's rate, through the same rate
-lookup and rounding as the reports, so a draft adds up to the cent to the time report
-of the same entries with `approvedOnly`. Projects with a money budget and no hourly rate
+otherwise). The rates are today's, through the same rate lookup as the reports. Each
+line is priced once: its minutes at its rate, rounded half up to the cent, so that its
+hours times its rate are always its amount, on the page, on paper and in the CSV. The
+time report rounds every entry, so an invoice can differ from the report of the same
+entries with `approvedOnly` by a cent or so per line. Projects with a money budget and no hourly rate
 are fixed price and left out, and the draft's `leftOut` names them. Amounts are in cents
 (`subtotalCents`, `taxCents`, `totalCents`, `rateCents`, `amountCents`), with the
 currency, the rates, the client's name and each line's project, task and person

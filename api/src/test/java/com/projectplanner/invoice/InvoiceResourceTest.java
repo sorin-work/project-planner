@@ -74,7 +74,8 @@ class InvoiceResourceTest {
         long fixedId = project(owner, code + "-FIX", clientId, null, 5000);
         long design = Api.createTask(owner, projectId, Map.of("title", "Design"));
         long build = Api.createTask(owner, projectId, Map.of("title", "=HYPERLINK(\"http://evil\")"));
-        // Seven minutes twice at 100 an hour: 11.67 each, priced entry by entry, so 23.34 and not 23.33.
+        // Seven minutes twice at 100 an hour: the report prices each entry, 11.67 twice, so 23.34; the
+        // invoice prices the line once, 14 minutes, so 23.33.
         log(member, owner, projectId, design, WEEK, 7, true);
         log(member, owner, projectId, design, WEEK.plusDays(1), 7, true);
         log(member, owner, projectId, build, WEEK.plusDays(2), 90, true);
@@ -94,7 +95,7 @@ class InvoiceResourceTest {
     }
 
     @Test
-    void aDraftIsTheApprovedBillableTimeAndAddsUpToTheReport() {
+    void aDraftIsTheApprovedBillableTimeAndPricesEachLineOnce() {
         Agency a = agency("INV");
         var draft = a.owner().as().body(period(a)).post(a.path("")).then().statusCode(201)
                 .body("status", equalTo("DRAFT")).body("number", nullValue()).body("currency", equalTo("EUR"))
@@ -102,13 +103,13 @@ class InvoiceResourceTest {
                 .body("lines.description", containsInAnyOrder("Design", "=HYPERLINK(\"http://evil\")"))
                 .body("lines.find { it.description == 'Design' }.minutes", equalTo(14))
                 .body("lines.find { it.description == 'Design' }.rateCents", equalTo(10000))
-                .body("lines.find { it.description == 'Design' }.amountCents", equalTo(2334))
+                .body("lines.find { it.description == 'Design' }.amountCents", equalTo(2333))
                 .body("lines.find { it.description != 'Design' }.amountCents", equalTo(15000))
-                .body("subtotalCents", equalTo(17334)).body("taxCents", equalTo(3467)).body("totalCents", equalTo(20801))
+                .body("subtotalCents", equalTo(17333)).body("taxCents", equalTo(3467)).body("totalCents", equalTo(20800))
                 .body("leftOut[0].projectId", equalTo((int) a.fixedId()))
                 .extract();
 
-        // The report of the same entries says the same, to the cent.
+        // The report of the same entries rounds entry by entry: a cent more on the line of seven minute entries.
         a.owner().as().queryParam("from", WEEK.toString()).queryParam("to", WEEK.plusWeeks(1).plusDays(6).toString())
                 .queryParam("projectId", a.projectId()).queryParam("billable", true).queryParam("approvedOnly", true)
                 .get("/api/orgs/" + a.owner().orgId() + "/reports/time").then().statusCode(200)
@@ -130,7 +131,7 @@ class InvoiceResourceTest {
         a.owner().as().delete(a.path("/" + id + "/lines/" + line)).then().statusCode(200).body("lines", hasSize(1))
                 .body("subtotalCents", equalTo(15000));
         a.owner().as().body(period(a)).post(a.path("")).then().statusCode(201).body("lines", hasSize(1))
-                .body("lines[0].amountCents", equalTo(2334));
+                .body("lines[0].amountCents", equalTo(2333));
     }
 
     @Test
@@ -167,15 +168,42 @@ class InvoiceResourceTest {
         // A credit note cancels the first one with the next number, and its time can be invoiced again.
         var note = a.owner().as().post(a.path("/" + first + "/credit")).then().statusCode(201)
                 .body("kind", equalTo("CREDIT_NOTE")).body("number", equalTo(3)).body("creditsInvoiceId", equalTo((int) first))
-                .body("totalCents", equalTo(-2334)).body("lines[0].amountCents", equalTo(-2334)).extract();
+                .body("totalCents", equalTo(-2333)).body("lines[0].amountCents", equalTo(-2333))
+                .body("creditsInvoiceNumber", equalTo(numberOf(a, first))).extract();
         a.owner().as().get(a.path("/" + first)).then().statusCode(200)
-                .body("creditedById", equalTo(note.<Number>path("id").intValue())).body("status", equalTo("ISSUED"));
+                .body("creditedById", equalTo(note.<Number>path("id").intValue())).body("creditedByNumber", equalTo(3))
+                .body("status", equalTo("ISSUED"));
         a.owner().as().post(a.path("/" + first + "/credit")).then().statusCode(409).body("code", equalTo("already_credited"));
         a.owner().as().post(a.path("/" + note.<Number>path("id") + "/credit")).then().statusCode(409).body("code", equalTo("not_issued"));
         a.owner().as().body(Map.of("clientId", a.clientId(), "from", WEEK.toString(), "to", WEEK.plusDays(1).toString()))
-                .post(a.path("")).then().statusCode(201).body("subtotalCents", equalTo(2334));
+                .post(a.path("")).then().statusCode(201).body("subtotalCents", equalTo(2333));
 
         a.owner().as().get(a.path("")).then().statusCode(200).body("number.findAll { it != null }", containsInAnyOrder(1, 2, 3));
+    }
+
+    private static Integer numberOf(Agency a, long id) {
+        return a.owner().as().get(a.path("/" + id)).then().statusCode(200).extract().path("number");
+    }
+
+    @Test
+    void threeTwentyMinuteEntriesAtAHundredAnHourAreAHundred() {
+        Account owner = Api.signup("Rhea Round");
+        long clientId = Api.createClient(owner, "Round Ltd");
+        long projectId = project(owner, "ROUND", clientId, 100, null);
+        long task = Api.createTask(owner, projectId, Map.of("title", "Calls"));
+        for (int day = 0; day < 3; day++) {
+            log(owner, owner, projectId, task, WEEK.plusDays(day), 20, true);
+        }
+        approveOwn(owner, WEEK);
+        owner.as().body(Map.of("clientId", clientId, "from", WEEK.toString(), "to", WEEK.plusDays(6).toString()))
+                .post("/api/orgs/" + owner.orgId() + "/invoices").then().statusCode(201)
+                .body("lines[0].minutes", equalTo(60)).body("lines[0].rateCents", equalTo(10000))
+                .body("lines[0].amountCents", equalTo(10000)).body("totalCents", equalTo(10000));
+    }
+
+    /** An owner may approve their own week. */
+    private static void approveOwn(Account owner, LocalDate week) {
+        approve(owner, owner, week);
     }
 
     @Test

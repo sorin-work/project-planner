@@ -743,8 +743,12 @@ export interface Invoice {
   issuedAt?: string;
   /** For a credit note: the invoice it cancels. */
   creditsInvoiceId?: number;
+  /** For a credit note: the number of the invoice it cancels. */
+  creditsInvoiceNumber?: number;
   /** For a cancelled invoice: its credit note. */
   creditedById?: number;
+  /** For a cancelled invoice: the number of its credit note. */
+  creditedByNumber?: number;
   lines: InvoiceLine[];
   /** Projects of the client that a new draft left out, such as fixed price ones. */
   leftOut?: { projectId: number; projectName: string; reason: string }[];

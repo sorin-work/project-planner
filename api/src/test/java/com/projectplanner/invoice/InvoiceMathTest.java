@@ -19,6 +19,15 @@ class InvoiceMathTest {
     }
 
     @Test
+    void aLineIsPricedOnceFromItsMinutes() {
+        // Three 20 minute entries at 100.00 an hour: 100.00, where pricing each would make 99.99.
+        assertThat(InvoiceMath.lineAmount(60, 10000)).isEqualTo(10000);
+        assertThat(InvoiceMath.lineAmount(14, 10000)).isEqualTo(2333);
+        assertThat(InvoiceMath.lineAmount(7, 10000)).isEqualTo(1167);
+        assertThat(InvoiceMath.lineAmount(90, 9550)).isEqualTo(14325);
+    }
+
+    @Test
     void taxIsRoundedHalfUpToTheCent() {
         assertThat(InvoiceMath.tax(10000, 2000)).isEqualTo(2000);
         assertThat(InvoiceMath.tax(1167, 1900)).isEqualTo(222); // 221.73

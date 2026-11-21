@@ -1010,9 +1010,10 @@ number, kind `INVOICE` or `CREDIT_NOTE`), `invoice_lines` with the project,
 task and person names copied, and `time_entries.invoice_line_id`, one column so
 that an entry is on one line at most. A draft takes the billable entries of
 approved weeks that are on no line, under the locks of the organisation, the
-projects and then the entries, priced entry by entry through `RateBook` and
-`Money.cost`, so it adds up to the report with `approvedOnly`; a test holds
-the two together. Issuing takes the next number under the organisation's row
+projects and then the entries, at the rates of `RateBook`, each line priced
+once from its minutes so that hours times rate is its amount; it can differ
+from the report with `approvedOnly`, which rounds every entry, by a cent or so
+per line. Issuing takes the next number under the organisation's row
 lock, so numbers have no gaps. Issued invoices never change; differences from
 the design: instead of `VOID` a correction is a credit note with the next
 number and the lines negated, which releases the entries, and a project with

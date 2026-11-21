@@ -46,10 +46,10 @@ import { formatCents, invoiceActions, invoiceHours, invoiceTitle } from './invoi
         </p>
       }
       @if (i.creditedById) {
-        <p class="alert info no-print">Cancelled by <a [routerLink]="['/invoices', i.creditedById]">a credit note</a>.</p>
+        <p class="alert info">Cancelled by <a [routerLink]="['/invoices', i.creditedById]">credit note {{ i.creditedByNumber }}</a>.</p>
       }
       @if (i.creditsInvoiceId) {
-        <p class="alert info no-print">Cancels <a [routerLink]="['/invoices', i.creditsInvoiceId]">an earlier invoice</a>.</p>
+        <p class="alert info">Cancels <a [routerLink]="['/invoices', i.creditsInvoiceId]">invoice {{ i.creditsInvoiceNumber }}</a>.</p>
       }
       <article class="card invoice-paper">
         <header class="invoice-head">
@@ -111,6 +111,8 @@ import { formatCents, invoiceActions, invoiceHours, invoiceTitle } from './invoi
               <textarea id="d-notes" name="notes" rows="3" maxlength="2000" [(ngModel)]="notes"></textarea></div>
             <div class="actions span-2"><button type="submit" [disabled]="busy()">Save</button></div>
           </form>
+          <p class="muted small">Each line is its hours at its rate, rounded once to the cent. The time report rounds every
+            entry, so an invoice can differ from it by a cent or so per line.</p>
           <p class="muted small">Issuing gives the invoice the next number. After that it never changes: a mistake is corrected
             with a credit note, and the time can then be invoiced again.</p>
         </section>

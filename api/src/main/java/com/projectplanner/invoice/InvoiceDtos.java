@@ -56,7 +56,8 @@ public final class InvoiceDtos {
                                   String clientName, LocalDate periodFrom, LocalDate periodTo, String currency,
                                   InvoiceGrouping groupBy, BigDecimal taxRatePercent, long subtotalCents, long taxCents,
                                   long totalCents, String notes, Instant createdAt, Instant issuedAt, Long creditsInvoiceId,
-                                  Long creditedById, List<LineResponse> lines, List<LeftOut> leftOut) {
+                                  Integer creditsInvoiceNumber, Long creditedById, Integer creditedByNumber,
+                                  List<LineResponse> lines, List<LeftOut> leftOut) {
     }
 
     /** One row of the list, without its lines. */
