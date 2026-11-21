@@ -117,6 +117,9 @@ export interface Project {
   color: string;
   createdAt: string;
   updatedAt: string;
+  /** Who leads the project: its budget alerts go to the lead and the owners. */
+  leadId?: number;
+  leadName?: string;
 }
 
 /** What the API offers for a copy of a project, and how much there is to copy. */

@@ -37,6 +37,7 @@ describe('SettingsTab baselines', () => {
     await fixture.whenStable();
     el = fixture.nativeElement as HTMLElement;
     http.expectOne((r) => r.url === '/api/orgs/3/clients').flush([]);
+    http.expectOne((r) => r.url === '/api/orgs/3/members').flush([]);
   });
 
   afterEach(() => http.verify());

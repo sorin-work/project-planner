@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Observable } from 'rxjs';
 import { messageOf } from '../../core/errors';
-import { Baseline, Client, Phase } from '../../core/models';
+import { Baseline, Client, Member, Phase } from '../../core/models';
 import { OrgApi } from '../../core/org.api';
 import { OrgContext } from '../../core/org-context.service';
 import { ProjectApi, ProjectInput } from '../../core/project.api';
@@ -22,7 +22,7 @@ import { ProjectStore } from './project.store';
       @if (saved()) {
         <p class="alert success" role="status" appAnnounce="Project details saved.">Saved.</p>
       }
-      <app-project-form [project]="store.project()" [clients]="clients()" [busy]="busy()" [error]="error()"
+      <app-project-form [project]="store.project()" [clients]="clients()" [members]="members()" [busy]="busy()" [error]="error()"
         (saved)="save($event)" (cancelled)="reset()" />
     </section>
 
@@ -105,6 +105,7 @@ export class SettingsTab {
   private readonly router = inject(Router);
 
   protected readonly clients = signal<Client[]>([]);
+  protected readonly members = signal<Member[]>([]);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly saved = signal(false);
@@ -121,6 +122,10 @@ export class SettingsTab {
       const orgId = this.org.orgId();
       if (orgId !== null) {
         this.orgApi.clients(orgId).subscribe({ next: (c) => this.clients.set(c) });
+        if (this.org.canManage()) {
+          // For the lead of a project, which owners and managers set.
+          this.orgApi.members(orgId).subscribe({ next: (m) => this.members.set(m) });
+        }
       }
     });
   }

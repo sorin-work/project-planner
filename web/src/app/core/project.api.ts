@@ -28,6 +28,8 @@ export interface ProjectInput {
   budgetAmount?: number | null;
   hourlyRate?: number | null;
   color?: string;
+  /** Left out or null, nobody leads the project. */
+  leadId?: number | null;
 }
 
 /** A copy of a project's plan. The client and the assignees are only copied when asked for. */
