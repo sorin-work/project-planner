@@ -68,8 +68,12 @@ the point is knowing whether a project will land on time and on budget.
   end date and subtasks outside their parent's dates. Finished tasks are left out.
   A task that starts too early comes with the dates that would fix it, and "Move to"
   applies them in one click. When those dates would put the task after the project's
-  end or outside its parent, the button says so first.
+  end or outside its parent, the button says so first. The project list marks a plan
+  that has issues with their count, and the Overview has a line with a link to the
+  timeline, so they show before anybody opens it.
 - **Critical path** (CPM forward/backward pass over working days) with float per task.
+  A finished task stays at its own dates: what is done is no longer a plan, so it has no
+  float and is never critical, while the tasks that wait for it still follow it.
 - **Views**: list grouped by phase, kanban board with drag and drop, and an SVG
   timeline (Gantt) with dependency arrows, the critical path, today line, collapsible
   phases and day/week/month zoom. Dependencies with a schedule issue are drawn red
@@ -673,7 +677,7 @@ of fifty projects with a thousand tasks and twenty thousand time entries on one 
 (`support/LargeOrganisation`, built by the test, not by the demo seed). The counts come
 from Hibernate's statistics, which are on in the test profile, and each has a fixed
 bound. A change that queries per row fails there instead of getting slow later. The
-project list is nine statements. Approving five weeks at once reads as much as
+project list is ten statements, one of them for the links behind its count of schedule issues. Approving five weeks at once reads as much as
 approving one, and only writes more: a notification and a line in the activity log for
 each week.
 
@@ -964,10 +968,18 @@ reported for something it is not reported for today, `suggestionCauses` lists th
 `AFTER_PROJECT_END`, `OUTSIDE_PARENT` or both, worked out by the rules that report those
 issues. It says nothing about the tasks that the move pushes in turn.
 
-Finished tasks are never in the list, but the critical path does not make that
-exception: it still moves a finished task that overlapped a task it waited for. So the
-`finish` of the critical path can be later than the latest due date while this list is
-empty. The timeline says which of the two it is in a line under its toolbar.
+Finished tasks are never in the list. On the critical path they stay at their own
+dates in both passes: the links into a finished task are not counted, so an overlap
+that was kept on purpose does not move the end, and its `floatDays` is left out. When
+the `finish` of the critical path is still not the latest due date, the timeline says
+why in a line under its toolbar.
+
+The project list (`GET /api/orgs/{orgId}/projects`) has `health.scheduleIssues`, the
+length of this list for each project, and so has `GET /api/projects/{projectId}/health`.
+Every issue counts, a task due after the project's end included, although the Overview
+shows that one as forecast against planned end as well. The links of all listed
+projects come in one query, so the list costs one statement more than before, ten of
+its own. The dashboard's project cards leave the count out.
 
 `GET .../timesheets/week` takes `?date=` (any day of the week) and, for owners and
 managers, `?userId=`. Without a date it is the current week by the organisation's date.
