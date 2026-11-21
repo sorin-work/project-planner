@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   afterRenderEffect,
   computed,
@@ -83,7 +84,11 @@ export const DRAG_THRESHOLD = 4;
   selector: 'app-gantt',
   templateUrl: './gantt.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '(document:keydown.escape)': 'cancelDrag()' },
+  host: {
+    '(document:keydown.escape)': 'onDocumentEscape()',
+    '(document:pointerdown)': 'onDocumentPointerDown($event)',
+    '(window:blur)': 'endDrag()',
+  },
 })
 export class Gantt {
   readonly tasks = input.required<Task[]>();
@@ -279,6 +284,7 @@ export class Gantt {
   private readonly titles = computed(() => new Map(this.tasks().map((t) => [t.id, t.title])));
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => this.stopEdge());
     // Open the timeline around today rather than at the project start, once per zoom level.
     afterRenderEffect(() => {
       const el = this.scroller()?.nativeElement;
@@ -427,17 +433,65 @@ export class Gantt {
    * was. It gives up a link drawn from the keyboard, or waiting for its type, the same way.
    */
   cancelDrag(): void {
-    if (this.drag()) {
-      this.drag.set(null);
-      this.stopEdge();
-    }
+    this.endDrag();
     const link = this.keyLink() ?? this.pendingLink();
     if (link) {
-      const fromId = 'fromId' in link ? link.fromId : link.predecessorId;
+      this.endLink();
+      this.focusBar('fromId' in link ? link.fromId : link.predecessorId);
+    }
+  }
+
+  /** Escape anywhere on the page: only does something while a drag or a link is live, so that it never takes the focus otherwise. */
+  onDocumentEscape(): void {
+    if (this.drag() || this.keyLink() || this.pendingLink()) {
+      this.cancelDrag();
+    }
+  }
+
+  /** A press outside the chart and its type menu gives up a link from the keyboard, or one waiting for its type. */
+  onDocumentPointerDown(event: Event): void {
+    if ((this.keyLink() || this.pendingLink()) && !this.host.nativeElement.contains(event.target as Node)) {
+      this.endLink();
+    }
+  }
+
+  /**
+   * The focus left the bar a link from the keyboard starts from: the link is given up, and
+   * the focus stays where it went. (The keys that pick a target are taken on that bar, so a
+   * link cannot go on from anywhere else.)
+   */
+  onBarFocusOut(event: FocusEvent): void {
+    if (!this.keyLink()) {
+      return;
+    }
+    const to = event.relatedTarget as Node | null;
+    if (to && this.host.nativeElement.querySelector('.link-type-menu')?.contains(to)) {
+      return;
+    }
+    this.endLink();
+  }
+
+  /** The pointer was let go of in a way that sends no pointerup, or the window lost the focus: the drag ends with nothing sent. */
+  onLostCapture(event: PointerEvent): void {
+    if (this.drag()?.pointerId === event.pointerId) {
+      this.endDrag();
+    }
+  }
+
+  /** Ends a drag, if there is one, and the scrolling at the edge that may go with it. Nothing is sent. */
+  endDrag(): void {
+    this.stopEdge();
+    if (this.drag()) {
+      this.drag.set(null);
+    }
+  }
+
+  /** Gives up a link being drawn from the keyboard or waiting for its type, and says so once. */
+  private endLink(): void {
+    if (this.keyLink() || this.pendingLink()) {
       this.keyLink.set(null);
       this.pendingLink.set(null);
-      this.announcer.announce('No link drawn.');
-      this.focusBar(fromId);
+      this.announcer.announce('Link cancelled.');
     }
   }
 
@@ -449,6 +503,11 @@ export class Gantt {
     if (event.key === 'Enter') {
       this.opened.emit(bar.task.id);
       return;
+    }
+    if (event.altKey && (event.key === 'ArrowRight' || event.key === 'ArrowLeft')) {
+      // Alt with an arrow is the browser's Back and Forward. On a bar it never is, whether the
+      // timeline can be edited here or not.
+      event.preventDefault();
     }
     if (!this.canEdit()) {
       return;
