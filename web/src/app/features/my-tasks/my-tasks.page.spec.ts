@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { AuthService } from '../../core/auth.service';
+import { OrgContext } from '../../core/org-context.service';
 import { Member, Role, SearchHit, SearchResponse } from '../../core/models';
 import { MyTasksPage } from './my-tasks.page';
 
@@ -31,7 +32,10 @@ describe('MyTasksPage', () => {
     });
     TestBed.inject(AuthService).me.set({
       user: { id: 5, email: 'maya@example.com', name: 'Maya Collins', handle: 'maya' },
-      organisations: [{ organisationId: 7, organisationName: 'Brightline Studio', role: 'MANAGER', currency: 'EUR' }],
+      organisations: [
+        { organisationId: 7, organisationName: 'Brightline Studio', role: 'MANAGER', currency: 'EUR' },
+        { organisationId: 8, organisationName: 'Side Project', role: 'OWNER', currency: 'EUR' },
+      ],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -98,5 +102,45 @@ describe('MyTasksPage', () => {
     all.flush(answer([hit(4, 'Tom task'), hit(5, 'Old one', '2026-01-01', 'DONE')]));
     await harness.fixture.whenStable();
     expect([...el.querySelectorAll('h2')].map((h) => h.childNodes[0].textContent!.trim())).toEqual(['No date', 'Done']);
+  });
+
+  it('shows only the answer to the last question, however late the earlier one comes', async () => {
+    const { harness, el } = await open([]);
+    const select = el.querySelector<HTMLSelectElement>('#assignee')!;
+    select.value = '6';
+    select.dispatchEvent(new Event('change'));
+    await harness.fixture.whenStable();
+    const tom = http.expectOne((r) => r.url === SEARCH_URL && r.params.get('assigneeId') === '6');
+
+    select.value = '5';
+    select.dispatchEvent(new Event('change'));
+    await harness.fixture.whenStable();
+    const mine = http.expectOne((r) => r.url === SEARCH_URL && r.params.get('assigneeId') === '5');
+    expect(tom.cancelled).toBe(true);
+    mine.flush(answer([hit(1, 'Mine')]));
+    await harness.fixture.whenStable();
+    expect(el.querySelector('h1')!.textContent).toContain('My tasks');
+    expect(el.textContent).toContain('Mine');
+    expect(el.textContent).not.toContain('Tom task');
+  });
+
+  it('forgets the person picked when the organisation changes', async () => {
+    const { harness, el } = await open([]);
+    const select = el.querySelector<HTMLSelectElement>('#assignee')!;
+    select.value = '6';
+    select.dispatchEvent(new Event('change'));
+    await harness.fixture.whenStable();
+    http.expectOne((r) => r.url === SEARCH_URL).flush(answer([hit(4, 'Tom task')]));
+    await harness.fixture.whenStable();
+
+    TestBed.inject(OrgContext).select(8);
+    await harness.fixture.whenStable();
+    http.expectOne('/api/orgs/8/members').flush([member(5, 'Maya', 'OWNER')]);
+    const other = http.expectOne((r) => r.url === '/api/orgs/8/search');
+    expect(other.request.params.get('assigneeId')).toBe('5');
+    other.flush({ ...answer([]), today: '2026-11-25' });
+    await harness.fixture.whenStable();
+    expect(el.textContent).not.toContain('Tom task');
+    expect(el.querySelector('h1')!.textContent).toContain('My tasks');
   });
 });

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, linkedSignal, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { messageOf } from '../../core/errors';
@@ -87,8 +87,8 @@ export class MyTasksPage {
   protected readonly formatDate = formatDate;
 
   protected readonly members = signal<Member[]>([]);
-  /** Whose tasks: the person signed in unless somebody else was picked. */
-  protected readonly picked = signal<number | null>(null);
+  /** Whose tasks: the person signed in unless somebody else was picked. Forgotten when the organisation changes. */
+  protected readonly picked = linkedSignal<number | null, number | null>({ source: () => this.org.orgId(), computation: () => null });
   protected readonly assigneeId = computed(() => this.picked() ?? this.auth.user()?.id ?? null);
   protected readonly mine = computed(() => this.assigneeId() === this.auth.user()?.id);
   protected readonly personName = computed(() => this.members().find((m) => m.userId === this.assigneeId())?.name ?? '');
@@ -107,13 +107,20 @@ export class MyTasksPage {
   protected readonly groups = computed(() => groupMyTasks(this.hits(), this.day()));
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const orgId = this.org.orgId();
+      // Another organisation: nothing of the last one is kept, its people and its tasks included.
+      this.members.set([]);
+      this.before.clear();
+      this.hits.set([]);
+      this.loaded.set(false);
       if (orgId !== null && this.org.isTeam()) {
-        this.orgApi.members(orgId).subscribe({ next: (members) => this.members.set(members.filter((m) => m.role !== 'CLIENT')) });
+        const request = this.orgApi.members(orgId)
+          .subscribe({ next: (members) => this.members.set(members.filter((m) => m.role !== 'CLIENT')) });
+        onCleanup(() => request.unsubscribe());
       }
     });
-    effect(() => {
+    effect((onCleanup) => {
       const orgId = this.org.orgId();
       const assigneeId = this.assigneeId();
       const showDone = this.showDone();
@@ -121,7 +128,9 @@ export class MyTasksPage {
         return;
       }
       this.error.set(null);
-      this.search.tasks(orgId, { assigneeId, statuses: showDone ? undefined : OPEN, limit: LIMIT }).subscribe({
+      // A new question cancels the one before it, so that a slow answer about somebody else,
+      // or with done tasks or without, never lands after the one that was asked for last.
+      const request = this.search.tasks(orgId, { assigneeId, statuses: showDone ? undefined : OPEN, limit: LIMIT }).subscribe({
         next: (response) => {
           this.hits.set(response.tasks);
           this.more.set(response.more.includes('TASK'));
@@ -132,6 +141,7 @@ export class MyTasksPage {
         },
         error: (err: unknown) => this.error.set(messageOf(err)),
       });
+      onCleanup(() => request.unsubscribe());
     });
   }
 
