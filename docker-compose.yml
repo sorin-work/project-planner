@@ -51,8 +51,13 @@ services:
       TRUSTED_PROXIES: ${WEB_ADDRESS:-172.28.40.10}
       # Files attached to tasks, on their own volume. The backup service archives it with every dump.
       ATTACHMENTS_DIR: /data/attachments
+      # The status file of the backup service, for the line on the Settings page and the
+      # mail to owners when backups stop. Off when empty; /backups/.backup-status turns it on.
+      BACKUP_STATUS_FILE: ${BACKUP_STATUS_FILE:-}
     volumes:
       - attachments:/data/attachments
+      # Read only, for the status file. The api never writes or reads a dump.
+      - ${BACKUP_DIR:-./backups}:/backups:ro
     depends_on:
       db:
         condition: service_healthy
@@ -97,8 +102,12 @@ services:
   # attachments next to each dump, and keeps the newest BACKUP_KEEP of them.
   # See "Backup and restore" in the README.
   backup:
-    # The same image as db, so that pg_dump matches the server.
-    image: postgres:17-alpine
+    # The postgres image of db, so that pg_dump matches the server, with age
+    # (and rclone when BACKUP_PACKAGES=rclone) on top.
+    build:
+      context: ./backup
+      args:
+        BACKUP_PACKAGES: ${BACKUP_PACKAGES:-}
     profiles: [backup]
     entrypoint: ['sh', '/scripts/backup.sh']
     environment:
@@ -112,6 +121,22 @@ services:
       # The api's user (api/Dockerfile): restored attachments, and a volume this
       # service happens to create, are given to it.
       ATTACHMENTS_OWNER: '1000:1000'
+      # age public keys: every dump and archive is written encrypted to them.
+      BACKUP_ENCRYPT_TO: ${BACKUP_ENCRYPT_TO:-}
+      # For a restore of an encrypted dump: the private key, mounted for that one command.
+      BACKUP_DECRYPT_KEY: ${BACKUP_DECRYPT_KEY:-}
+      # A second folder every finished dump is copied to, mounted below.
+      BACKUP_COPY_DIR: ${BACKUP_COPY_DIR:+/copies}
+      # An rclone remote such as minio:planner-backups, configured in BACKUP_RCLONE_CONFIG.
+      BACKUP_RCLONE_REMOTE: ${BACKUP_RCLONE_REMOTE:-}
+      RCLONE_CONFIG: /config/rclone.conf
+      BACKUP_COPY_TIMEOUT_SECONDS: ${BACKUP_COPY_TIMEOUT_SECONDS:-3600}
+    healthcheck:
+      # Unhealthy when the newest good dump is older than twice the interval.
+      test: ['CMD', 'sh', '/scripts/backup.sh', 'health']
+      interval: 5m
+      timeout: 30s
+      start_period: 10m
     depends_on:
       db:
         condition: service_healthy
@@ -119,6 +144,9 @@ services:
       - ./scripts:/scripts:ro
       - ${BACKUP_DIR:-./backups}:/backups
       - attachments:/attachments
+      # Without BACKUP_COPY_DIR this is an empty folder that nothing uses.
+      - ${BACKUP_COPY_DIR:-./backups/.no-copies}:/copies
+      - ${BACKUP_RCLONE_CONFIG:-./backups/.no-rclone}:/config:ro
 
 volumes:
   db-data:

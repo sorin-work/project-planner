@@ -53,7 +53,8 @@ jobs:
       - name: Check the guards of the restore check
         run: sh scripts/check-restore-guards.sh
 
-      - run: docker compose build
+      # With the backup profile, so that the backup image (backup/Dockerfile) is built too.
+      - run: docker compose --profile backup build
 
       # The only place where the stack is started. Brings up db and api with
       # the demo data, runs the backup loop against made-up clocks, dumps the
