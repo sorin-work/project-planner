@@ -10,12 +10,12 @@ import {
 } from './missing-timesheets';
 
 function person(userId: number, userName: string, totalMinutes: number, extra: Partial<MissingTimesheet> = {}): MissingTimesheet {
-  return { userId, userName, status: 'DRAFT', totalMinutes, weeklyCapacityHours: 40, remindedToday: false, ...extra };
+  return { userId, userName, status: 'DRAFT', totalMinutes, capacityHours: 40, away: false, remindedToday: false, ...extra };
 }
 
 const tom = person(1, 'Tom Becker', 2250);
 const samir = person(2, 'Samir Haddad', 1800, { status: 'REJECTED' });
-const lena = person(3, 'Lena Novak', 0, { weeklyCapacityHours: 32 });
+const lena = person(3, 'Lena Novak', 0, { capacityHours: 32 });
 const priya = person(4, 'Priya Shah', 600, { remindedToday: true });
 const maya = person(5, 'Maya Collins', 300);
 const everyone = [tom, samir, lena, priya, maya];
@@ -58,6 +58,8 @@ describe('missing timesheets', () => {
   it('shows the time logged against the weekly capacity', () => {
     expect(loggedOfCapacity(tom)).toBe('37h 30m of 40h');
     expect(loggedOfCapacity(lena)).toBe('0h of 32h');
+    // A whole week off: no capacity to compare with, but the hours of somebody who worked anyway.
+    expect(loggedOfCapacity({ ...tom, totalMinutes: 60, capacityHours: 0, away: true })).toBe('1h logged, away');
   });
 });
 

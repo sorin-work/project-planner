@@ -64,6 +64,20 @@ public class Notifier {
                 choices.get(userId).get(type)));
     }
 
+    /**
+     * Several weeks, each to its own person with a message of its own, in the order given. Their
+     * choices are read in one query, so that approving a dozen weeks does not ask a dozen times.
+     */
+    public void notifyEachAboutWeek(Collection<WeekNotice> notices, long organisationId, Long actorId, NotificationType type) {
+        Map<Long, Map<NotificationType, Delivery>> choices = preferences.of(notices.stream().map(WeekNotice::userId).distinct().toList());
+        notices.forEach(n -> create(n.userId(), organisationId, actorId, type, n.message(), null, null, n.weekStart(),
+                choices.get(n.userId()).get(type)));
+    }
+
+    /** One person's notification about one of their weeks. */
+    public record WeekNotice(long userId, LocalDate weekStart, String message) {
+    }
+
     /** A timesheet notification: it has no project or task, but says which week it is about. */
     public void notifyAboutWeek(long userId, long organisationId, Long actorId, NotificationType type, String message,
                                 LocalDate weekStart) {

@@ -1,6 +1,7 @@
 package com.projectplanner.time;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -75,5 +76,30 @@ public final class TimeDtos {
     }
 
     public record RemindResponse(LocalDate weekStart, List<Long> reminded, List<SkippedReminder> skipped) {
+    }
+
+    /** A week as it was on screen: its id, and when it was submitted then. */
+    public record SheetToApprove(@NotNull Long id, @NotNull Instant submittedAt) {
+    }
+
+    public record ApproveRequest(@NotNull @Size(min = 1, max = 200) List<@NotNull @Valid SheetToApprove> sheets) {
+    }
+
+    /** Why a week on an approval request was left out. */
+    public enum ApprovalSkip {
+        /** No such week in this organisation. */
+        NOT_FOUND,
+        /** A manager's own week, which another manager or an owner reviews. */
+        OWN_WEEK,
+        /** No longer waiting for review: approved, sent back or withdrawn since. */
+        NOT_SUBMITTED,
+        /** Withdrawn and submitted again since it was on screen, so it may have changed. */
+        CHANGED
+    }
+
+    public record SkippedApproval(long timesheetId, ApprovalSkip reason) {
+    }
+
+    public record ApproveResponse(List<Long> approved, List<SkippedApproval> skipped) {
     }
 }
