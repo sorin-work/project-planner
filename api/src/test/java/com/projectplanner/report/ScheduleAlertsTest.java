@@ -112,6 +112,23 @@ class ScheduleAlertsTest {
         assertThat(alertsTo(team.manager())).hasSize(2);
     }
 
+    @Test
+    void withALeadTheLeadAndTheOwnersHearAndAMemberWhoLeadsToo() {
+        Team team = team("LEAD", TODAY.plusDays(20));
+        team.owner().as().body(Map.of("name", "Launch LEAD", "code", "LEAD", "status", "ACTIVE",
+                        "startDate", TODAY.minusDays(30).toString(), "endDate", TODAY.plusDays(20).toString(),
+                        "leadId", team.member().userId()))
+                .put("/api/projects/" + team.projectId()).then().statusCode(200);
+        long last = task(team.member(), team.projectId(), TODAY.plusDays(10));
+        team.member().as().body(Map.of("startDate", TODAY.plusDays(24).toString(), "dueDate", TODAY.plusDays(25).toString()))
+                .patch("/api/tasks/" + last).then().statusCode(200);
+
+        String message = "Launch LEAD now ends on " + TODAY.plusDays(25) + ", after its end date of " + TODAY.plusDays(20);
+        assertThat(alertsTo(team.member())).as("the member who leads it").containsExactly(message);
+        assertThat(alertsTo(team.owner())).containsExactly(message);
+        assertThat(alertsTo(team.manager())).as("not their project").isEmpty();
+    }
+
     private static List<Long> openTaskIds(Team team) {
         List<Integer> ids = team.owner().as().get("/api/projects/" + team.projectId() + "/tasks").then().statusCode(200)
                 .extract().path("findAll { it.status != 'DONE' }.id");
