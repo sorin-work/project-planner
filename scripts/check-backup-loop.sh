@@ -65,10 +65,13 @@ echo "dropdb $*" >>"$STATE/steps"
 STUB
 
 # The rest of what a restore calls. All of it works.
-for tool in pg_isready createdb pg_restore; do
+for tool in pg_isready createdb; do
   printf '#!/bin/sh\nexit 0\n' >"$work/bin/$tool"
   chmod +x "$work/bin/$tool"
 done
+# pg_restore reads the dump on its stdin, decrypted on the way when it is encrypted.
+printf '#!/bin/sh\ncat >/dev/null\nexit 0\n' >"$work/bin/pg_restore"
+chmod +x "$work/bin/pg_restore"
 
 # Returns at once and stops the loop, its parent, after $ROUNDS naps.
 cat >"$work/bin/sleep" <<'STUB'
@@ -279,6 +282,167 @@ grep -q "the data from $dump is in the database planner_restoring" "$STATE/log" 
 finish="psql -U planner -d postgres -c 'ALTER DATABASE \"planner_restoring\" RENAME TO \"planner\"'"
 grep -q -F "$finish" "$STATE/log" || fail "it does not print the command that finishes the restore"
 [ "$(grep -c -x "dropdb --if-exists planner_restoring" "$STATE/steps")" -eq 1 ] || fail "the copy with the data in it was dropped"
+echo "ok: $case_name"
+
+# Stand-ins for age and rclone. age "encrypts" by writing "sealed:" and what
+# came in; it decrypts only with a key file that says "right". With
+# $STATE/age-fails it writes half and fails. rclone copies into $STATE/bucket,
+# and with $STATE/hang it starts a child that would outlive it and waits.
+cat >"$work/bin/age" <<'STUB'
+#!/bin/sh
+out=''
+key=''
+decrypt=''
+while [ $# -gt 0 ]; do
+  case $1 in
+    -o) out=$2; shift 2 ;;
+    -r) shift 2 ;;
+    -i) key=$2; shift 2 ;;
+    -d) decrypt=yes; shift ;;
+    *) in=$1; shift ;;
+  esac
+done
+if [ -n "$decrypt" ]; then
+  grep -q right "$key" 2>/dev/null || { echo "age: no identity matched" >&2; exit 1; }
+  sed '1s/^sealed://' "$in"
+  exit 0
+fi
+if [ -e "$STATE/age-fails" ]; then
+  echo "sealed:half" >"$out"
+  exit 1
+fi
+if [ -n "$out" ]; then
+  { printf 'sealed:'; cat; } >"$out"
+else
+  { printf 'sealed:'; cat; } >/dev/null
+fi
+STUB
+cat >"$work/bin/rclone" <<'STUB'
+#!/bin/sh
+mkdir -p "$STATE/bucket"
+case $1 in
+  copyto)
+    if [ -e "$STATE/hang" ]; then
+      /bin/sleep 300 &
+      echo $! >"$STATE/child"
+      /bin/sleep 300
+    fi
+    cp "$2" "$STATE/bucket/${3##*/}"
+    ;;
+  lsf) ls -1 "$STATE/bucket" ;;
+  deletefile) rm -f "$STATE/bucket/${2##*/}" ;;
+esac
+STUB
+chmod +x "$work/bin/age" "$work/bin/rclone"
+
+run_once() {
+  status=0
+  PATH="$work/bin:$PATH" sh "$here/backup.sh" once >"$STATE/log" 2>&1 || status=$?
+}
+
+status_says() {
+  grep -q -x "$1" "$BACKUP_DIR/.backup-status" || fail "the status file does not say $1: $(tr '\n' ';' <"$BACKUP_DIR/.backup-status" 2>/dev/null)"
+}
+
+# pg_dump writes to stdout when it is given no --file, which is how it feeds age.
+cat >"$work/bin/pg_dump" <<'STUB'
+#!/bin/sh
+echo attempt >>"$STATE/attempts"
+file=''
+for arg in "$@"; do
+  case $arg in --file=*) file=${arg#--file=} ;; esac
+done
+if [ -n "$file" ]; then echo "new" >"$file"; else echo "new"; fi
+[ ! -e "$STATE/fail" ] || exit 1
+STUB
+chmod +x "$work/bin/pg_dump"
+
+begin "encrypted: only the .age file reaches the disk"
+export BACKUP_ENCRYPT_TO=age1standin
+run_once
+[ "$status" -eq 0 ] || fail "once failed"
+dump=$(ls "$BACKUP_DIR" | grep '\.dump\.age$' || true)
+[ -n "$dump" ] || fail "no encrypted dump was written"
+[ -z "$(ls -A "$BACKUP_DIR" | grep -E '\.dump$|\.partial$|\.status$' || true)" ] || fail "a plain or partial file was left on disk: $(ls -A "$BACKUP_DIR")"
+grep -q '^sealed:new' "$BACKUP_DIR/$dump" || fail "the dump did not go through age"
+status_says "last_outcome=ok"
+status_says "last_good=$dump"
+echo "ok: $case_name"
+
+begin "encrypted: age fails half way, nothing is kept"
+export BACKUP_ENCRYPT_TO=age1standin
+touch "$STATE/age-fails"
+run_once
+[ "$status" -ne 0 ] || fail "once reported success"
+[ -z "$(ls -A "$BACKUP_DIR" | grep -v '^\.backup-status$' || true)" ] || fail "something was left behind: $(ls -A "$BACKUP_DIR")"
+status_says "last_outcome=dump_failed"
+echo "ok: $case_name"
+
+begin "encrypted: pg_dump fails under age, nothing is kept"
+export BACKUP_ENCRYPT_TO=age1standin
+touch "$STATE/fail"
+run_once
+[ "$status" -ne 0 ] || fail "once reported success"
+[ -z "$(ls "$BACKUP_DIR" | grep '\.age$' || true)" ] || fail "a dump that failed was kept"
+echo "ok: $case_name"
+unset BACKUP_ENCRYPT_TO
+
+begin "a restore of an encrypted dump without the key, or with the wrong one, changes nothing"
+echo "sealed:old" >"$BACKUP_DIR/planner-20260301T030000Z.dump.age"
+run_restore planner-20260301T030000Z.dump.age
+[ "$status" -ne 0 ] || fail "a restore without BACKUP_DECRYPT_KEY went ahead"
+grep -q "BACKUP_DECRYPT_KEY" "$STATE/log" || fail "it does not say which key is missing"
+echo wrong >"$STATE/key"
+export BACKUP_DECRYPT_KEY="$STATE/key"
+run_restore planner-20260301T030000Z.dump.age
+[ "$status" -ne 0 ] || fail "a restore with the wrong key went ahead"
+[ ! -s "$STATE/steps" ] || fail "the database was touched: $(tr '\n' ';' <"$STATE/steps")"
+echo right >"$STATE/key"
+run_restore planner-20260301T030000Z.dump.age
+[ "$status" -eq 0 ] || fail "a restore with the right key failed: $(cat "$STATE/log")"
+unset BACKUP_DECRYPT_KEY
+echo "ok: $case_name"
+
+begin "copies: to a second folder, pruned there like the first"
+mkdir "$work/copies"
+for days in 5 4 3; do
+  echo old >"$work/copies/planner-$(date -u -d "@$((now - days * DAY))" +%Y%m%dT%H%M%SZ).dump"
+done
+export BACKUP_COPY_DIR="$work/copies"
+run_once
+unset BACKUP_COPY_DIR
+[ "$status" -eq 0 ] || fail "once failed: $(cat "$STATE/log")"
+[ "$(ls "$work/copies" | grep -c '\.dump$')" -eq 3 ] || fail "expected 3 copies, found $(ls "$work/copies")"
+grep -lq new "$work/copies"/*.dump || fail "the new dump was not copied"
+[ -z "$(ls -A "$work/copies" | grep '\.partial$' || true)" ] || fail "a partial copy was left behind"
+status_says "last_outcome=ok"
+rm -rf "$work/copies"
+echo "ok: $case_name"
+
+begin "copies: a copy that hangs is stopped with everything it started, and counts as failed"
+touch "$STATE/hang"
+export BACKUP_RCLONE_REMOTE=standin:bucket BACKUP_COPY_TIMEOUT_SECONDS=2
+run_once
+unset BACKUP_RCLONE_REMOTE BACKUP_COPY_TIMEOUT_SECONDS
+[ "$status" -eq 0 ] || fail "a failed copy failed the dump"
+[ "$(dump_count)" -eq 1 ] || fail "the dump itself was not kept"
+status_says "last_outcome=copy_failed"
+grep -q "took longer than 2s and was stopped" "$STATE/log" || fail "the log does not say the copy was stopped"
+child=$(cat "$STATE/child" 2>/dev/null || echo '')
+[ -n "$child" ] || fail "the copy did not start"
+! kill -0 "$child" 2>/dev/null || fail "a process the copy started is still running"
+echo "ok: $case_name"
+
+begin "health: a recent good dump is healthy, one older than twice the interval is not"
+run_once
+PATH="$work/bin:$PATH" sh "$here/backup.sh" health >"$STATE/log" 2>&1 || fail "unhealthy after a good dump: $(cat "$STATE/log")"
+good=$(sed -n 's/^last_good=//p' "$BACKUP_DIR/.backup-status")
+sed -i "s/^last_good_at=.*/last_good_at=$((now - 3 * DAY))/" "$BACKUP_DIR/.backup-status"
+! PATH="$work/bin:$PATH" sh "$here/backup.sh" health >"$STATE/log" 2>&1 || fail "healthy with a good dump three days old"
+grep -q "more than twice the interval" "$STATE/log" || fail "it does not say why"
+rm -f "$BACKUP_DIR/$good"
+sed -i "s/^last_good_at=.*/last_good_at=$now/" "$BACKUP_DIR/.backup-status"
+! PATH="$work/bin:$PATH" sh "$here/backup.sh" health >/dev/null 2>&1 || fail "healthy while the last good dump is gone"
 echo "ok: $case_name"
 
 echo "OK: the loop, the pruning and the restore held in every case"

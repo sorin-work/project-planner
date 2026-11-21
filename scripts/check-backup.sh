@@ -13,6 +13,9 @@
 #   5. The attachments: every dump has its archive and loses it when it is
 #      pruned, and the restore puts back exactly the files in the archive,
 #      in another folder that held different ones.
+#   6. Encrypted with a key made for the check: only .age files reach the
+#      disk, a restore with another key fails and leaves the database as it
+#      was, and one with the key brings back the same rows and files.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -140,6 +143,32 @@ done
 [ "$(stat -c %h "$outside")" = 1 ] || fail "a hard link to a file outside the attachments was left behind"
 [ "$(cat "$outside")" = "not an attachment" ] || fail "the restore changed a file outside the attachments"
 rm -f "$BACKUP_DIR/planner-20000101T000000Z.dump" "$crafted"
+
+echo "== encrypted: only age files on disk, a wrong key changes nothing, the right one restores"
+age-keygen -o "$work/key.txt" 2>/dev/null
+age-keygen -o "$work/other-key.txt" 2>/dev/null
+encrypted="$work/encrypted"
+mkdir "$encrypted"
+BACKUP_DIR="$encrypted" BACKUP_ENCRYPT_TO="$(age-keygen -y "$work/key.txt")" sh "$here/backup.sh" once
+sealed_dump=$(ls "$encrypted" | grep '\.dump\.age$' || true)
+[ -n "$sealed_dump" ] || fail "no encrypted dump was written: $(ls -A "$encrypted")"
+[ -f "$encrypted/${sealed_dump%.dump.age}.files.tar.age" ] || fail "the encrypted dump has no encrypted archive"
+[ -z "$(ls -A "$encrypted" | grep -E '\.dump$|\.files\.tar$|\.partial$' || true)" ] || fail "a plain or partial file reached the disk: $(ls -A "$encrypted")"
+[ "$(head -c 21 "$encrypted/$sealed_dump")" = "age-encryption.org/v1" ] || fail "$sealed_dump is not an age file"
+row_counts "$scratch" >"$work/before-wrong-key.txt"
+sealed_files="$work/sealed-attachments"
+mkdir "$sealed_files"
+if PGDATABASE="$scratch" BACKUP_DIR="$encrypted" ATTACHMENTS_DIR="$sealed_files" BACKUP_DECRYPT_KEY="$work/other-key.txt" \
+  sh "$here/backup.sh" restore "$sealed_dump" >"$work/wrong-key.log" 2>&1; then
+  fail "a restore with another key went ahead"
+fi
+row_counts "$scratch" >"$work/after-wrong-key.txt"
+diff "$work/before-wrong-key.txt" "$work/after-wrong-key.txt" || fail "a restore with the wrong key changed $scratch"
+[ -z "$(ls -A "$sealed_files")" ] || fail "a restore with the wrong key wrote attachments"
+PGDATABASE="$scratch" BACKUP_DIR="$encrypted" ATTACHMENTS_DIR="$sealed_files" BACKUP_DECRYPT_KEY="$work/key.txt" \
+  sh "$here/backup.sh" restore "$sealed_dump"
+(cd "$sealed_files" && find . -type f -exec md5sum {} \; | sort) >"$work/sealed-files-after.txt"
+diff "$work/files-before.txt" "$work/sealed-files-after.txt" || fail "the attachments from the encrypted archive (+) are not the ones archived (-)"
 
 echo "== row counts"
 row_counts "$PGDATABASE" >"$work/source.txt"
