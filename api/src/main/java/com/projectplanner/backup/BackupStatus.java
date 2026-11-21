@@ -19,7 +19,6 @@ import java.util.Optional;
  */
 public record BackupStatus(Instant lastRunAt, String lastOutcome, String lastGood, Instant lastGoodAt, long interval) {
 
-
     /** Reads the file's "key=value" lines. Empty when it is not one the backup service wrote. */
     public static Optional<BackupStatus> parse(String text) {
         Map<String, String> values = new HashMap<>();
