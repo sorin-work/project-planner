@@ -156,10 +156,17 @@ the point is knowing whether a project will land on time and on budget.
   sent back and reminders are also mailed, several at a time in one mail. Each type can
   be mailed, shown in the app only or switched off in the settings, and every mail has
   a link that stops the mails of its types without signing in.
+- **Project lead**: an owner, a manager or a member can lead a project, picked in the
+  project form and on the Settings tab by owners and managers. The project list has a
+  Lead column and a "Led by me" filter. Somebody who leaves the organisation, or becomes
+  a client viewer, stops leading their projects, which then have no lead. A copy of a
+  project keeps the lead only when it keeps the assignees.
 - **Budget alerts**: when a project's hours burn or money burn reaches 80% of its
   budget, and again when it reaches 100%, every owner and manager gets a notification
-  that opens the project's overview. Hours and money are announced separately, and the
-  hours message has no amounts in it. Each threshold is announced once. A burn that
+  that opens the project's overview. When the project has a lead, only the lead and the
+  owners do, so the other managers stop hearing about projects that are not theirs.
+  Hours and money are announced separately, and the hours message has no amounts in
+  it: a member who leads a project gets the hours message and never the money one. Each threshold is announced once. A burn that
   falls back under one (time deleted, the budget raised) can announce it again later.
   The check runs when time is logged, changed, moved, deleted or a timer stops, and when
   a budget or a rate changes. A project without a budget is never looked at.
@@ -281,6 +288,9 @@ which it waits for, and the last tasks of the Globex patient portal are due afte
 the client's deadline. The Acme booking app also has a baseline, "Signed off at
 kick-off", from which its build and release phases have slipped a week, so its timeline
 has grey bars to compare with and its Overview a launch that is late.
+
+Priya leads the Acme booking app and Lena, a member, the studio design system, so the
+Lead column and "Led by me" have something to show when signing in as either of them.
 
 | Service | Host port | URL                                                 | Notes                             |
 | ------- | --------- | --------------------------------------------------- | --------------------------------- |

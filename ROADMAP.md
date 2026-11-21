@@ -43,7 +43,7 @@ couple of weekends, **L** several weeks of spare time.
 | 20  | Approve weeks in one go                    | Shipped | both     | S    | -          |
 | 21  | Schedule issues beyond the timeline        | Shipped | both     | S    | -          |
 | 22  | Sign-in hardening                          | Shipped | both     | S    | -          |
-| 23  | Project lead                               | Next  | both     | S    | -          |
+| 23  | Project lead                               | Shipped | both     | S    | -          |
 | 24  | Daily summary and automatic reminders      | Later | both     | M    | 19         |
 | 25  | Schedule alerts                            | Later | both     | S    | 23         |
 | 26  | Encrypted backups off the machine          | Later | infra    | M    | -          |
@@ -183,36 +183,6 @@ know what is on my plate I open every project and tick "Only mine".
   `GET /api/orgs/{orgId}/my-tasks`. The search already has the visibility
   rules in its queries, which is the hard part. I lean towards the search
   endpoint.
-
-### 23. Project lead
-
-Improvement of item 10, which left it open: "every manager hears about every
-project, since there is no project lead". In a team of five that is fine. In
-an agency with twenty projects and four managers, three of them get alerts
-about projects that are not theirs, and the daily summary of item 24 would
-have the same problem.
-
-- Data: `lead_id` on `projects`, nullable, a user of the organisation
-  (`V29__add_project_lead.sql`). Set in the project form and the Settings
-  tab by owners and managers.
-- Who can lead: an owner, a manager or a member. Not a client viewer
-  (`ApiException.badRequest` with a code of its own).
-- Budget alerts: with a lead, the lead and the owners hear about the
-  project, other managers do not. Without a lead, everybody as today. Keep
-  the money message for `role.canManage()` only: a member who leads a
-  project gets the hours alert and never the amounts, which is what item 10
-  kept the two messages apart for.
-- Tricky: a lead who leaves. The foreign key goes to `users`, so removing a
-  membership leaves the column pointing at somebody who is no longer in the
-  organisation. Clear it when a membership is removed, in the same
-  transaction, and test that alerts fall back to the managers.
-- Project list: a lead column and a "Led by me" filter. The project summary
-  carries the lead's name, from the people already loaded in one query.
-- Duplicating a project copies the lead only when the assignees are copied
-  (item 13's choice), since a template's lead is rarely the new project's.
-- Undecided: whether owners hear about every project anyway. I lean yes for
-  money and no for hours, but that is two rules where one would do; the
-  simplest is "lead plus owners" for both.
 
 ## Later
 
@@ -1159,3 +1129,22 @@ the number of addresses, about 300 tries a day each once the account is past its
 count, which is the price of never locking the owner out (an hourly sweep and a cap
 of a thousand pairs per account keep the table bounded); HSTS is for whatever terminates TLS; and a list of sessions with "sign out
 this device" was left out, as the design suggested.
+
+### 23. Project lead
+
+`lead_id` on `projects` (`V29`), a user of the organisation who is an owner, a
+manager or a member; a client viewer is refused with `client_cannot_lead` and
+somebody from elsewhere with `unknown_lead`. Set in the project form and the
+Settings tab by owners and managers, and part of `PUT`, so leaving it out clears
+it like any other field. The project answers carry `leadId` and `leadName`; the
+list reads the names of all leads in one query, which is sent only when a project
+has a lead (`QueryCountTest` holds it to one statement). Budget alerts: without a
+lead, owners and managers as before; with one, the lead and the owners, and the
+money message only to those of them who can manage. Removing a membership clears
+the lead in the same transaction, and so does a change of role to client viewer.
+A copy keeps the lead only with `keepAssignees`. The project list has a Lead
+column and a "Led by me" filter in the page, offered when you lead one of the
+listed projects. The demo has Priya leading the Acme booking app and Lena the
+design system. Decided: the simplest rule, the lead plus the owners for both
+messages. Still open: the daily summary of item 24 and schedule alerts of item
+25 can use the same rule.
