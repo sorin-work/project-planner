@@ -1,7 +1,7 @@
 import { ScheduleIssue, Task } from '../../core/models';
 import { formatDate } from '../../shared/dates';
 import {
-  brokenLinks, issueLines, issueText, linkIssue, linkKey, linkNote, moveCost, moveTo, planEndNote, scheduleIssuesText,
+  brokenLinks, criticalNote, issueLines, issueText, linkIssue, linkKey, linkNote, floatText, moveCost, moveTo, planEndNote, scheduleIssuesText,
 } from './schedule-issues';
 
 const titles: Record<number, string> = { 1: 'Design', 2: 'Build', 3: 'Endpoints', 4: 'Copy' };
@@ -108,6 +108,22 @@ describe('schedule issues', () => {
     // The API's finish is then the latest due date, and there is nothing to explain.
     const done = { ...build, status: 'DONE' as const };
     expect(planEndNote('2026-03-06', [design, done], [])).toBeNull();
+  });
+
+  it('gives a finished task no float badge, since it has no float', () => {
+    expect(floatText({ floatDays: 3 })).toBe('3 days float');
+    expect(floatText({ floatDays: 1 })).toBe('1 day float');
+    expect(floatText({ floatDays: 0 })).toBe('0 days float');
+    expect(floatText({ floatDays: undefined })).toBeNull();
+    expect(floatText({ floatDays: null })).toBeNull();
+    expect(floatText(undefined)).toBeNull();
+  });
+
+  it('says why nothing is critical when the plan ends with a finished task', () => {
+    expect(criticalNote({ finish: '2026-03-06', criticalTaskIds: [] })).toContain('the plan ends with a finished task');
+    expect(criticalNote({ finish: '2026-03-06', criticalTaskIds: [2] })).toBeNull();
+    expect(criticalNote({ finish: undefined, criticalTaskIds: [] })).toBeNull();
+    expect(criticalNote(null)).toBeNull();
   });
 
   it('counts the issues of a plan in a few words', () => {
