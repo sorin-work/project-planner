@@ -4,7 +4,7 @@ import { SearchHit, SearchResponse } from '../../core/models';
 import { QuickSearch, hitsOf } from './quick-search';
 
 const hit = (id: number, title: string): SearchHit => ({ type: 'TASK', id, projectId: 1, projectCode: 'WEB', taskId: id, title });
-const answer = (query: string, ...tasks: SearchHit[]): SearchResponse => ({ query, projects: [], tasks, comments: [] });
+const answer = (query: string, ...tasks: SearchHit[]): SearchResponse => ({ query, projects: [], tasks, comments: [], more: [] });
 
 describe('QuickSearch', () => {
   /** Every request that was made, with the text it asked for and whether it was cancelled. */

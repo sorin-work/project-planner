@@ -11,7 +11,7 @@ import { SearchDialog, hitTarget } from './search-dialog';
 const homepage: SearchHit = { type: 'TASK', id: 11, projectId: 4, projectCode: 'WEB', taskId: 11, title: 'Homepage' };
 const website: SearchHit = { type: 'PROJECT', id: 4, projectId: 4, projectCode: 'WEB', title: 'Website', snippet: 'Northwind' };
 const remark: SearchHit = { type: 'COMMENT', id: 90, projectId: 4, projectCode: 'WEB', taskId: 12, title: 'Footer', snippet: 'home link is broken' };
-const answer: SearchResponse = { query: 'home', projects: [website], tasks: [homepage], comments: [remark] };
+const answer: SearchResponse = { query: 'home', projects: [website], tasks: [homepage], comments: [remark], more: [] };
 
 describe('hitTarget', () => {
   it('leads a project to its page and a task or a comment to the task in the list', () => {
@@ -153,7 +153,7 @@ describe('SearchDialog', () => {
 
     const homework: SearchHit = { type: 'TASK', id: 20, projectId: 5, projectCode: 'EDU', taskId: 20, title: 'Homework' };
     // Enter did not wait for the debounce either.
-    http.expectOne((r) => r.params.get('q') === 'homework').flush({ query: 'homework', projects: [], tasks: [homework], comments: [] });
+    http.expectOne((r) => r.params.get('q') === 'homework').flush({ query: 'homework', projects: [], tasks: [homework], comments: [], more: [] });
     fixture.detectChanges();
     expect(navigate).toHaveBeenCalledWith(['/projects', 5, 'list'], { queryParams: { task: 20 } });
   });
@@ -164,7 +164,7 @@ describe('SearchDialog', () => {
     expect(el().querySelector('.search-message')?.textContent).toBe('Type at least two characters.');
 
     await type('zzz');
-    await answerWith('zzz', { query: 'zzz', projects: [], tasks: [], comments: [] });
+    await answerWith('zzz', { query: 'zzz', projects: [], tasks: [], comments: [], more: [] });
     expect(el().querySelector('.search-message')?.textContent).toBe('Nothing found for "zzz".');
     expect(el().querySelector('[role="status"]')?.textContent).toBe('No results');
     await press('Enter');
@@ -235,10 +235,19 @@ describe('SearchDialog', () => {
     expect(field().getAttribute('aria-activedescendant')).toBe(options()[2].id);
 
     await type('homep');
-    await answerWith('homep', { query: 'homep', projects: [], tasks: [homepage], comments: [] });
+    await answerWith('homep', { query: 'homep', projects: [], tasks: [homepage], comments: [], more: [] });
     expect(field().getAttribute('aria-activedescendant')).toBe(options()[0].id);
     await press('Enter');
     expect(navigate).toHaveBeenCalledWith(['/projects', 4, 'list'], { queryParams: { task: 11 } });
+  });
+
+  it('says when a kind has more hits than it lists', async () => {
+    fixture.componentInstance.open();
+    await type('home');
+    await answerWith('home', { ...answer, more: ['TASK'] });
+    const groups = [...dialog().querySelectorAll('[role=group]')];
+    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['Projects', 'Tasks, the first 1 of more', 'Comments']);
+    expect(groups[1].textContent).toContain('type more to narrow it down');
   });
 
   it('ignores a held Enter', async () => {

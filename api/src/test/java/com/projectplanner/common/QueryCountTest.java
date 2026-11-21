@@ -93,6 +93,16 @@ class QueryCountTest {
     }
 
     @Test
+    void theTasksOfAPersonDoNotGrowWithTheOrganisation() {
+        // The session check, the membership, the organisation for its date, two hundred of the
+        // thousand tasks and their projects.
+        for (Account who : java.util.List.of(org.owner(), org.clientViewer())) {
+            assertThat(statements(who, r -> r.queryParam("assigneeId", org.owner().userId()).queryParam("limit", 200)
+                    .get(orgPath("/search")))).isLessThanOrEqualTo(5);
+        }
+    }
+
+    @Test
     void approvingManyWeeksReadsAsMuchAsApprovingOne() {
         Account owner = Api.signup("Bulk Owner");
         long projectId = Api.createProject(owner, "BULKQ");

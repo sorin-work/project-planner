@@ -16,6 +16,7 @@ import io.quarkus.panache.common.Parameters;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.TypedQuery;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,6 +38,7 @@ public class SearchService {
 
     static final int MIN_LENGTH = 2;
     static final int MAX_LIMIT = 20;
+    static final int MAX_TASK_LIMIT = 200;
 
     private static final String LIKE = " like :contains escape '" + SearchText.ESCAPE + "'";
     private static final String STARTS = " like :starts escape '" + SearchText.ESCAPE + "'";
@@ -49,25 +51,31 @@ public class SearchService {
             return SearchResponse.nothing(query);
         }
         int max = Math.max(1, Math.min(MAX_LIMIT, limit));
+        // One row more than the limit says whether there is more than what is listed.
         String visible = "p.organisationId = :org" + (me.role == Role.CLIENT ? " and p.clientId = :client" : "");
 
         List<Project> projects = Project.<Project>find("from Project p where " + visible
                         + " and (lower(p.name)" + LIKE + " or lower(p.code)" + LIKE
                         + " or p.clientId in (select c.id from Client c where c.organisationId = :org and lower(c.name)" + LIKE + "))"
                         + " order by case when lower(p.name)" + STARTS + " or lower(p.code)" + STARTS + " then 0 else 1 end, lower(p.name), p.id",
-                scope(me, needle).and("starts", SearchText.startsWith(needle))).page(0, max).list();
+                scope(me, needle).and("starts", SearchText.startsWith(needle))).page(0, max + 1).list();
 
         List<Task> tasks = Task.<Task>find("from Task t where t.projectId in (select p.id from Project p where " + visible + ")"
                         + " and (lower(t.title)" + LIKE + " or lower(t.description)" + LIKE + ")"
                         // The start of the title, then the rest of the title, then the description. Open before done.
                         + " order by case when lower(t.title)" + STARTS + " then 0 when lower(t.title)" + LIKE + " then 1 else 2 end,"
                         + " case when t.status = :done then 1 else 0 end, lower(t.title), t.id",
-                scope(me, needle).and("starts", SearchText.startsWith(needle)).and("done", TaskStatus.DONE)).page(0, max).list();
+                scope(me, needle).and("starts", SearchText.startsWith(needle)).and("done", TaskStatus.DONE)).page(0, max + 1).list();
 
         List<Comment> comments = Comment.<Comment>find("from Comment c where c.taskId in (select t.id from Task t where t.projectId in"
                         + " (select p.id from Project p where " + visible + ")) and lower(c.body)" + LIKE
                         + " order by c.createdAt desc, c.id desc",
-                scope(me, needle)).page(0, max).list();
+                scope(me, needle)).page(0, max + 1).list();
+
+        List<SearchHitType> more = new ArrayList<>();
+        projects = cut(projects, max, SearchHitType.PROJECT, more);
+        tasks = cut(tasks, max, SearchHitType.TASK, more);
+        comments = cut(comments, max, SearchHitType.COMMENT, more);
 
         // What is looked up from here on belongs to rows that the queries above let through.
         Map<Long, Task> commented = byId(Task.list("id in ?1", ids(comments.stream().map(c -> c.taskId))), (Task t) -> t.id);
@@ -76,15 +84,73 @@ public class SearchService {
         Map<Long, Client> clients = byId(Client.list("id in ?1", ids(projects.stream().map(p -> p.clientId))), (Client c) -> c.id);
 
         return new SearchResponse(query,
-                projects.stream().map(p -> new SearchHit(SearchHitType.PROJECT, p.id, p.id, p.code, null, p.name,
-                        p.clientId == null ? null : clients.get(p.clientId).name)).toList(),
-                tasks.stream().map(t -> new SearchHit(SearchHitType.TASK, t.id, t.projectId, owners.get(t.projectId).code, t.id, t.title,
+                projects.stream().map(p -> SearchHit.project(p, p.clientId == null ? null : clients.get(p.clientId).name)).toList(),
+                tasks.stream().map(t -> SearchHit.task(t, owners.get(t.projectId).code,
                         SearchText.normalise(t.title).contains(needle) ? null : SearchText.snippet(t.description, needle))).toList(),
                 comments.stream().map(c -> {
                     Task task = commented.get(c.taskId);
-                    return new SearchHit(SearchHitType.COMMENT, c.id, task.projectId, owners.get(task.projectId).code, task.id, task.title,
-                            SearchText.snippet(c.body, needle));
-                }).toList());
+                    return SearchHit.comment(c, task, owners.get(task.projectId).code, SearchText.snippet(c.body, needle));
+                }).toList(),
+                more, null);
+    }
+
+    /**
+     * Only tasks, by assignee, by status or both, and by text when there is any: what a page of
+     * somebody's tasks needs. Without an assignee and a status this is not asked for (see the
+     * resource). Due first, the ones without a date last, then by project and their place in
+     * it. The same rule as {@link #search} decides what is visible: tasks of the
+     * organisation's projects, and for a client viewer of their client's.
+     */
+    public SearchResponse tasks(Membership me, LocalDate today, Long assigneeId, Set<TaskStatus> statuses, String text, int limit) {
+        String query = text == null ? "" : text.strip();
+        if (me.role == Role.CLIENT && me.clientId == null) {
+            return new SearchResponse(query, List.of(), List.of(), List.of(), List.of(), today);
+        }
+        int max = Math.max(1, Math.min(MAX_TASK_LIMIT, limit));
+        String needle = SearchText.normalise(query);
+        StringBuilder hql = new StringBuilder("select t from Task t, Project p where p.id = t.projectId and p.organisationId = :org");
+        if (me.role == Role.CLIENT) {
+            hql.append(" and p.clientId = :client");
+        }
+        if (assigneeId != null) {
+            hql.append(" and t.assigneeId = :assignee");
+        }
+        if (!statuses.isEmpty()) {
+            hql.append(" and t.status in :statuses");
+        }
+        if (!needle.isEmpty()) {
+            hql.append(" and (lower(t.title)").append(LIKE).append(" or lower(t.description)").append(LIKE).append(")");
+        }
+        hql.append(" order by t.dueDate asc nulls last, lower(p.code), t.position, t.id");
+        TypedQuery<Task> typed = Panache.getEntityManager().createQuery(hql.toString(), Task.class)
+                .setParameter("org", me.organisationId).setMaxResults(max + 1);
+        if (me.role == Role.CLIENT) {
+            typed.setParameter("client", me.clientId);
+        }
+        if (assigneeId != null) {
+            typed.setParameter("assignee", assigneeId);
+        }
+        if (!statuses.isEmpty()) {
+            typed.setParameter("statuses", statuses);
+        }
+        if (!needle.isEmpty()) {
+            typed.setParameter("contains", SearchText.contains(needle));
+        }
+        List<SearchHitType> more = new ArrayList<>();
+        List<Task> tasks = cut(typed.getResultList(), max, SearchHitType.TASK, more);
+        Map<Long, Project> owners = byId(Project.list("id in ?1", ids(tasks.stream().map(t -> t.projectId))), (Project p) -> p.id);
+        return new SearchResponse(query, List.of(),
+                tasks.stream().map(t -> SearchHit.task(t, owners.get(t.projectId).code, null)).toList(),
+                List.of(), more, today);
+    }
+
+    /** The first {@code max} rows, noting the kind in {@code more} when there were more. */
+    private static <T> List<T> cut(List<T> rows, int max, SearchHitType type, List<SearchHitType> more) {
+        if (rows.size() <= max) {
+            return rows;
+        }
+        more.add(type);
+        return rows.subList(0, max);
     }
 
     /**
@@ -118,22 +184,20 @@ public class SearchService {
                 case PROJECT -> {
                     Project p = projects.get(pick.id());
                     if (p != null) {
-                        hits.add(new SearchHit(SearchHitType.PROJECT, p.id, p.id, p.code, null, p.name,
-                                p.clientId == null ? null : clients.get(p.clientId).name));
+                        hits.add(SearchHit.project(p, p.clientId == null ? null : clients.get(p.clientId).name));
                     }
                 }
                 case TASK -> {
                     Task t = tasks.get(pick.id());
                     if (t != null) {
-                        hits.add(new SearchHit(SearchHitType.TASK, t.id, t.projectId, owners.get(t.projectId).code, t.id, t.title, null));
+                        hits.add(SearchHit.task(t, owners.get(t.projectId).code, null));
                     }
                 }
                 case COMMENT -> {
                     Comment c = comments.get(pick.id());
                     if (c != null) {
                         Task task = commented.get(c.taskId);
-                        hits.add(new SearchHit(SearchHitType.COMMENT, c.id, task.projectId, owners.get(task.projectId).code, task.id,
-                                task.title, null));
+                        hits.add(SearchHit.comment(c, task, owners.get(task.projectId).code, null));
                     }
                 }
             }
