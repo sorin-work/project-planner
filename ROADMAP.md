@@ -39,6 +39,11 @@ couple of weekends, **L** several weeks of spare time.
 | 16  | Baselines                                  | Shipped | both     | M    | -          |
 | 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
+| 19  | My tasks page                              | Next  | both     | S    | -          |
+| 20  | Approve weeks in one go                    | Next  | both     | S    | -          |
+| 21  | Schedule issues beyond the timeline        | Next  | both     | S    | -          |
+| 22  | Sign-in hardening                          | Next  | both     | S    | -          |
+| 23  | Project lead                               | Next  | both     | S    | -          |
 
 ## Before starting on one
 
@@ -62,7 +67,8 @@ A few things hold for every item:
   at the same time do not both take `V16`. Gaps are fine. The numbers run up
   to `V24`. Item 2 had none and took `V25` for the key on time entries,
   item 13 took `V26` for the second project of an activity entry, and the
-  claim on notification mails took `V27`, so the next free one is `V28`.
+  claim on notification mails took `V27`. Items 19 to 33 have
+  `V28` to `V36` written down in the same way, so the next free one is `V37`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -122,7 +128,193 @@ A few things hold for every item:
 
 ## Next
 
-Nothing is left in this group: item 5 was the last.
+Items 19 to 23 are new. Each is small and closes something a shipped item
+left open.
+
+### 19. My tasks page
+
+Follow-up of item 4, which wrote it down and left it out. The dashboard lists
+my overdue tasks, the ones due within seven days (`DUE_SOON_DAYS` in
+`DashboardResource`) and the ones in progress. A to-do task due in three
+weeks, or one without a due date, shows up nowhere outside its project. To
+know what is on my plate I open every project and tick "Only mine".
+
+- API: `assigneeId` and `status` parameters on
+  `GET /api/orgs/{orgId}/search`, as item 4 planned, and `q` no longer needed
+  when one of them is given. Without text only tasks are returned, since a
+  project or a comment has no assignee. `SearchService` finds nothing under
+  two characters today, so that check moves behind the new case.
+- Visibility comes with the search: tasks are reached through the projects
+  of the organisation, and for a client viewer only through those of their
+  client. Keep it that way for the new form too, and test it with a client
+  viewer and with somebody from another organisation.
+- Tricky: the limit. `limit` is 1 to 20 hits of each kind, which is right for
+  the dialog and too few for a page. The task-only form needs a higher cap
+  (say 200), an order (due date, no date last, then project and position)
+  and a way to tell that there is more. Ask for one row more than the limit
+  and answer with a `more` flag; that also closes item 4's open point about
+  a kind cut off at the limit without saying so.
+- `nulls last` is accepted by H2 in PostgreSQL mode as well, but check it in
+  the endpoint test rather than trusting it.
+- Web: a `/my-tasks` route in the navigation. Groups Overdue, This week,
+  Later and No date, each row with the project's code, the due date, the
+  status and the priority. Done tasks hidden, with a "Show done" toggle. A
+  click opens the task in its project (`/projects/{id}/list?task=`, the
+  target `notificationTarget` already builds), and the row can be ticked done
+  through `TaskApi` without leaving the page.
+- Team members may pick another person in an assignee select (the list
+  filter already lets them see anybody's tasks in a project); client viewers
+  only get their own.
+- Tests: endpoint tests for the new parameters, and a `QueryCountTest` bound
+  for the task-only form on the large organisation. The grouping into
+  Overdue, This week and so on is a plain function with a spec, with the
+  organisation's date passed in.
+- Undecided: whether this stays the search endpoint or becomes
+  `GET /api/orgs/{orgId}/my-tasks`. The search already has the visibility
+  rules in its queries, which is the hard part. I lean towards the search
+  endpoint.
+
+### 20. Approve weeks in one go
+
+Improvement of items 3 and 15, two things left open on the approvals page.
+
+- "Approve all": a manager approves submitted weeks one at a time
+  (`POST /api/orgs/{orgId}/timesheets/{sheetId}/approve`). On a Monday with a
+  dozen people that is a dozen clicks, each with a reload. Add
+  `POST /api/orgs/{orgId}/timesheets/approve` that takes a list of sheet ids
+  and answers per sheet, approved or left out and why, the way `remind`
+  answers with `RemindResponse`. A bad sheet never fails the batch.
+- Tricky: the list is what was on screen, not "everything submitted". A week
+  submitted after the page loaded, or withdrawn and changed in the meantime
+  (`withdraw` takes it back to draft), must not be approved by that click.
+  Approve only sheets that are still `SUBMITTED`, and take each sheet's
+  `submittedAt` with its id so a sheet withdrawn and submitted again since is
+  left out as changed.
+- `checkReviewer` holds per sheet, a manager's own week included.
+  `TimesheetService.approve` loads the reviewer and the owner with
+  `User.findById` for each sheet; a batch loads them in one `id in` query, as
+  item 14 did elsewhere, with a `QueryCountTest` bound.
+- One notification per person as today. The activity log gets one line per
+  sheet, so that an approval can still be traced to a week.
+- Capacity on the "Not submitted" tab: `MissingTimesheets.Person` carries
+  `weeklyCapacityHours`, the plain weekly hours. Item 15 made capacity per
+  week everywhere else (`WeekLoad.holidays`, `daysOff`), so somebody away for
+  three days shows as far under capacity here and nowhere else. Take the
+  week's capacity from the same place the workload does.
+- Tricky: people with a whole week off. They are under "No time logged" and
+  "Remind all" skips them, which is right. With capacity per week a week
+  with zero capacity could leave the list altogether; I lean towards keeping
+  them listed with "away" next to them, since a manager may still want the
+  hours of a person who worked anyway.
+- Web: a checkbox per row on the submitted tab, "Approve selected" and
+  "Approve all", and the left-out sheets named with their reasons.
+- Undecided: "Send back all". I would not add it: a rejection needs a note
+  for each person.
+
+### 21. Schedule issues beyond the timeline
+
+Improvement of item 1, which left both open.
+
+- Today the list of schedule issues is only on the timeline tab
+  (`GET /api/projects/{projectId}/schedule-issues`). The project list and the
+  Overview tab do not show that a plan has issues, so nobody sees them until
+  they open the timeline. Add a count to the project's summary and show it as
+  a small marker in the project list and a line on the Overview with a link
+  to the timeline.
+- Tricky: cost. `ProjectHealthService.summaries` takes the tasks of all
+  listed projects in one query, and the project list is nine statements for
+  every role (`QueryCountTest`). The check also needs the links of every
+  project: one more query for all of them, grouped by project in Java, and
+  the organisation's calendar, which `OrgCalendars` already reads once per
+  request. Raise the bound by exactly one.
+- Finished tasks on the critical path. `CriticalPath` counts a finished task
+  from the day its predecessor allows, so "Plan ends" stays later than the
+  latest due date for every overlap that was kept on purpose, and the line
+  under the toolbar has to explain it. I lean towards fixing done tasks at
+  their own dates in both passes: what is done is no longer a plan. Their
+  float is then meaningless and they are never critical.
+- Tricky: `LinkRule` serves `CriticalPath`, `Rescheduler` and
+  `ScheduleCheck`. Change only the critical path, and only for done tasks.
+  The rescheduler still pushes an open successor after a finished
+  predecessor, which is what people expect when they reopen a task.
+- `CriticalPathTest` gets a done task that overlaps its predecessor, with
+  "Plan ends" equal to the latest due date. The line under the toolbar loses
+  the case it no longer needs.
+- Undecided: whether the count leaves out the issue "a task due after the
+  project's end date", which the overview already shows as forecast end
+  against planned end. I would count it like the others and let the overview
+  say both.
+
+### 22. Sign-in hardening
+
+Improvement of item 11 and of the sign-in that was there before it. Reset
+links are limited per client and per account, but sign-in is not limited at
+all, and the web app sends no security headers.
+
+- `AuthService.login` answers every wrong password at once, so the password
+  of an account can be tried without limit. Add a limit per account and per
+  client address: a few failures pass, then each further try for that
+  account waits longer, up to a cap of a few minutes, with
+  `429 too_many_attempts` and a `Retry-After`. `ClientThrottle` keeps its
+  counts in memory and resets on restart; failures per account go in the
+  database (`V28__add_login_failures.sql`: a counter and the time of the
+  last failure on `users`), so they hold across restarts and API instances.
+- Tricky: locking an account out is a way to keep its owner from signing in.
+  Never refuse a correct password outright because of failures from other
+  addresses; slow down instead, and let a password reset clear the counter.
+- Tricky: `login` returns before it hashes anything when the email is
+  unknown, so the time of the answer says whether an account exists. Hash
+  against a fixed dummy hash in that case. Sign-up still says that an address
+  is taken, which is the same leak in a plainer form; say so in the README
+  rather than pretend it is closed.
+- Headers from nginx for the app (`web/nginx.conf` sets only
+  `Cache-Control` today): a `Content-Security-Policy` with `script-src 'self'`
+  and `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: same-origin`. The token sits in `localStorage`, so the
+  policy is what stands between an injected script and every session.
+- Tricky: Angular writes component styles inline, so `style-src` needs
+  `'unsafe-inline'` or a nonce (`ngCspNonce` with nginx filling it in). Check
+  the dev server and the Swagger page at `/api/docs`, which loads its own
+  script and is the reason item 7 kept it off by default. The attachment
+  answers already have a stricter policy of their own; keep it.
+- HSTS belongs to whoever terminates TLS in front of the stack, not to this
+  nginx, which serves plain HTTP. The README says so.
+- Tests: `@QuarkusTest` with `TestClock` for the delays, a reset that clears
+  the counter, and the dummy hash path. The headers in
+  `scripts/check-restore.sh` would need the web container, which it does not
+  start; a check with `curl -I` in the README is enough.
+- Undecided: a list of sessions with "sign out this device". `token_version`
+  only signs out everywhere at once. I would leave it.
+
+### 23. Project lead
+
+Improvement of item 10, which left it open: "every manager hears about every
+project, since there is no project lead". In a team of five that is fine. In
+an agency with twenty projects and four managers, three of them get alerts
+about projects that are not theirs, and the daily summary of item 24 would
+have the same problem.
+
+- Data: `lead_id` on `projects`, nullable, a user of the organisation
+  (`V29__add_project_lead.sql`). Set in the project form and the Settings
+  tab by owners and managers.
+- Who can lead: an owner, a manager or a member. Not a client viewer
+  (`ApiException.badRequest` with a code of its own).
+- Budget alerts: with a lead, the lead and the owners hear about the
+  project, other managers do not. Without a lead, everybody as today. Keep
+  the money message for `role.canManage()` only: a member who leads a
+  project gets the hours alert and never the amounts, which is what item 10
+  kept the two messages apart for.
+- Tricky: a lead who leaves. The foreign key goes to `users`, so removing a
+  membership leaves the column pointing at somebody who is no longer in the
+  organisation. Clear it when a membership is removed, in the same
+  transaction, and test that alerts fall back to the managers.
+- Project list: a lead column and a "Led by me" filter. The project summary
+  carries the lead's name, from the people already loaded in one query.
+- Duplicating a project copies the lead only when the assignees are copied
+  (item 13's choice), since a template's lead is rarely the new project's.
+- Undecided: whether owners hear about every project anyway. I lean yes for
+  money and no for hours, but that is two rules where one would do; the
+  simplest is "lead plus owners" for both.
 
 ## Later
 
