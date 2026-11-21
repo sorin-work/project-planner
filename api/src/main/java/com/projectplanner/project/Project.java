@@ -75,6 +75,14 @@ public class Project extends PanacheEntityBase {
     @Column(name = "amount_alert_pct", nullable = false)
     public int amountAlertPct;
 
+    /** The project was announced off track and has not been back on track since. */
+    @Column(name = "off_track_announced", nullable = false)
+    public boolean offTrackAnnounced;
+
+    /** The forecast end that was announced as past the end date, while it still is. */
+    @Column(name = "late_end_announced")
+    public java.time.LocalDate lateEndAnnounced;
+
     /**
      * The project with its row locked until the transaction ends. Whatever changes the time
      * or the budget of a project takes this first, so that two changes at the same moment

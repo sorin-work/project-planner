@@ -101,11 +101,12 @@ class NotificationMailerTest {
 
         assertThat(mailer.run()).isEqualTo(1);
         Mail mail = only(team.member().email());
-        String link = "http://planner.test/projects/" + team.projectId() + "/list?task=" + team.taskId();
+        String link = "http://planner.test/projects/" + team.projectId() + "/list?task=" + team.taskId() + "&org=" + team.owner().orgId();
         assertThat(mail.getSubject()).isEqualTo("2 new notifications on project-planner");
         assertThat(mail.getText()).contains("A task was assigned to you.").contains("You were mentioned in a comment.")
                 .contains(link).contains("http://planner.test/settings").contains("http://planner.test/unsubscribe#token=");
-        assertThat(mail.getHtml()).contains("href=\"" + link + "\"");
+        // The organisation goes with the link, so that it opens there whichever one the browser has selected.
+        assertThat(mail.getHtml()).contains("href=\"" + link.replace("&", "&amp;") + "\"");
         // Nothing anybody typed: no title, no comment, no name.
         assertThat(mail.getSubject() + mail.getText() + mail.getHtml())
                 .doesNotContain("Secret").doesNotContain("merger").doesNotContain("Olivia").doesNotContain("SECRET");

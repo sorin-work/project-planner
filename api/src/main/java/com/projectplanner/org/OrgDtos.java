@@ -30,10 +30,12 @@ public final class OrgDtos {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record OrganisationResponse(long id, String name, String currency, String timezone,
                                        @Schema(description = "The rate for time that no project, member or role rate covers. " + ApiDocs.MANAGERS_ONLY) BigDecimal defaultHourlyRate,
-                                       @Schema(description = "Your own role in the organisation.") Role role) {
+                                       @Schema(description = "Your own role in the organisation.") Role role,
+                                       @Schema(description = "Whether last week's missing timesheets are chased automatically on the first working day of the week.")
+                                       boolean autoReminders) {
         public static OrganisationResponse of(Organisation org, Membership membership) {
             BigDecimal rate = membership.role.canManage() ? org.defaultHourlyRate : null;
-            return new OrganisationResponse(org.id, org.name, org.currency, org.timezone, rate, membership.role);
+            return new OrganisationResponse(org.id, org.name, org.currency, org.timezone, rate, membership.role, org.autoReminders);
         }
     }
 
@@ -42,7 +44,9 @@ public final class OrgDtos {
             @Size(min = 1, max = 120) String name,
             @Pattern(regexp = "[A-Z]{3}", message = "must be a three letter ISO currency code") String currency,
             @Size(min = 1, max = 64) String timezone,
-            @DecimalMin("0") @DecimalMax("100000") BigDecimal defaultHourlyRate) {
+            @DecimalMin("0") @DecimalMax("100000") BigDecimal defaultHourlyRate,
+            @Schema(description = "Remind the people who logged time last week and did not submit it, on the first working day of the week.")
+            Boolean autoReminders) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

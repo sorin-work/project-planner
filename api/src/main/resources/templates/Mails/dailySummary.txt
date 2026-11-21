@@ -1,0 +1,9 @@
+Your morning on project-planner:
+{#for line in lines}
+
+- {line.text}
+  {line.link}
+{/for}
+
+Choose which mails you get: {settingsLink}
+{stop.text}: {stop.link}

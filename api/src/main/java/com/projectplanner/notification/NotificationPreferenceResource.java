@@ -2,6 +2,7 @@ package com.projectplanner.notification;
 
 import com.projectplanner.auth.CurrentUser;
 import com.projectplanner.mail.MailSettings;
+import com.projectplanner.org.Membership;
 import io.quarkus.security.Authenticated;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -43,17 +44,24 @@ public class NotificationPreferenceResource {
     @PUT
     @Transactional
     @Operation(summary = "Change how you get some types of notification",
-            description = "Only the types that are sent change. The choice holds for every organisation you are in.")
+            description = "Only the types that are sent change. The choice holds for every organisation you are in. DAILY_SUMMARY is mail only: anything but EMAIL turns it off.")
     public PreferencesResponse update(@Valid @NotNull PreferencesRequest request) {
         long userId = currentUser.id();
-        request.preferences().forEach(p -> preferences.set(userId, p.type(), p.delivery()));
+        request.preferences().forEach(p -> preferences.set(userId, p.type(),
+                p.type().mailOnly() && p.delivery() != Delivery.EMAIL ? Delivery.OFF : p.delivery()));
         return respond(userId);
     }
 
     private PreferencesResponse respond(long userId) {
         Map<NotificationType, Delivery> current = preferences.of(userId);
+        // The summary is on by default for those who manage; somebody who manages anywhere sees it on.
+        Delivery summary = NotificationPreferences.summaryDefault(
+                Membership.<Membership>list("userId", userId).stream().anyMatch(m -> m.role.canManage()));
+        boolean summaryChosen = NotificationPreference.count("userId = ?1 and type = ?2", userId, NotificationType.DAILY_SUMMARY) > 0;
         List<Preference> list = Arrays.stream(NotificationType.values())
-                .map(type -> new Preference(type, current.get(type), NotificationPreferences.DEFAULTS.get(type)))
+                .map(type -> type == NotificationType.DAILY_SUMMARY
+                        ? new Preference(type, summaryChosen ? current.get(type) : summary, summary)
+                        : new Preference(type, current.get(type), NotificationPreferences.DEFAULTS.get(type)))
                 .toList();
         return new PreferencesResponse(mail.enabled(), list);
     }
