@@ -51,6 +51,9 @@ couple of weekends, **L** several weeks of spare time.
 | 28  | Keyboard and drag on the timeline          | Later | frontend | M    | -          |
 | 29  | Calendar feed                              | Later | both     | M    | -          |
 | 30  | Browser tests                              | Later | frontend | M    | -          |
+| 31  | Attachments on comments and pasted images  | Maybe | both     | M    | -          |
+| 32  | Placeholder people in the plan             | Maybe | both     | L    | -          |
+| 33  | Search for a large organisation            | Maybe | backend  | M    | -          |
 
 ## Before starting on one
 
@@ -612,7 +615,88 @@ request of its own.
 
 ## Maybe
 
-Nothing is left in this group: items 16 to 18 have shipped.
+### 31. Attachments on comments and pasted images
+
+Improvement of item 18, which left both open and predicted that they would
+be asked for next. A screenshot of a bug is pasted, not saved and uploaded.
+
+- Data (`V34__add_attachment_comment.sql`): a nullable `comment_id` on
+  `attachments`. Keep `task_id` filled for a comment's files too, so that
+  who may see them, the per-organisation limit, the sweep and the clean-up
+  when a task or a project is deleted all work as they do.
+- Upload with the comment: `CommentBox` takes files by button, drop or paste,
+  uploads them first through the existing endpoint, and the comment is saved
+  with their ids. A file uploaded for a comment that is never posted is
+  removed by the sweep after a day, which needs the sweep to know about
+  files with a row and no comment yet.
+- Pasted images in the task description go the same way, as files of the
+  task.
+- Comments are plain text, so an image is shown under the comment it
+  belongs to, as a small preview, not inside the text. Markdown in comments
+  would be an item of its own.
+- Tricky: previews come through links that work for two minutes (item 18's
+  signed links). A long comment thread opened for ten minutes has dead
+  images. Ask for the links when the comments are drawn, and again when an
+  image fails to load, rather than making the links last longer.
+- Tricky: deleting a comment removes its files after the commit, and editing
+  a comment can remove one of its files; both through `AttachmentService`,
+  never by the foreign key alone.
+- Undecided: whether a client viewer may paste into comments. Item 18 lets
+  them attach files to tasks, so I would say yes.
+
+### 32. Placeholder people in the plan
+
+Float has "placeholders": plan a task for "a designer, three days a week"
+before you know who it will be. Agencies quote plans with people they have
+not hired or picked yet. Today a task is either assigned to a
+member or to nobody, and nobody does not show up in the workload.
+
+- Data (`V35__create_placeholders.sql`): `placeholders` (organisation, name
+  such as "Designer", weekly capacity), and on `tasks` an
+  `assignee_placeholder_id` that is set only when `assignee_id` is not, with
+  a check constraint that allows at most one of the two.
+- Workload: placeholders get rows of their own below the people, so a plan's
+  demand for a role is visible before anybody is named. They have no
+  holidays or time off of their own, only the organisation's.
+- "Replace with a person": every task of a placeholder in a project is given
+  to a member in one step, which sends the usual `ASSIGNED` notifications.
+- Nothing else knows about them: no time can be logged by a placeholder, no
+  timesheets, no reports, no mentions. A duplicated project keeps its
+  placeholders, which is what makes a template useful.
+- Tricky: every place that reads `assigneeId` (the list filter, "Only mine",
+  the board, search, item 19's page, the critical path's names) has to treat a
+  placeholder as "not a person" without breaking. That is the real size of
+  this item.
+- Undecided: whether this is worth it for small teams, which is why it is
+  under Maybe. A member called "Designer (to hire)" with no login does half
+  of it today, badly.
+
+### 33. Search for a large organisation
+
+Improvement of item 4, which left it open: search reads every task and
+comment of the organisation on each request, and no portable index helps a
+search for text in the middle. With item 14's large organisation it is
+fine. With a few hundred thousand comments it will not be.
+
+- First a measurement: a test or a script that fills a PostgreSQL database
+  (not H2) with that many rows and times the three queries. Nothing below
+  needs doing unless that says so.
+- On PostgreSQL alone, `pg_trgm` GIN indexes on `lower(title)`,
+  `lower(description)`, `lower(body)` and the project name make
+  `lower(...) like '%text%'` use an index. `pg_trgm` is a trusted extension,
+  so the database owner can create it without being a superuser.
+- Tricky: the rule that every migration runs on H2 as well. Put this one in
+  a folder of its own for PostgreSQL (`db/migration/postgresql`,
+  `V36__search_trigram_indexes.sql`) that `quarkus.flyway.locations` names
+  outside the test profile. The version number still has to be unique
+  across both folders. The H2 tests never run it; `scripts/check-restore.sh`
+  is where CI sees it, and an older dump restored onto it has to migrate
+  too.
+- The queries do not change, which is the point of choosing trigrams over
+  `tsvector`: the H2 tests stay valid for what the queries return.
+- Undecided: whether to rank hits. Trigram similarity could order them, but
+  that is PostgreSQL only and would make the answer differ between the tests
+  and production. I would not.
 
 ## Shipped
 
