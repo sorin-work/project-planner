@@ -42,7 +42,7 @@ couple of weekends, **L** several weeks of spare time.
 | 19  | My tasks page                              | Next  | both     | S    | -          |
 | 20  | Approve weeks in one go                    | Next  | both     | S    | -          |
 | 21  | Schedule issues beyond the timeline        | Next  | both     | S    | -          |
-| 22  | Sign-in hardening                          | Next  | both     | S    | -          |
+| 22  | Sign-in hardening                          | Shipped | both     | S    | -          |
 | 23  | Project lead                               | Next  | both     | S    | -          |
 | 24  | Daily summary and automatic reminders      | Later | both     | M    | 19         |
 | 25  | Schedule alerts                            | Later | both     | S    | 23         |
@@ -254,47 +254,6 @@ Improvement of item 1, which left both open.
   project's end date", which the overview already shows as forecast end
   against planned end. I would count it like the others and let the overview
   say both.
-
-### 22. Sign-in hardening
-
-Improvement of item 11 and of the sign-in that was there before it. Reset
-links are limited per client and per account, but sign-in is not limited at
-all, and the web app sends no security headers.
-
-- `AuthService.login` answers every wrong password at once, so the password
-  of an account can be tried without limit. Add a limit per account and per
-  client address: a few failures pass, then each further try for that
-  account waits longer, up to a cap of a few minutes, with
-  `429 too_many_attempts` and a `Retry-After`. `ClientThrottle` keeps its
-  counts in memory and resets on restart; failures per account go in the
-  database (`V28__add_login_failures.sql`: a counter and the time of the
-  last failure on `users`), so they hold across restarts and API instances.
-- Tricky: locking an account out is a way to keep its owner from signing in.
-  Never refuse a correct password outright because of failures from other
-  addresses; slow down instead, and let a password reset clear the counter.
-- Tricky: `login` returns before it hashes anything when the email is
-  unknown, so the time of the answer says whether an account exists. Hash
-  against a fixed dummy hash in that case. Sign-up still says that an address
-  is taken, which is the same leak in a plainer form; say so in the README
-  rather than pretend it is closed.
-- Headers from nginx for the app (`web/nginx.conf` sets only
-  `Cache-Control` today): a `Content-Security-Policy` with `script-src 'self'`
-  and `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: same-origin`. The token sits in `localStorage`, so the
-  policy is what stands between an injected script and every session.
-- Tricky: Angular writes component styles inline, so `style-src` needs
-  `'unsafe-inline'` or a nonce (`ngCspNonce` with nginx filling it in). Check
-  the dev server and the Swagger page at `/api/docs`, which loads its own
-  script and is the reason item 7 kept it off by default. The attachment
-  answers already have a stricter policy of their own; keep it.
-- HSTS belongs to whoever terminates TLS in front of the stack, not to this
-  nginx, which serves plain HTTP. The README says so.
-- Tests: `@QuarkusTest` with `TestClock` for the delays, a reset that clears
-  the counter, and the dummy hash path. The headers in
-  `scripts/check-restore.sh` would need the web container, which it does not
-  start; a check with `curl -I` in the README is enough.
-- Undecided: a list of sessions with "sign out this device". `token_version`
-  only signs out everywhere at once. I would leave it.
 
 ### 23. Project lead
 
@@ -1197,3 +1156,26 @@ plain download and an `<img>` preview work, and a link works for its two
 minutes even after access is taken away; and a file removed in the minute between a dump and its
 archive is missing from that backup. Still open: attachments on comments,
 pasted images, and storage other than the volume.
+
+### 22. Sign-in hardening
+
+`LoginLimits` and `V28` (`failed_logins` and `last_failed_login_at` on `users`).
+Five wrong passwords for an account pass, twenty from one client address (in
+memory, like `ClientThrottle`); after that each try waits from the last wrong one,
+one second and doubling up to five minutes, with `429 too_many_attempts` and
+`Retry-After`. A try during the wait is refused before the password is checked
+and does not count, a right password sets the account back to zero, a reset or a
+change of password does too, and a day without failures forgets them (an hour for
+an address). Each try is counted before the hash is checked, with an update that
+only matches the count it read, so a burst at the same moment cannot get past the
+wait, and a right password takes its count back. An unknown email is checked
+against a dummy hash of the same cost. nginx sends a Content-Security-Policy,
+`nosniff` and `Referrer-Policy: same-origin` with the app, not on `/api/`.
+Differences from the design: `style-src` is `'self'` without `'unsafe-inline'` or
+a nonce, because the components have no styles of their own; the lint keeps it
+that way, and the build no longer inlines critical CSS, whose loader was an
+inline script. Still open: a waiting account answers 429 where an unknown email
+answers 401, which tells that it exists, like sign-up does (the README says so);
+somebody trying from many addresses can keep an owner waiting up to five minutes
+at a time; HSTS is for whatever terminates TLS; and a list of sessions with "sign
+out this device" was left out, as the design suggested.

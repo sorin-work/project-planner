@@ -13,6 +13,10 @@ the point is knowing whether a project will land on time and on budget.
 - **Forgotten passwords**: with mail set up, "Forgot your password?" on the sign-in
   page mails a link that works for one hour. Setting a new password, there or in the
   settings, signs you out everywhere else.
+- **Sign-in limits**: after five wrong passwords for an account, or twenty from one
+  address, each further try waits longer, up to five minutes. An account is never
+  locked, and a password reset lets its owner straight in. The app is served with a
+  Content-Security-Policy. See [Sign-in limits and security headers](#sign-in-limits-and-security-headers).
 - **Organisations and roles**: owners, managers, members and client viewers. Invite
   people by email; anyone who already has an account is added straight away, others
   join automatically when they sign up with the invited address. When the server
@@ -418,6 +422,61 @@ A mail that cannot be sent is logged at WARN with the kind of mail and the type 
 error, without the address or the link. The whole error, which can name the address,
 is at DEBUG. The API tests send to a mock mailbox and never to a server.
 
+## Sign-in limits and security headers
+
+Wrong passwords are limited per account and per client address. Five wrong passwords in
+a row for an account pass. After that each further try waits, counted from the last
+wrong one: one second, then two, four and so on, up to five minutes. A try during the
+wait answers `429 too_many_attempts` with `Retry-After` in seconds, and the sign-in page
+says how long that is. The password is not looked at during the wait, so a right one
+gets the same answer as a wrong one, and the try does not make the wait longer. One
+client address gets twenty wrong passwords before it waits the same way, whatever the
+accounts, since a whole office may sign in from one address.
+
+An account is never locked. Somebody who tries passwords for an account that is not
+theirs can keep its owner waiting up to five minutes at a time, from many addresses, but
+not out. A password reset sets the count of the account back to zero, so the owner can
+sign in straight after it. Failures are forgotten after a day without one for an
+account, and after an hour for an address.
+
+The counts per account are two columns on `users`, so they hold across a restart and
+across copies of the API. The counts per address are in memory, like the reset limit,
+and a restart resets them. The address is the one nginx saw (see
+[Mail](#mail) for `BEHIND_PROXY` and `TRUSTED_PROXIES`). A burst of tries at the same
+moment does not get past the wait: each try is counted as a failure before the password
+is checked, by an update that only matches the count it read, and taken back when the
+password was right.
+
+A sign-in with an unknown email checks the password against a dummy hash of the same
+cost, so that it takes as long as a wrong password and its time does not say whether
+there is an account. That does not make account names secret: sign-up still answers
+`email_taken` for an address that has an account, and an account that waits answers
+429 where an unknown email answers 401. Both say that the account exists. I left them,
+since closing them would mean a sign-up that answers in the mail rather than on the page.
+
+The web container sends these headers with the app (`web/nginx.conf`):
+
+- `Content-Security-Policy` with `script-src 'self'`, `style-src 'self'` and
+  `frame-ancestors 'none'`, among others. The login token sits in `localStorage`, so the
+  policy is what stands between a script slipped into a page and every session. Styles
+  come from `styles.css` only: the components have no styles of their own (the lint
+  refuses them, and style attributes in templates), `[style.width.%]` bindings are set
+  through the DOM, which the policy allows, and the production build does not inline
+  critical CSS (`inlineCritical` in `angular.json`), since it loads the rest with an
+  inline script.
+- `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
+
+They are not sent on `/api/`: the answers there set their own. Attachments have a
+stricter policy, and the API reference at `/api/docs` runs a script of its own. The
+Angular dev server sends none of them. HSTS is not sent either: this nginx serves plain
+HTTP, and HSTS belongs to whatever terminates TLS in front of the stack. Set it there.
+
+To check the headers of a running stack:
+
+```bash
+curl -sI http://localhost:5191/ | grep -iE 'content-security|nosniff|referrer'
+```
+
 ## Backup and restore
 
 Everything is in two volumes: `db-data` for the database and `attachments` for the files
@@ -772,6 +831,9 @@ The rules that hold for every endpoint:
 - Apart from sign-up, login and the forgotten password and invitation link endpoints
   under `/api/auth`, a request needs a token: `Authorization: Bearer <token>`. A token
   stops working when the password is changed or reset after it was issued.
+- Login answers `429 too_many_attempts` after too many wrong passwords, with the
+  seconds to wait in `Retry-After`, see
+  [Sign-in limits](#sign-in-limits-and-security-headers).
 - Errors are JSON: `{ "status", "code", "message", "errors"? }`. The `code` is stable.
   The reference lists the codes of each endpoint and the ones that any endpoint can
   answer with.
