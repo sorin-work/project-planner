@@ -204,7 +204,15 @@ the point is knowing whether a project will land on time and on budget.
   every column adds up to its total, and both reports download as CSV with the rows
   on screen.
 - **CSV export** of timesheets (rate and amount columns for managers), safe to open in
-  a spreadsheet.
+  a spreadsheet. The report and the export can be narrowed to the time of approved
+  weeks, which is what can be invoiced.
+- **Invoices**: owners and managers make a draft for a client and a period from the
+  billable time of approved weeks that is on no other invoice, one line per project and
+  task or per project and person, with a tax rate. A draft can be changed and lines
+  taken off; issuing gives it the next number, and from then on it never changes. A
+  mistake is corrected with a credit note, which frees the time to be invoiced again.
+  The invoice page prints on paper (the browser makes the PDF), and its lines download
+  as CSV.
 - **Backups**: with Docker, an optional service dumps the whole database once a day
   and keeps the last seven dumps, and the same script puts one back. See
   [Backup and restore](#backup-and-restore).
@@ -1283,6 +1291,34 @@ so that a withdrawal at the same moment waits and then sees the approval. Each p
 gets the same notification a single approval sends, one per week, and the activity log
 has a line per week.
 
+### Invoices
+
+`/orgs/{org}/invoices` is for owners and managers; client viewers see no invoices. A
+draft (`POST`, with `clientId`, `from`, `to`, `groupBy=TASK|PERSON` and
+`taxRatePercent`) takes the billable entries of the client's projects in the period
+whose week is approved and that are on no line yet (`409 nothing_to_invoice`
+otherwise). Each entry is priced on its own at today's rate, through the same rate
+lookup and rounding as the reports, so a draft adds up to the cent to the time report
+of the same entries with `approvedOnly`. Projects with a money budget and no hourly rate
+are fixed price and left out, and the draft's `leftOut` names them. Amounts are in cents
+(`subtotalCents`, `taxCents`, `totalCents`, `rateCents`, `amountCents`), with the
+currency, the rates, the client's name and each line's project, task and person
+names copied onto the invoice, so that a later change of rate, currency, task or
+person never changes it.
+
+An entry is linked to its line by one column (`time_entries.invoice_line_id`, `V32`),
+so it is on one line at most and is never invoiced twice. A draft takes its entries
+under their row locks, after the organisation's row and its projects' rows in id order,
+the order rows are locked in everywhere, so two drafts at the same moment never share
+an entry. A draft can change its tax rate and notes (`PATCH`), the description of a
+line, and lose a line or be deleted, which releases the entries. `POST .../issue` takes
+the next number of the organisation, under the lock on its row, so the numbers have
+no gaps and no doubles; after that every change answers `409 not_draft`. `POST
+.../credit` issues a credit note at once, with the next number and the lines negated,
+and releases the invoice's entries. A project with time on an invoice can't be deleted
+(`409 invoiced`), and a client with invoices is archived instead of deleted.
+`GET .../{id}/lines.csv` has the lines, escaped like every CSV the app writes.
+
 ### Reports
 
 `GET .../reports/time` and `GET .../reports/utilisation` take a range: either
@@ -1292,7 +1328,8 @@ Sunday, a month runs from its first to its last day, and a range covers at most 
 years. The answer says which dates it used.
 
 The time report also takes `groupBy=project|client|member|task` and the filters
-`projectId`, `clientId`, `userId` and `billable`. Each row has a `key`, a `label`,
+`projectId`, `clientId`, `userId`, `billable` and `approvedOnly` (the time of weeks
+whose timesheet is approved; the entry export takes it too). Each row has a `key`, a `label`,
 `minutes`, `billableMinutes` and, for owners and managers, `billableAmount`, and
 `total` is the sum of the rows. Running timers are left out.
 

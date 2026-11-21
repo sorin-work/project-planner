@@ -47,7 +47,7 @@ couple of weekends, **L** several weeks of spare time.
 | 24  | Daily summary and automatic reminders      | Shipped | both     | M    | 19         |
 | 25  | Schedule alerts                            | Shipped | both     | S    | 23         |
 | 26  | Encrypted backups off the machine          | Shipped | infra    | M    | -          |
-| 27  | Invoices from approved time                | Later | both     | L    | -          |
+| 27  | Invoices from approved time                | Shipped | both     | L    | -          |
 | 28  | Keyboard and drag on the timeline          | Later | frontend | M    | -          |
 | 29  | Calendar feed                              | Later | both     | M    | -          |
 | 30  | Browser tests                              | Later | frontend | M    | -          |
@@ -79,7 +79,8 @@ A few things hold for every item:
   item 13 took `V26` for the second project of an activity entry, and the
   claim on notification mails took `V27`. Items 19 to 33 have
   `V28` to `V36` written down in the same way, and item 26 took `V37` for the
-  marks of backup alerts, so the next free one is `V38`.
+  marks of backup alerts, so the next free one is `V38`. Item 27 took its own
+  `V32`.
 - The items can land in any order, so the migrations can too. Flyway runs with
   `quarkus.flyway.out-of-order=true` for that reason: a database that already
   ran `V18` still gets `V16` applied when it shows up. With the default,
@@ -143,58 +144,6 @@ Items 19 to 23 were small and closed something a shipped item left open. All of
 them have shipped, so nothing waits here for now.
 
 ## Later
-
-### 27. Invoices from approved time
-
-The app knows who worked how long on what, at which rate, and whether the
-week was approved. What an agency does next is send the client an invoice,
-and that happens in a spreadsheet built from the CSV export. Harvest and
-Productive both turn tracked time into invoices, and it is the step that
-makes the hours worth tracking.
-
-- First, on its own: an "approved time only" filter on the reports and the
-  CSV export, which item 9 left open. It needs the week's status next to
-  each entry in the grouped query (a join to `timesheets` on person and week
-  start), and it is useful without invoices.
-- Data (`V32__create_invoices.sql`): `invoices` (organisation, client,
-  number, period from and to, currency, status `DRAFT` or `ISSUED` or
-  `VOID`, issued at, totals), `invoice_lines` (invoice, project, task or
-  person, minutes, rate, amount, description) and a nullable `invoice_id` on
-  `time_entries`.
-- A draft is made for a client and a period from the billable entries of
-  approved weeks that are not on another invoice, grouped per project and
-  task or per person. Lines can be edited and removed in a draft, which
-  releases their entries.
-- Tricky: amounts change after the fact. Rates can change, and so can the
-  organisation's currency (`OrgResource` allows it). An issued invoice keeps
-  the rate, the amount and the currency it was issued with, copied onto its
-  lines. Pricing still goes through `RateResolver` and `Money.cost` per
-  entry, so a draft adds up to the cent to the report of the same entries,
-  and a test holds the two together as item 9 did.
-- Tricky: entries on an issued invoice must not change. Approved weeks are
-  locked for everybody already (`TimeService.checkUnlocked`), and nothing
-  takes an approval back today, but deletion still reaches them: a project's
-  time entries go with it (`on delete cascade` in `V11`), and a task's lose
-  their task (`on delete set null`). Refuse to delete a project that has an
-  issued invoice (`409 invoiced`), and copy the task's title and the
-  person's name onto each line so that a deleted task still reads. If a way
-  to reopen an approved week is ever added, it has to refuse invoiced weeks.
-  Voiding the invoice releases its entries.
-- Numbers: one sequence per organisation without gaps, which tax offices in
-  several countries want. Take the number when the invoice is issued, not
-  when the draft is made, under a lock on the organisation's row (uploads in
-  item 18 lock it the same way).
-- Output: a print page styled for paper, so the browser makes the PDF, and a
-  CSV of the lines. No PDF library: the bundle budget and the API's size are
-  reasons enough.
-- Budget alerts and reports are unchanged: invoicing does not change what
-  was spent.
-- Tricky: fixed-price projects (a money budget and no rate) do not fit an
-  invoice built from hours. Leave them out, and say so on the page.
-- Undecided: tax. A single tax rate per invoice, typed in, covers most small
-  agencies; anything more is accounting software's job. Also undecided:
-  whether client viewers see issued invoices of their client. I lean no for
-  now.
 
 ### 28. Keyboard and drag on the timeline
 
@@ -1083,3 +1032,25 @@ named in `BACKUP_ALERT_EMAILS`, not the owners, since everybody who signs up
 owns an organisation; the item had no migration number and took `V37`, the
 next free one; and a dump that failed once is not mailed, only backups that
 are late, dated in the future or not copied.
+
+### 27. Invoices from approved time
+
+First the `approvedOnly` filter on the time report and the entry export, from
+the approved weeks as spans of days per person (`ApprovedWeeks`). Then
+`invoice` and `V32`: `invoices` (amounts in cents, currency, client name,
+number, kind `INVOICE` or `CREDIT_NOTE`), `invoice_lines` with the project,
+task and person names copied, and `time_entries.invoice_line_id`, one column so
+that an entry is on one line at most. A draft takes the billable entries of
+approved weeks that are on no line, under the locks of the organisation, the
+projects and then the entries, priced entry by entry through `RateBook` and
+`Money.cost`, so it adds up to the report with `approvedOnly`; a test holds
+the two together. Issuing takes the next number under the organisation's row
+lock, so numbers have no gaps. Issued invoices never change; differences from
+the design: instead of `VOID` a correction is a credit note with the next
+number and the lines negated, which releases the entries, and a project with
+time on any invoice, a draft included, refuses to be deleted (`409 invoiced`),
+while a client with invoices is archived. The rates of a draft are the ones of
+the day it was made; a draft made again prices again. The output is a print
+part of the invoice page and a CSV of the lines, no PDF library. Fixed price
+projects are left out and named. Decided: one tax rate per invoice, typed in,
+and client viewers see no invoices.

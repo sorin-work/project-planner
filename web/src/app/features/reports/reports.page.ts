@@ -56,6 +56,10 @@ export class ReportsPage {
     return 'preset' in range ? range.preset : null;
   });
   protected readonly groupBy = signal<ReportGroupBy>('PROJECT');
+  /** Only time of approved weeks, on the summary: what can be invoiced. */
+  protected readonly approvedOnly = signal(false);
+  /** The same for the export of entries. */
+  protected exportApprovedOnly = false;
   /**
    * A project whose tasks are shown, after its row was clicked. It belongs to the
    * organisation it was clicked in, like the reports below: all three start empty again
@@ -68,7 +72,8 @@ export class ReportsPage {
   /** What the summary asks for: the tasks of one project after a click on its row, otherwise the chosen grouping. */
   private readonly query = computed<TimeReportQuery>(() => {
     const drill = this.drill();
-    return { range: this.range(), groupBy: drill ? 'TASK' : this.groupBy(), projectId: drill?.projectId ?? null };
+    return { range: this.range(), groupBy: drill ? 'TASK' : this.groupBy(), projectId: drill?.projectId ?? null,
+      approvedOnly: this.approvedOnly() };
   });
   protected readonly summary = linkedSignal<number | null, TimeReport | null>({ source: this.org.orgId, computation: () => null });
   protected readonly utilisation = linkedSignal<number | null, UtilisationReport | null>({
@@ -275,7 +280,7 @@ export class ReportsPage {
     this.busy.set(true);
     this.error.set(null);
     this.timeApi
-      .exportCsv(this.org.id(), { from: this.exportFrom, to: this.exportTo, userId: this.userId, projectId: this.projectId, billable: this.billable })
+      .exportCsv(this.org.id(), { from: this.exportFrom, to: this.exportTo, userId: this.userId, projectId: this.projectId, billable: this.billable, approvedOnly: this.exportApprovedOnly })
       .subscribe({
         next: (blob) => {
           downloadBlob(blob, `timesheets-${this.exportFrom}-to-${this.exportTo}.csv`);

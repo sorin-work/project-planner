@@ -56,6 +56,9 @@
           <option [ngValue]="false">Non-billable only</option>
         </select>
       </div>
+      <div class="field checkbox">
+        <label><input type="checkbox" name="exApproved" [(ngModel)]="exportApprovedOnly" /> Approved weeks only</label>
+      </div>
       @if (error()) {
         <p class="alert error span-2">{{ error() }}</p>
       }
@@ -85,6 +88,8 @@
             <option [ngValue]="g.value">{{ g.label }}</option>
           }
         </select>
+        <label><input type="checkbox" name="repApproved" [ngModel]="approvedOnly()" (ngModelChange)="approvedOnly.set($event)" />
+          Approved weeks only</label>
       }
       <span class="spacer"></span>
       <button type="button" [disabled]="busy() || !shown()" (click)="download()">{{ busy() ? 'Preparing…' : 'Download CSV' }}</button>

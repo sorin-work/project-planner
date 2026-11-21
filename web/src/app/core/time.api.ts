@@ -124,7 +124,7 @@ export class TimeApi {
   /** Downloads the CSV export as a blob so the auth header can be sent. */
   exportCsv(
     orgId: number,
-    query: { from: string; to: string; userId?: number | null; projectId?: number | null; billable?: boolean | null },
+    query: { from: string; to: string; userId?: number | null; projectId?: number | null; billable?: boolean | null; approvedOnly?: boolean },
   ): Observable<Blob> {
     let params = new HttpParams().set('from', query.from).set('to', query.to);
     if (query.userId) {
@@ -135,6 +135,9 @@ export class TimeApi {
     }
     if (query.billable !== null && query.billable !== undefined) {
       params = params.set('billable', query.billable);
+    }
+    if (query.approvedOnly) {
+      params = params.set('approvedOnly', true);
     }
     return this.http.get(`/api/orgs/${orgId}/exports/timesheets.csv`, { params, responseType: 'blob' });
   }

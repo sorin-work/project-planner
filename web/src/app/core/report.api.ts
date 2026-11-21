@@ -13,6 +13,8 @@ export interface TimeReportQuery {
   userId?: number | null;
   clientId?: number | null;
   billable?: boolean | null;
+  /** Only time of approved weeks: what can be invoiced. */
+  approvedOnly?: boolean;
 }
 
 export function rangeParams(range: ReportRange): HttpParams {
@@ -29,6 +31,9 @@ function timeParams(query: TimeReportQuery): HttpParams {
   }
   if (query.billable !== null && query.billable !== undefined) {
     params = params.set('billable', query.billable);
+  }
+  if (query.approvedOnly) {
+    params = params.set('approvedOnly', true);
   }
   return params;
 }
