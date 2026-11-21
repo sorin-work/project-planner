@@ -11,7 +11,9 @@ import com.projectplanner.project.ProjectStatus;
 import com.projectplanner.report.BudgetCalculator.Budget;
 import com.projectplanner.report.BudgetCalculator.TimeFacts;
 import com.projectplanner.report.ProgressCalculator.Progress;
+import com.projectplanner.schedule.Link;
 import com.projectplanner.schedule.WorkCalendar;
+import com.projectplanner.task.ScheduleIssues;
 import com.projectplanner.task.Task;
 import com.projectplanner.task.TaskStatus;
 import com.projectplanner.time.TimeEntry;
@@ -43,12 +45,15 @@ public class ProjectHealthService {
         LocalDate today = Organisation.<Organisation>findById(project.organisationId).today(clock);
         List<Task> tasks = Task.forProject(project.id);
         return health(project, viewer, calendars.of(project.organisationId), today, tasks,
-                budget(project, RateBook.load(project.organisationId)));
+                budget(project, RateBook.load(project.organisationId)), ScheduleIssues.linksOf(project.id));
     }
 
-    /** Progress, overdue days and the end variance are counted in the organisation's working days. */
+    /**
+     * Progress, overdue days and the end variance are counted in the organisation's working days.
+     * Without {@code links} the schedule issues are not counted.
+     */
     private ProjectHealth health(Project project, Membership viewer, WorkCalendar calendar, LocalDate today, List<Task> tasks,
-                                 Budget budget) {
+                                 Budget budget, List<Link> links) {
         Progress progress = new ProgressCalculator(calendar).calculate(tasks.stream().map(ProjectHealthService::facts).toList(), today);
         HealthStatus status = HealthStatus.of(progress, budget, project.status == ProjectStatus.DONE, started(project, tasks, today));
 
@@ -71,15 +76,20 @@ public class ProjectHealthService {
                 budget.nonBillableHours(), budget.remainingHours(), budget.hoursBurnPct(),
                 money ? budget.budgetAmount() : null, money ? budget.spentAmount() : null,
                 money ? budget.remainingAmount() : null, money ? budget.amountBurnPct() : null);
-        return new ProjectHealth(project.id, status, today, progress, budgetView, overdue, plannedEnd, forecastEnd, endVarianceDays);
+        Integer scheduleIssues = links == null ? null : ScheduleIssues.check(calendar, tasks, links, project.endDate).size();
+        return new ProjectHealth(project.id, status, today, progress, budgetView, overdue, plannedEnd, forecastEnd, endVarianceDays,
+                scheduleIssues);
     }
 
     /**
      * The summary of each project of one organisation, for a list, with a fixed number of
      * queries however many projects there are: the organisation, one for the tasks of all of
-     * them, the rates once, the holidays once, and one grouped query for their time.
+     * them, the rates once, the holidays once, and one grouped query for their time. With
+     * {@code scheduleIssues} the issues of each plan are counted as well, from one more
+     * query for the links of all of them.
      */
-    public Map<Long, HealthSummary> summaries(long organisationId, List<Project> projects, Membership viewer) {
+    public Map<Long, HealthSummary> summaries(long organisationId, List<Project> projects, Membership viewer,
+                                              boolean scheduleIssues) {
         Map<Long, HealthSummary> summaries = new HashMap<>();
         if (projects.isEmpty()) {
             return summaries;
@@ -91,8 +101,10 @@ public class ProjectHealthService {
                 .forEach(t -> tasks.computeIfAbsent(t.projectId, id -> new ArrayList<>()).add(t));
         Map<Long, Budget> budgets = budgets(projects, RateBook.load(organisationId));
         WorkCalendar calendar = calendars.of(organisationId);
+        Map<Long, List<Link>> links = scheduleIssues ? ScheduleIssues.linksOf(ids) : null;
         for (Project project : projects) {
-            ProjectHealth h = health(project, viewer, calendar, today, tasks.getOrDefault(project.id, List.of()), budgets.get(project.id));
+            ProjectHealth h = health(project, viewer, calendar, today, tasks.getOrDefault(project.id, List.of()), budgets.get(project.id),
+                    links == null ? null : links.getOrDefault(project.id, List.of()));
             summaries.put(project.id, summary(h));
         }
         return summaries;
@@ -101,7 +113,7 @@ public class ProjectHealthService {
     private static HealthSummary summary(ProjectHealth h) {
         return new HealthSummary(h.status(), h.progress().progressPct(), h.budget().hoursBurnPct(),
                 h.budget().amountBurnPct(), h.progress().overdueTasks(), h.progress().openTasks(),
-                h.progress().scheduleVarianceHours());
+                h.progress().scheduleVarianceHours(), h.scheduleIssues());
     }
 
     /**
@@ -173,15 +185,20 @@ public class ProjectHealthService {
     /**
      * @param endVarianceDays working days between the planned end and the latest task due date;
      *                        positive means the plan runs past the project end
+     * @param scheduleIssues  how many issues the timeline lists for the plan
      */
     public record ProjectHealth(long projectId, HealthStatus status, LocalDate asOf, Progress progress,
                                 BudgetView budget, List<OverdueTask> overdue, LocalDate plannedEnd,
-                                LocalDate forecastEnd, Integer endVarianceDays) {
+                                LocalDate forecastEnd, Integer endVarianceDays,
+                                @Schema(description = SCHEDULE_ISSUES) Integer scheduleIssues) {
     }
+
+    private static final String SCHEDULE_ISSUES = "How many issues the timeline lists for the plan, from GET /api/projects/{projectId}/schedule-issues.";
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record HealthSummary(HealthStatus status, double progressPct, Double hoursBurnPct,
                                 @Schema(description = ApiDocs.MANAGERS_ONLY) Double amountBurnPct,
-                                int overdueTasks, int openTasks, double scheduleVarianceHours) {
+                                int overdueTasks, int openTasks, double scheduleVarianceHours,
+                                @Schema(description = SCHEDULE_ISSUES + " Only in the project list.") Integer scheduleIssues) {
     }
 }

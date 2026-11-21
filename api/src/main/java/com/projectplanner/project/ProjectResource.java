@@ -86,7 +86,7 @@ public class ProjectResource {
         found.sort(Comparator.comparingInt(p -> LIST_ORDER.indexOf(p.status)));
         // A fixed number of queries for any number of projects: the clients, the tasks, the rates and the time all come at once.
         List<ProjectResponse> responses = ProjectService.toResponses(found, me.role.canManage());
-        Map<Long, HealthSummary> summaries = health.summaries(orgId, found, me);
+        Map<Long, HealthSummary> summaries = health.summaries(orgId, found, me, true);
         List<ProjectListItem> items = new ArrayList<>();
         for (ProjectResponse response : responses) {
             items.add(new ProjectListItem(response, summaries.get(response.id())));
