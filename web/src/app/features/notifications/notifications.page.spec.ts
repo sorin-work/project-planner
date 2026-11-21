@@ -10,6 +10,7 @@ describe('notificationTarget', () => {
 
   it('opens the overview of the project a budget alert is about', () => {
     expect(notificationTarget({ type: 'BUDGET_ALERT', projectId: 3 })).toEqual({ commands: ['/projects', 3, 'overview'] });
+    expect(notificationTarget({ type: 'SCHEDULE_ALERT', projectId: 4 })).toEqual({ commands: ['/projects', 4, 'overview'] });
   });
 
   it('sends managers to the approval queue for a submitted week', () => {

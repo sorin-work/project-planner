@@ -10,6 +10,7 @@ import com.projectplanner.notification.NotificationType;
 import com.projectplanner.notification.Notifier;
 import com.projectplanner.org.Membership;
 import com.projectplanner.project.Phase;
+import com.projectplanner.project.PlanChanged;
 import com.projectplanner.project.Project;
 import com.projectplanner.schedule.Rescheduler;
 import com.projectplanner.schedule.ScheduledTask;
@@ -17,6 +18,7 @@ import com.projectplanner.task.TaskDtos.CreateTaskRequest;
 import com.projectplanner.task.TaskDtos.TaskChange;
 import com.projectplanner.task.TaskDtos.UpdateTaskRequest;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -41,9 +43,11 @@ public class TaskService {
     private final OrgCalendars calendars;
 
     private final AttachmentFiles attachmentFiles;
+    private final Event<PlanChanged> planChanged;
 
     public TaskService(ActivityLog activity, Notifier notifier, TaskMapper mapper, Clock clock, OrgCalendars calendars,
-                       AttachmentFiles attachmentFiles) {
+                       AttachmentFiles attachmentFiles, Event<PlanChanged> planChanged) {
+        this.planChanged = planChanged;
         this.activity = activity;
         this.notifier = notifier;
         this.mapper = mapper;
@@ -52,12 +56,24 @@ public class TaskService {
         this.calendars = calendars;
     }
 
+    /**
+     * Takes the project's row before any task row is written. Rows are taken in one order
+     * everywhere: the organisation's, then the project's, then its tasks'. A time write
+     * locks the project and then reads the task, so a task write that took the task first
+     * and the project last could wait on it the other way round. Taking it twice in one
+     * transaction costs nothing more than a read.
+     */
+    void lockPlan(Project project) {
+        Project.locked(project.id);
+    }
+
     /** Moves and pushes in the working days of the project's organisation. */
     private Rescheduler rescheduler(Project project) {
         return new Rescheduler(calendars.of(project.organisationId));
     }
 
     public Task create(Membership me, Project project, CreateTaskRequest request) {
+        lockPlan(project);
         Instant now = Instant.now(clock);
         Task task = new Task();
         task.projectId = project.id;
@@ -90,10 +106,12 @@ public class TaskService {
         if (task.assigneeId != null) {
             notifyAssigned(me, project, task);
         }
+        planChanged.fire(new PlanChanged(project.id));
         return task;
     }
 
     public TaskChange update(Membership me, Project project, Task task, UpdateTaskRequest request) {
+        lockPlan(project);
         Instant now = Instant.now(clock);
         LocalDate oldStart = task.startDate;
         LocalDate oldDue = task.dueDate;
@@ -155,6 +173,7 @@ public class TaskService {
                     "Rescheduled " + task.title + " to " + describeDates(task));
             moved = reschedule(me, project, Set.of(task.id));
         }
+        planChanged.fire(new PlanChanged(project.id));
         return new TaskChange(mapper.toResponse(task), mapper.toResponses(moved));
     }
 
@@ -173,6 +192,7 @@ public class TaskService {
     }
 
     public void delete(Membership me, Project project, Task task) {
+        lockPlan(project);
         activity.record(project.organisationId, project.id, null, me.userId, "task.deleted", "Deleted " + task.title);
         TaskDependency.delete("predecessorId = ?1 or successorId = ?1", task.id);
         List<Task> subtasks = Task.list("parentId", task.id);
@@ -185,6 +205,7 @@ public class TaskService {
             subtask.delete();
         }
         task.delete();
+        planChanged.fire(new PlanChanged(project.id));
     }
 
     /**
@@ -201,7 +222,12 @@ public class TaskService {
      * predecessor were not touched by the change, and stay where they are.
      */
     public List<Task> rescheduleFrom(Membership me, Project project, long successor) {
-        return reschedule(me, project, Set.of(successor), true);
+        lockPlan(project);
+        List<Task> moved = reschedule(me, project, Set.of(successor), true);
+        if (!moved.isEmpty()) {
+            planChanged.fire(new PlanChanged(project.id));
+        }
+        return moved;
     }
 
     private List<Task> reschedule(Membership me, Project project, Set<Long> changed, boolean includeChanged) {

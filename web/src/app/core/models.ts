@@ -46,6 +46,8 @@ export interface Organisation {
   timezone: string;
   defaultHourlyRate?: number;
   role: Role;
+  /** Last week's missing timesheets are chased on the first working day of the week. */
+  autoReminders: boolean;
 }
 
 export interface Member {
@@ -671,7 +673,10 @@ export type NotificationType =
   | 'TIMESHEET_APPROVED'
   | 'TIMESHEET_REJECTED'
   | 'TIMESHEET_REMINDER'
-  | 'BUDGET_ALERT';
+  | 'BUDGET_ALERT'
+  | 'SCHEDULE_ALERT'
+  /** Mail only: on (EMAIL) or OFF, never a notification in the app. */
+  | 'DAILY_SUMMARY';
 
 /** How somebody gets one type of notification: mailed (and in the app), in the app only, or not at all. */
 export type Delivery = 'EMAIL' | 'IN_APP' | 'OFF';

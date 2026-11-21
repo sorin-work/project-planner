@@ -39,6 +39,7 @@ public class DependencyService {
      * they now start too early.
      */
     public TaskChange add(Membership me, Project project, Task successor, DependencyRequest request) {
+        tasks.lockPlan(project);
         Task predecessor = TaskService.taskIn(project, request.predecessorId());
         if (TaskDependency.count("predecessorId = ?1 and successorId = ?2", predecessor.id, successor.id) > 0) {
             throw ApiException.conflict("dependency_exists", successor.title + " already depends on " + predecessor.title);
@@ -72,6 +73,7 @@ public class DependencyService {
      * less than before leaves the plan where it is, as moving a predecessor earlier does.
      */
     public TaskChange update(Membership me, Project project, TaskDependency dependency, UpdateDependencyRequest request) {
+        tasks.lockPlan(project);
         Task predecessor = Task.findById(dependency.predecessorId);
         Task successor = Task.findById(dependency.successorId);
         boolean typeChanges = request.type() != null && request.type() != dependency.type;
@@ -106,6 +108,7 @@ public class DependencyService {
     }
 
     public void remove(Membership me, Project project, TaskDependency dependency) {
+        tasks.lockPlan(project);
         Task predecessor = Task.findById(dependency.predecessorId);
         Task successor = Task.findById(dependency.successorId);
         dependency.delete();

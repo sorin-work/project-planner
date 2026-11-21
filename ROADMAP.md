@@ -44,8 +44,8 @@ couple of weekends, **L** several weeks of spare time.
 | 21  | Schedule issues beyond the timeline        | Shipped | both     | S    | -          |
 | 22  | Sign-in hardening                          | Shipped | both     | S    | -          |
 | 23  | Project lead                               | Shipped | both     | S    | -          |
-| 24  | Daily summary and automatic reminders      | Later | both     | M    | 19         |
-| 25  | Schedule alerts                            | Later | both     | S    | 23         |
+| 24  | Daily summary and automatic reminders      | Shipped | both     | M    | 19         |
+| 25  | Schedule alerts                            | Shipped | both     | S    | 23         |
 | 26  | Encrypted backups off the machine          | Later | infra    | M    | -          |
 | 27  | Invoices from approved time                | Later | both     | L    | -          |
 | 28  | Keyboard and drag on the timeline          | Later | frontend | M    | -          |
@@ -142,85 +142,6 @@ Items 19 to 23 were small and closed something a shipped item left open. All of
 them have shipped, so nothing waits here for now.
 
 ## Later
-
-### 24. Daily summary and automatic reminders
-
-The follow-up that items 3 and 12 both left: notification mails go out when
-something happens, but nothing tells me in the morning what is due, and a
-missing timesheet is only chased when a manager clicks "Remind". Depends on
-item 19 for the page the summary links to. Uses item 23's lead when it is
-there.
-
-- One mail a day per person and organisation, at eight in the morning in
-  the organisation's time zone (`Organisation.zone()`), on its working days
-  only: no summary on a weekend or one of the organisation's holidays.
-- Content: how many of my tasks are due today and how many are overdue, and
-  for managers how many timesheets wait for review. Counts and a link to
-  `/my-tasks` or `/approvals`, no titles: item 12's mails carry no titles or
-  comment text, and a summary should not be the way around that.
-- Nothing to say means no mail. A summary of zeros every morning is the
-  quickest way to get all mail switched off.
-- A record of what was sent: `daily_summaries` (organisation, user, day,
-  sent at), unique on the first three (`V30__create_daily_summaries.sql`).
-  The job inserts the row before it sends, so two API instances never send
-  the same summary, the way item 12's claim does it for notifications.
-- Tricky: the API was down at eight. The job runs once a minute anyway
-  (`NotificationMailer` is on `quarkus-scheduler`); a summary still goes out
-  later that morning, and not at all after noon, when it is no longer a
-  morning summary. Daylight saving moves eight o'clock in UTC twice a year,
-  so work out the hour from the zone each day, never from a stored offset.
-- Preferences: a mail-only kind with on and off on the settings card, next to
-  the notification types, defaulting to on for managers and off for others.
-  The stop link of item 12 works for it too.
-- Automatic reminders: on the first working day of the week, the people who
-  logged time last week and did not submit it get the `TIMESHEET_REMINDER`
-  that "Remind all" would send, through `MissingTimesheets` and its limits
-  (once per person, week and day, five a day). An organisation setting
-  switches it on, off by default, since some teams submit on Monday
-  afternoon on purpose.
-- Links that carry the organisation (item 12 left it open): a link in any
-  mail opens in whichever organisation the browser has selected, so a mail
-  from my second organisation can open a project that "does not exist". Add
-  `org=` to every mailed link, and have `OrgContextService` switch to that
-  organisation when the person is a member before the route loads.
-- Tests: the job method called directly with `TestClock` at 07:59, 08:00 and
-  12:01 in a zone with daylight saving, on a holiday, with two instances
-  racing for the same row, and with `MockMailbox`.
-- Undecided: one mail for people in several organisations or one per
-  organisation. Item 12 leaned against preferences per organisation; I lean
-  towards one mail per organisation for the same reason, it keeps the link
-  and the counts in one place.
-
-### 25. Schedule alerts
-
-Improvement of item 10, which left "alerts for the schedule" open. A budget
-crossing 80% is announced. A project whose health turns off track, or whose
-plan now ends after the date promised to the client, is not, and that is the
-more common way a project goes wrong. Depends on item 23, so that the alert
-goes to the project's lead rather than to every manager.
-
-- What: the project's `HealthStatus` going from on track or at risk to off
-  track, and the forecast end (`forecastEnd`, the latest due date) moving past
-  `Project.endDate`. A new `NotificationType.SCHEDULE_ALERT` with the project
-  and no actor, opening the Overview like a budget alert.
-- State: the last status and end announced, on `projects`
-  (`V31__add_project_schedule_alert.sql`), like `hours_alert_pct`. Going back
-  on track takes it down again, so a later slip is announced again.
-- Tricky: when to look. A budget only changes when time or a rate changes.
-  Health changes when tasks move (`TaskService`, the cascade, status
-  changes), but also with nothing happening at all: an open task that passes
-  its due date overnight turns a project at risk. So both: a CDI event from
-  `TaskService` after a change, observed in the transaction as
-  `BudgetAlerts` does, and a daily pass over the active projects at the start
-  of the organisation's day.
-- Tricky: noise. A project that sits on the edge flips between at risk and
-  off track with every logged hour. Announce off track once, and only take
-  the state down when the project is back on track, not merely at risk.
-- Cost: the daily pass goes through `ProjectHealthService.summaries`, which
-  already handles a whole organisation in a fixed number of statements.
-- Undecided: whether the cascade of one move that pushes the end past the
-  deadline should say which move did it. The activity log already has the
-  move; the alert would just link to it. I would leave it out.
 
 ### 26. Encrypted backups off the machine
 
@@ -1121,5 +1042,50 @@ A copy keeps the lead only with `keepAssignees`. The project list has a Lead
 column and a "Led by me" filter in the page, offered when you lead one of the
 listed projects. The demo has Priya leading the Acme booking app and Lena the
 design system. Decided: the simplest rule, the lead plus the owners for both
-messages. Still open: the daily summary of item 24 and schedule alerts of item
-25 can use the same rule.
+messages. The schedule alerts of item 25 go to the same people as the hours
+alert, and the mailer lets a member lead through for those two and never for
+the money one. Still open: the morning summary of item 24 still counts
+timesheets for owners and managers only, which is right, since a lead does not
+review time.
+
+### 24. Daily summary and automatic reminders
+
+`DailySummaries` runs once a minute and sends one mail per person and
+organisation from eight to noon in the organisation's zone on its working
+days, worked out from the zone each day: tasks due today and overdue, and for
+owners and managers the timesheets waiting for review (an owner's own week
+included, a manager's not), as counts with links to `/my-tasks` and
+`/approvals`. Nothing to say, no mail. A row in `daily_summaries` (`V30`) is
+inserted in its own transaction before the mail, so the unique key lets one
+instance through. `DAILY_SUMMARY` is a mail-only kind on the settings card
+with on and off, on by default where the person manages, and its stop link
+turns it off. Automatic reminders are an organisation setting, off by
+default: `AutoReminders` sends last week's `TIMESHEET_REMINDER` on the first
+working day of the week, with no sender, through the limits of "Remind all".
+Every link in notification mails and summaries carries `org=`, and a guard
+switches the app to that organisation before the route loads. Decided: one
+mail per organisation. Different from the design: the day column is
+`summary_day`, since `day` is a keyword in H2; the row is written when there
+is nothing to say too, so a person is looked at once a morning, and a summary
+that fails to send is not tried again that day; the reminder setting and the
+day it last ran are two columns on `organisations` in the same `V30`, since
+the item has one number; and the reminders run in the same morning window as
+the summary. Item 23's lead is not used. The task lines link to item 19's
+My tasks page.
+
+### 25. Schedule alerts
+
+`NotificationType.SCHEDULE_ALERT`, with the project and no actor, opens the
+Overview like a budget alert. `ScheduleAlertRule` announces off track once and
+takes it down only on track (or done, or not started), and announces a forecast
+end past `Project.endDate` once until the plan ends in time again; the state is
+`off_track_announced` and `late_end_announced` on `projects` (`V31`). A
+`PlanChanged` event from `TaskService` (create, change, move, delete, a cascade
+after a link) and from `ProjectService.update`, and the existing `TimeChanged`
+and `BudgetChanged`, are observed in the transaction with the project's row
+locked. A daily pass, on the first run of each organisation's day, looks at
+its active projects through `ProjectHealthService.healths`, the bulk path of
+`summaries`, and `organisations.schedule_checked_on` (in the same `V31`) lets
+one instance take each day. The alerts go to every owner and manager, as budget alerts do,
+or with a project lead (item 23) to the lead and the owners. Left out as the roadmap
+leaned: naming the move that pushed the end past the deadline.

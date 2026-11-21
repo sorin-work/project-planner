@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard, guestGuard } from './core/auth.guard';
+import { orgLinkGuard } from './core/org-link.guard';
 import { Shell } from './features/shell/shell';
 
 export const routes: Routes = [
@@ -36,7 +37,9 @@ export const routes: Routes = [
   {
     path: '',
     component: Shell,
-    canActivate: [authGuard],
+    // A mailed link says which organisation it is about, as ?org=; the guard switches to it first.
+    canActivate: [authGuard, orgLinkGuard],
+    runGuardsAndResolvers: 'pathParamsOrQueryParamsChange',
     children: [
       { path: '', title: 'Dashboard', loadComponent: () => import('./features/dashboard/dashboard.page').then((m) => m.DashboardPage) },
       { path: 'my-tasks', title: 'My tasks', loadComponent: () => import('./features/my-tasks/my-tasks.page').then((m) => m.MyTasksPage) },

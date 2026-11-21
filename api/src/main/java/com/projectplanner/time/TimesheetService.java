@@ -354,6 +354,35 @@ public class TimesheetService {
     }
 
     /**
+     * The automatic reminders of an organisation, on the first working day of a week: everybody
+     * who logged time in the week that is over and did not submit it gets the reminder "Remind
+     * all" would send, under the same limits. Nobody sends it, so it says so. Answers who was
+     * reminded.
+     */
+    public List<Long> autoRemind(long organisationId) {
+        Organisation org = Organisation.findById(organisationId);
+        LocalDate today = org.today(clock);
+        MissingResponse week = missing(org, today, null);
+        Instant since = startOfDay(org, today);
+        List<Long> reminded = new ArrayList<>();
+        for (Long userId : new TreeSet<>(week.people().stream().filter(p -> p.totalMinutes() > 0 && !p.remindedToday())
+                .map(Missing::userId).toList())) {
+            if (MissingTimesheets.reminderLimit(week.weekStart(), weeksRemindedSince(organisationId, userId, since)).isEmpty()) {
+                reminded.add(userId);
+            }
+        }
+        notifier.notifyAllAboutWeek(reminded, organisationId, null, NotificationType.TIMESHEET_REMINDER,
+                "A reminder to submit your timesheet for the week of " + week.weekStart(), week.weekStart());
+        return reminded;
+    }
+
+    /** Whether {@code today} is the first working day of its week: a working day with none before it since Monday. */
+    public static boolean firstWorkingDayOfWeek(WorkCalendar calendar, LocalDate today) {
+        LocalDate monday = WorkCalendar.weekStart(today);
+        return calendar.isWorkingDay(today) && (today.equals(monday) || calendar.workingDaysBetween(monday, today.minusDays(1)) == 0);
+    }
+
+    /**
      * The weeks this person has been reminded about from {@code since} on. Takes a lock on their
      * membership first: requests that arrive together wait for each other here, so the second
      * one sees the reminder the first one wrote.

@@ -101,6 +101,9 @@ public class OrgResource {
                 throw ApiException.badRequest("invalid_timezone", "Unknown time zone " + request.timezone());
             }
         }
+        if (request.autoReminders() != null) {
+            org.autoReminders = request.autoReminders();
+        }
         if (request.defaultHourlyRate() != null) {
             // The settings page always sends the rate, so only a different one counts as a change.
             boolean changed = !sameRate(org.defaultHourlyRate, request.defaultHourlyRate());

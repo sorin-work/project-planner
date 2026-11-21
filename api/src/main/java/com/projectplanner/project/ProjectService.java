@@ -38,8 +38,11 @@ public class ProjectService {
     private final EntityManager em;
     private final Clock clock;
     private final Event<BudgetChanged> budgetChanged;
+    private final Event<PlanChanged> planChanged;
 
-    public ProjectService(ActivityLog activity, EntityManager em, Clock clock, Event<BudgetChanged> budgetChanged) {
+    public ProjectService(ActivityLog activity, EntityManager em, Clock clock, Event<BudgetChanged> budgetChanged,
+                          Event<PlanChanged> planChanged) {
+        this.planChanged = planChanged;
         this.activity = activity;
         this.em = em;
         this.clock = clock;
@@ -85,6 +88,8 @@ public class ProjectService {
             activity.record(project.organisationId, project.id, null, me.userId, "project.lead",
                     lead == null ? "Left " + project.name + " without a lead" : "Made " + lead.name + " the lead of " + project.name);
         }
+        // The end date and the status are part of the schedule alerts.
+        planChanged.fire(new PlanChanged(project.id));
         if (before != project.status) {
             activity.record(project.organisationId, project.id, null, me.userId, "project.status",
                     "Changed status of " + project.name + " to " + project.status.name().toLowerCase(Locale.ROOT).replace('_', ' '));

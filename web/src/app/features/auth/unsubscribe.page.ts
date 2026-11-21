@@ -5,7 +5,7 @@ import { messageOf } from '../../core/errors';
 import { InboxApi } from '../../core/inbox.api';
 import { signedTokenFromFragment } from '../../core/link-token';
 import { NotificationType } from '../../core/models';
-import { NOTIFICATION_ABOUT } from '../settings/notification-labels';
+import { NOTIFICATION_ABOUT, stoppedText } from '../settings/notification-labels';
 
 /**
  * Where the stop link of a notification mail leads. It works without signing in. Nothing
@@ -19,7 +19,7 @@ import { NOTIFICATION_ABOUT } from '../settings/notification-labels';
       <div class="card auth-card">
         <h1 class="brand">Stop these mails</h1>
         @if (stopped(); as type) {
-          <p role="status">You no longer get mails about {{ about[type] }}. They still show in the app.</p>
+          <p role="status">{{ stoppedText(type) }}</p>
           <p class="muted small"><a routerLink="/settings">Change it in your settings</a></p>
         } @else if (token) {
           <p>The mails of this kind stop. You keep seeing them in the app, and can turn the mails on again in your settings.</p>
@@ -44,6 +44,7 @@ export class UnsubscribePage {
   protected readonly error = signal<string | null>(null);
   protected readonly stopped = signal<NotificationType | null>(null);
   protected readonly about = NOTIFICATION_ABOUT;
+  protected readonly stoppedText = stoppedText;
 
   constructor() {
     inject(Location).replaceState('/unsubscribe');
