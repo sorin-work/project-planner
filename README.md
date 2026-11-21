@@ -463,7 +463,7 @@ and not tried again that day. It is a mail-only kind, `DAILY_SUMMARY`, on the se
 card next to the notification types with on and off only, and its stop link turns it
 off. Without a choice it is on where the person is an owner or a manager. There is one
 mail per organisation, not one for all of them, so that the counts and the link are
-about one place. The link to My tasks needs that page (roadmap item 19).
+about one place. The task lines open My tasks.
 
 Automatic reminders (`AutoReminders`) are switched on per organisation
 (`autoReminders` on `PATCH /api/orgs/{orgId}`, off by default). On the first working
