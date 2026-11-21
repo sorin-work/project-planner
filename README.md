@@ -451,10 +451,19 @@ addresses, and at many accounts from one address, slow, while the right password
 place that has not failed still goes straight in. A whole office behind one address keeps
 signing in, even when somebody there is trying passwords.
 
+That is the deliberate cost of never locking the owner out: guessing from many addresses
+grows with the number of addresses. Once the account is past its count, each address gets
+one free try and then waits the same way, which comes to about 300 tries a day per address
+when the waits have reached five minutes. A thousand addresses can try some 300,000
+passwords a day at one account. A long password, or one from a password manager, is what
+holds against that; the limits make it slow, not impossible.
+
 The waits per account and address are a table, `login_failures`, and the counts per
 account two columns on `users`, so they hold across a restart and across copies of the
 API. A right password removes the row of its address, and rows that have been quiet for a
-day. The counts per address are in memory, like the reset limit, and a restart resets
+day. An hourly job deletes the rows quiet for a day, and an account keeps at most a
+thousand of them: past that the ones that failed least recently go, so trying from ever
+more addresses cannot grow the table without end. The counts per address are in memory, like the reset limit, and a restart resets
 them. Failures are forgotten after a day without one (an hour for an address). A burst of
 tries at the same moment does not get past a wait: each try is counted before the
 password is checked, by an update that only matches the count it read, and taken back

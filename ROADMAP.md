@@ -1169,7 +1169,8 @@ nonce, because the components have no styles of their own; the lint keeps it tha
 way, and the build no longer inlines critical CSS, whose loader was an inline
 script. Still open: a waiting pair answers 429 where an unknown email answers 401,
 and a known email costs a few more writes than an unknown one, which both tell
-that it exists, like sign-up does (the README says so); somebody with many
-addresses gets five tries from each until the account's count brings new ones down
-to one; HSTS is for whatever terminates TLS; and a list of sessions with "sign out
+that it exists, like sign-up does (the README says so); guessing grows with
+the number of addresses, about 300 tries a day each once the account is past its
+count, which is the price of never locking the owner out (an hourly sweep and a cap
+of a thousand pairs per account keep the table bounded); HSTS is for whatever terminates TLS; and a list of sessions with "sign out
 this device" was left out, as the design suggested.
