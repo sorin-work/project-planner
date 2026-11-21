@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { messageOf } from '../../core/errors';
 import { ProjectHealth } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
@@ -9,6 +10,7 @@ import { HealthBadge } from '../../shared/health-badge';
 import { ProgressBar } from '../../shared/progress-bar';
 import { countsText, endText, milestoneChanges, milestoneText } from './baseline-text';
 import { injectOpenTask } from './open-task';
+import { scheduleIssuesText } from './schedule-issues';
 import { ProjectStore } from './project.store';
 
 interface PhaseSummary {
@@ -23,7 +25,7 @@ interface PhaseSummary {
 
 @Component({
   selector: 'app-overview-tab',
-  imports: [HealthBadge, ProgressBar],
+  imports: [HealthBadge, ProgressBar, RouterLink],
   templateUrl: './overview.tab.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -41,6 +43,7 @@ export class OverviewTab {
   protected readonly formatDate = formatDate;
   protected readonly formatRange = formatRange;
   protected readonly endText = endText;
+  protected readonly scheduleIssuesText = scheduleIssuesText;
   protected readonly countsText = countsText;
   protected readonly milestoneChange = milestoneText;
   protected readonly baselineMilestones = computed(() => milestoneChanges(this.store.comparison()));

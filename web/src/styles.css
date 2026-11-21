@@ -1682,6 +1682,12 @@ select.compact {
   white-space: nowrap;
 }
 
+.issue-marker {
+  color: var(--warning);
+  margin-left: 0.4rem;
+  white-space: nowrap;
+}
+
 .approve-row {
   display: flex;
   align-items: center;

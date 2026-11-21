@@ -63,3 +63,30 @@ describe('ProjectsPage, copying a plan', () => {
     http.verify();
   });
 });
+
+describe('ProjectsPage, schedule issues', () => {
+  it('marks a plan with issues and links the marker to its timeline', async () => {
+    TestBed.configureTestingModule({
+      imports: [ProjectsPage],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: OrgContext, useValue: { orgId: () => 1, id: () => 1, canManage: () => true } },
+      ],
+    });
+    const http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(ProjectsPage);
+    await fixture.whenStable();
+    const broken = { ...website, health: { ...website.health, scheduleIssues: 3 } };
+    const fine = { ...intranet, health: { ...intranet.health, scheduleIssues: 0 } };
+    http.expectOne((r) => r.url === '/api/orgs/1/projects').flush([broken, fine]);
+    http.expectOne((r) => r.url === '/api/orgs/1/clients').flush([]);
+    await fixture.whenStable();
+
+    const markers = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLAnchorElement>('.issue-marker');
+    expect(markers).toHaveLength(1);
+    expect(markers[0].textContent.trim()).toBe('3 schedule issues');
+    expect(markers[0].getAttribute('href')).toBe('/projects/4/timeline');
+  });
+});

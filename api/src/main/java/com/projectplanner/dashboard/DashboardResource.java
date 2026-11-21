@@ -78,7 +78,7 @@ public class DashboardResource {
                 .stream()
                 .filter(p -> me.role != Role.CLIENT || Objects.equals(p.clientId, me.clientId))
                 .toList();
-        Map<Long, HealthSummary> summaries = health.summaries(orgId, projects, me);
+        Map<Long, HealthSummary> summaries = health.summaries(orgId, projects, me, false);
         List<ProjectCard> cards = ProjectService.toResponses(projects, me.role.canManage()).stream()
                 .map(p -> new ProjectCard(p, summaries.get(p.id())))
                 .toList();
