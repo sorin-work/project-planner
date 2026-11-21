@@ -148,6 +148,12 @@ the point is knowing whether a project will land on time and on budget.
   found, among the recent picks too. The List tab of a
   project has filters of its own: text, assignee, status and priority, kept in the
   address so that they survive a reload and the back button.
+- **My tasks**: one page with everything assigned to you across the projects, grouped
+  into Overdue, This week (up to Sunday), Later and No date by the organisation's date,
+  with the project's code, the due date, the status and the priority. A box ticks a task
+  done without leaving the page, and unticking puts it back to what it was. Done tasks
+  are hidden unless "Show done" is on. Team members can pick somebody else to see their
+  tasks. A click opens the task in its project.
 - **Comments with @mentions** (handles are the part of the email before the @, with
   autocomplete), in-app notifications, an activity log per project and organisation.
   A mention only reaches people who can see the project: a client viewer of another
@@ -895,6 +901,17 @@ because that is what PostgreSQL and the H2 database of the tests have in common.
 index helps a search for text in the middle, so every search reads all of the
 organisation's tasks and comments. That is fine for a few thousand tasks, and it is
 not a search engine. On PostgreSQL alone a trigram index would be the next step.
+`more` names the kinds that had more hits than the limit, so a list can say that it is
+cut off.
+
+With `assigneeId`, `status` (which may be given more than once) or both, the same
+endpoint finds only tasks, and `q` is optional: it then narrows by text if given. That
+is the My tasks page. The limit goes up to 200, the earliest due date comes first, tasks
+without one last, then the project's code and the place in the project. The answer
+carries `today`, the organisation's date, so that the page can tell overdue from not.
+The visibility is the search's own: tasks of the organisation's projects, and for a client
+viewer of their client's, whoever they are assigned to. It is a fixed number of
+statements however many tasks the organisation has (`QueryCountTest`).
 
 `/orgs/{org}/holidays` lists the holidays (`?from=&to=` optional) for every member, client
 viewers included since they see the timeline, and takes `POST`, `PUT /{id}` and
