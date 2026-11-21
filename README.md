@@ -638,6 +638,82 @@ After losing the volume, or on another machine, it is the same command: put the 
 `./backups`, run the `restore` line (it starts the database by itself), then
 `docker compose up -d`.
 
+### Encrypted dumps
+
+The backup service runs an image of its own (`backup/Dockerfile`): the postgres image of
+the database, so that `pg_dump` matches the server, with `age` on top. With
+`BACKUP_ENCRYPT_TO` set to one or more `age` public keys, every dump and every archive is
+written through `age` as it is made, as `planner-<time>.dump.age` and
+`.files.tar.age`, and only the encrypted file ever touches the disk. When `pg_dump`,
+`tar` or `age` fails half way, what was written is removed. The keys are tried when the
+service starts. Make a key pair somewhere else than on this machine:
+
+```bash
+age-keygen -o planner-backup-key.txt   # keep this file safe, and not next to the dumps
+age-keygen -y planner-backup-key.txt   # the public key, for BACKUP_ENCRYPT_TO
+```
+
+A restore of an encrypted dump needs the private key, mounted for that one command:
+
+```bash
+docker compose stop api
+docker compose --profile backup run --rm -v "$PWD/planner-backup-key.txt:/run/secrets/key:ro" \
+  -e BACKUP_DECRYPT_KEY=/run/secrets/key backup restore planner-20261120T030000Z.dump.age
+docker compose start api
+```
+
+The whole dump is decrypted once into nothing first, so a wrong key or a damaged file
+stops the restore before anything changed. Then the dump is decrypted on its way into
+`pg_restore`, and the archive on its way into `tar`: no plain copy is written anywhere.
+Plain dumps from before still restore without a key, and both kinds are pruned by the
+time in their names.
+
+### Copies off the machine
+
+`BACKUP_COPY_DIR` names a second folder, a mounted share or another disk, that every
+finished dump is copied to with its archive, under a hidden name that is renamed when the
+copy is complete, and pruned in the same way. For a bucket, `BACKUP_RCLONE_REMOTE` names
+an `rclone` remote (`minio:planner-backups`) set up in the `rclone.conf` of the folder
+`BACKUP_RCLONE_CONFIG`. Only a bucket you can host yourself is meant here (MinIO,
+Garage). `rclone` is large, so it is only in the image when it is built with
+`BACKUP_PACKAGES=rclone`. A copy runs in a process session of its own and is stopped,
+with everything it started, after `BACKUP_COPY_TIMEOUT_SECONDS` (an hour). A copy that
+fails or is stopped does not undo the dump, but counts as a failure in the status file.
+
+### When backups stop
+
+After every run the service writes `.backup-status` in `BACKUP_DIR`: the newest good
+dump and the time in its name, how the last run went (`ok`, `dump_failed`,
+`copy_failed`) and the interval. Like the pruning it goes by the time in the name and
+never by a modification time. `backup.sh health` reads it, and the compose service has a
+healthcheck that is unhealthy when the newest good dump is older than twice the interval
+or no longer there, so `docker compose ps` shows it.
+
+The API can read it too, from a read-only mount of `BACKUP_DIR`, when `BACKUP_STATUS_FILE`
+is set to `/backups/.backup-status`. Owners then see a line about the backups on the
+Settings page (`GET /api/orgs/{orgId}/backup-status`), and every owner gets a
+`BACKUP_ALERT`, mailed by default, when the newest good dump is older than twice the
+interval or a dump could not be copied. Each owner is told once: not again until there is
+a newer good dump than the one there was. The backups are of the whole server, so the
+owners of every organisation hear of it. Without the setting the API does not look at
+backups at all.
+
+### A new major version of PostgreSQL
+
+The database files of one major version do not open under the next. The way across is a
+dump with the old image and a restore with the new one, which is what the backup script
+already does:
+
+1. `docker compose --profile backup run --rm backup once` with the old version.
+2. `docker compose down`, and remove the database volume (`docker volume ls` shows it as
+   `<project>_db-data`) once you have the dump somewhere safe.
+3. Change `postgres:17-alpine` in `docker-compose.yml` and `backup/Dockerfile` to the
+   new version, and `docker compose --profile backup build backup`.
+4. `docker compose --profile backup run --rm backup restore <the dump>`, then
+   `docker compose up -d`.
+
+The restore runs `pg_restore` of the new version, which reads dumps of older ones.
+
 ### Dumps and versions of the API
 
 A dump carries the schema and Flyway's list of the migrations that built it
@@ -658,17 +734,18 @@ a dump made after the upgrade will not start there.
 
 Good to know:
 
-- A dump holds the password hashes, the rates and every hour that was logged, and it is
-  not encrypted. The files can only be read by their owner.
+- A dump holds the password hashes, the rates and every hour that was logged. Without
+  `BACKUP_ENCRYPT_TO` it is not encrypted. The files can only be read by their owner.
 - The service runs as root inside its container, like everything in the postgres image
   except the server, and gives each dump to the owner of the folder it is written to.
   `./backups` comes with the repository, so on Linux the dumps are yours and not
   root's. If `BACKUP_DIR` names a folder that does not exist, Docker creates it as root
   and the dumps belong to root as well: create the folder yourself first.
 - The dumps sit on the same disk as the database unless `BACKUP_DIR` points somewhere
-  else. Copying them to another machine is up to you.
-- Nothing warns you when a dump fails. `docker compose logs backup` shows every dump and
-  every failure, and a failed dump is tried again a minute later.
+  else or `BACKUP_COPY_DIR` or `BACKUP_RCLONE_REMOTE` copy them away.
+- `docker compose logs backup` shows every dump and every failure, and a failed dump is
+  tried again a minute later. The healthcheck and, with `BACKUP_STATUS_FILE`, the owners'
+  mail say when that has gone on for too long.
 - `docker compose down -v` removes the database and attachments volumes, not the dumps.
 
 ## Running without Docker
@@ -730,13 +807,21 @@ npm start
 | `BACKUP_DIR`           | `./backups`                                   | backup  |
 | `BACKUP_KEEP`          | `7`                                           | backup  |
 | `BACKUP_INTERVAL_SECONDS` | `86400` (one day)                          | backup  |
+| `BACKUP_ENCRYPT_TO`    | empty (not encrypted)                         | backup  |
+| `BACKUP_DECRYPT_KEY`   | empty (for a restore of an `.age` dump)       | backup  |
+| `BACKUP_COPY_DIR`      | empty (no copy)                               | backup  |
+| `BACKUP_RCLONE_REMOTE`, `BACKUP_RCLONE_CONFIG` | empty (no copy)       | backup  |
+| `BACKUP_PACKAGES`      | empty (`rclone` to add it to the image)       | backup  |
+| `BACKUP_COPY_TIMEOUT_SECONDS` | `3600` (one hour)                      | backup  |
+| `BACKUP_STATUS_FILE`   | empty (`/backups/.backup-status` to watch)    | api     |
 
 `ATTACHMENTS_DIR` is where the API keeps the files attached to tasks; in compose it is
 the `attachments` volume. Requests can be up to 25 MB, in Quarkus and in nginx, so that a
 file somewhat over the limit gets the API's own answer.
 
 `BACKUP_DIR` is the folder on the host the dumps go to, `BACKUP_KEEP` how many of them
-are kept and `BACKUP_INTERVAL_SECONDS` the time from one dump to the next. See
+are kept and `BACKUP_INTERVAL_SECONDS` the time from one dump to the next. The others
+encrypt the dumps, copy them off the machine and let the API watch them. See
 [Backup and restore](#backup-and-restore).
 
 ## Accessibility

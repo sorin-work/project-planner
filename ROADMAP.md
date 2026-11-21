@@ -46,7 +46,7 @@ couple of weekends, **L** several weeks of spare time.
 | 23  | Project lead                               | Next  | both     | S    | -          |
 | 24  | Daily summary and automatic reminders      | Shipped | both     | M    | 19         |
 | 25  | Schedule alerts                            | Shipped | both     | S    | 23         |
-| 26  | Encrypted backups off the machine          | Later | infra    | M    | -          |
+| 26  | Encrypted backups off the machine          | Shipped | infra    | M    | -          |
 | 27  | Invoices from approved time                | Later | both     | L    | -          |
 | 28  | Keyboard and drag on the timeline          | Later | frontend | M    | -          |
 | 29  | Calendar feed                              | Later | both     | M    | -          |
@@ -215,46 +215,6 @@ have the same problem.
   simplest is "lead plus owners" for both.
 
 ## Later
-
-### 26. Encrypted backups off the machine
-
-Improvement of item 6, which left three things open: the dumps are not
-encrypted, they stay on the machine unless `BACKUP_DIR` points elsewhere,
-and nothing warns when a dump fails apart from the service log. A backup
-that has quietly failed for a month is found on the day it is needed.
-
-- Encryption: with `BACKUP_ENCRYPT_TO` set to an `age` public key, each dump
-  and each attachments archive is encrypted as it is written, and only the
-  encrypted file ever touches the disk. `backup restore` takes the private
-  key from a file named in `BACKUP_DECRYPT_KEY`. Without the setting nothing
-  changes.
-- Tricky: `age` is not in `postgres:17-alpine`, and installing it at start
-  needs the network. Build a small image of our own on top of it
-  (`backup/Dockerfile`), which keeps `pg_dump` matching the server.
-  `docker compose build` already runs in CI.
-- Off the machine: `BACKUP_COPY_DIR`, a second folder (a mounted share or a
-  disk) that every finished dump is copied to and pruned in the same way.
-  Copying to an S3-compatible bucket is optional and only to one that can be
-  self-hosted (MinIO, Garage): `rclone` in the same image, configured by the
-  operator. A failed copy does not fail the dump, but counts as a failure.
-- A warning: the script writes a small status file after each run (time,
-  outcome, file), and the compose service gets a `healthcheck` that is
-  unhealthy when the newest good dump is older than twice the interval.
-  `docker compose ps` then shows it. The owners should hear about it too: the
-  API reads the status file from a read-only mount and shows a line on the
-  Settings page for owners, and mails them once when it turns bad, if mail
-  is set up.
-- Tricky: the clocks. Item 6 reads the age of a dump from its name, never
-  from modification times. The status file has the same rule.
-- `scripts/check-restore.sh` gets an encrypted round trip: a dump with a test
-  key, a restore with the private key, the row counts, and a restore with a
-  wrong key that leaves the database alone.
-- Upgrades: the README gets a section on moving to a new major version of
-  PostgreSQL, which is a dump with the old image and a restore with the new
-  one, the path the backup script already has.
-- Undecided: whether the API should know about backups at all. It makes the
-  warning visible to the people who care, at the cost of a mount that ties
-  the two services together. I lean towards yes, behind a setting.
 
 ### 27. Invoices from approved time
 
@@ -1123,3 +1083,32 @@ one instance take each day. Different from the design: item 23 has not
 landed, so the alerts go to every owner and manager, as budget alerts do; once
 the project lead is there they should go to the lead. Left out as the roadmap
 leaned: naming the move that pushed the end past the deadline.
+
+### 26. Encrypted backups off the machine
+
+The backup service builds `backup/Dockerfile`: the postgres image with `age`,
+and `rclone` when built with `BACKUP_PACKAGES=rclone`; CI builds it with the
+backup profile. With `BACKUP_ENCRYPT_TO`, `pg_dump` and `tar` write into `age`,
+the status of both sides of the pipe is checked, and only `.age` files reach
+the disk; a restore takes the key from `BACKUP_DECRYPT_KEY`, decrypts the whole
+dump once into nothing before it changes anything, then decrypts on the way
+into `pg_restore` and `tar`. Every finished dump is copied to `BACKUP_COPY_DIR`
+and `BACKUP_RCLONE_REMOTE` and pruned there by the names, in a process session
+of its own that a timeout (`BACKUP_COPY_TIMEOUT_SECONDS`) stops whole. A
+failed copy keeps the dump and is recorded as `copy_failed`. `.backup-status`
+is written after every run, by the time in the name; `backup.sh health` is the
+compose healthcheck, unhealthy past twice the interval. With
+`BACKUP_STATUS_FILE`, the API reads it from a read-only mount, shows it to
+owners on the Settings page and sends every owner one `BACKUP_ALERT` (mailed by
+default) per newest good dump when backups are late or a copy failed. The
+README has a section on moving to a new major version of PostgreSQL.
+`check-backup-loop.sh` has stand-ins for `age` and `rclone` and cases for the
+encrypted dump, `age` and `pg_dump` failing under it, restores without and
+with the wrong key, the copy folder, a hanging copy whose child is stopped and
+the healthcheck; `check-backup.sh`, which CI runs through `check-restore.sh`,
+has a real `age` round trip. Decided: the API knows about backups, behind the
+setting. Different from the design: the image is `backup/Dockerfile` with
+`rclone` optional; owners of every organisation hear of it, since the
+backups are of the whole server; the "once" is kept in the notifications (one
+per owner since the newest good dump), so no migration was needed; and a
+dump that failed once is not mailed, only one that is late or not copied.
