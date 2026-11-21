@@ -145,7 +145,6 @@ them have shipped, so nothing waits here for now.
 
 ## Later
 
-
 ### 29. Calendar feed
 
 My due dates, my time off and the organisation's holidays only exist inside
