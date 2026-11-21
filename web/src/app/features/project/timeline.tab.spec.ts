@@ -174,6 +174,24 @@ describe('TimelineTab edits', () => {
     refetch([]);
   });
 
+  it('counts the start keys from the stored start again after a refusal, and drops what was counted on it', async () => {
+    gantt.started.emit({ taskId: 2, days: -1 });
+    gantt.started.emit({ taskId: 2, days: -1 });
+    http.expectOne('/api/tasks/2').flush(
+      { status: 409, code: 'project_done', message: 'This project is finished' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    // The second press was counted from Friday, which was never saved: it does not go out.
+    http.expectNone('/api/tasks/2');
+
+    gantt.started.emit({ taskId: 2, days: -1 });
+    const again = http.expectOne('/api/tasks/2');
+    expect(again.request.body).toEqual({ startDate: '2026-03-06' });
+    again.flush({ task: { ...build, startDate: '2026-03-06' }, rescheduled: [] });
+    refetch([]);
+  });
+
   it('stops the due date at the start, however often the key is pressed', async () => {
     // Build runs Monday 9 to Wednesday 11: two presses back and it is a one-day task. The rest do nothing.
     for (let press = 0; press < 5; press++) {

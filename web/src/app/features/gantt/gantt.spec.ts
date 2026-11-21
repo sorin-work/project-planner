@@ -257,6 +257,61 @@ describe('Gantt editing', () => {
     expect(linked).not.toHaveBeenCalled();
   });
 
+  it('gives up a link from the keyboard when the focus leaves its bar, and the keys work on the next bar as always', async () => {
+    await render();
+    key(bar(0), 'l');
+    key(bar(0), 'ArrowDown');
+    await fixture.whenStable();
+    expect(el.querySelector('.link-draft')).not.toBeNull();
+
+    // Tab to the next bar.
+    bar(0).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: bar(1) }));
+    await fixture.whenStable();
+    expect(el.querySelector('.link-draft')).toBeNull();
+    key(bar(1), 'ArrowRight');
+    expect(moved).toHaveBeenCalledWith({ taskId: 2, days: 1 });
+    key(bar(1), 'Enter');
+    expect(opened).toHaveBeenCalledWith(2);
+    expect(el.querySelector('.link-type-menu')).toBeNull();
+    expect(linked).not.toHaveBeenCalled();
+  });
+
+  it('gives up a link from the keyboard on a press outside the chart, and Escape elsewhere does nothing after that', async () => {
+    await render();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    key(bar(0), 'l');
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await fixture.whenStable();
+    expect(el.querySelector('.gantt-hint')).toBeNull();
+    outside.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // Nothing was live: the focus stays where it is.
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it('ends a drag when the pointer capture is lost, without sending anything', async () => {
+    await render();
+    pointer(body(0), 'pointerdown', 250);
+    pointer(body(0), 'pointermove', 250 + 3 * 28);
+    await fixture.whenStable();
+    body(0).dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 1 }));
+    await fixture.whenStable();
+    expect(el.querySelector('.gantt-hint')).toBeNull();
+    pointer(body(0), 'pointerup', 250 + 3 * 28);
+    expect(moved).not.toHaveBeenCalled();
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it('never lets Alt and an arrow go Back, also where the timeline cannot be edited', async () => {
+    await render(false);
+    const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true });
+    bar(0).dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(moved).not.toHaveBeenCalled();
+  });
+
   it('asks for a start date step with Alt and an arrow, and never lets the browser go Back', async () => {
     await render();
     const started = vi.fn();
