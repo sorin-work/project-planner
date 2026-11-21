@@ -36,7 +36,7 @@ public class User extends PanacheEntityBase {
     @Column(name = "token_version", nullable = false)
     public int tokenVersion;
 
-    /** Wrong passwords in a row, see {@link LoginLimits}. A right one or a new password sets it back to zero. */
+    /** Wrong passwords from every address together, see {@link LoginLimits}. A right one or a new password sets it back to zero. */
     @Column(name = "failed_logins", nullable = false)
     public int failedLogins;
 
@@ -69,6 +69,7 @@ public class User extends PanacheEntityBase {
         passwordHash = newHash;
         failedLogins = 0;
         lastFailedLoginAt = null;
+        LoginFailure.delete("userId", id);
         PasswordReset.revokeAll(id, now);
     }
 

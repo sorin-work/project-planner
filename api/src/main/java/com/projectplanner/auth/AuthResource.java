@@ -87,9 +87,9 @@ public class AuthResource {
     @POST
     @Path("/login")
     @Operation(summary = "Log in",
-            description = "A few wrong passwords for an account, or from one client address, pass. After that each further try waits longer, counted from the last wrong one, up to five minutes. A try during the wait is refused before the password is checked, says how long to wait in Retry-After, and does not make the wait longer. A password reset sets the count of the account back to zero.")
+            description = "Five wrong passwords for an account from one client address pass. After that each further try from that address for that account waits longer, counted from the last wrong one, up to five minutes. A try during the wait is refused before the password is checked, says how long to wait in Retry-After, and does not make the wait longer. Other addresses are not held back by it. After many wrong passwords for the account from all addresses, or from the address for all accounts, a new address gets one free try instead of five. A password reset clears all of it.")
     @Fails(status = 401, code = "invalid_credentials", when = "the email or the password is wrong")
-    @Fails(status = 429, code = "too_many_attempts", when = "there were too many wrong passwords for the account or from this client: wait for the seconds in Retry-After")
+    @Fails(status = 429, code = "too_many_attempts", when = "there were too many wrong passwords for the account from this client address: wait for the seconds in Retry-After")
     public AuthResponse login(@Valid @NotNull LoginRequest request, @Context HttpServerRequest http) {
         return auth.login(request, http.remoteAddress().hostAddress());
     }
