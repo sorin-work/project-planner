@@ -9,7 +9,7 @@ export type Zoom = 'day' | 'week' | 'month';
 export const DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 12, month: 4 };
 export const ROW_HEIGHT = 32;
 export const HEADER_HEIGHT = 44;
-const BAR_HEIGHT = 18;
+export const BAR_HEIGHT = 18;
 /** The baseline's thin bar under a bar: between the bar's lower edge and the row line. */
 export const BASELINE_HEIGHT = 4;
 const BASELINE_GAP = 1;

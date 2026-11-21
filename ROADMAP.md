@@ -48,7 +48,7 @@ couple of weekends, **L** several weeks of spare time.
 | 25  | Schedule alerts                            | Shipped | both     | S    | 23         |
 | 26  | Encrypted backups off the machine          | Shipped | infra    | M    | -          |
 | 27  | Invoices from approved time                | Shipped | both     | L    | -          |
-| 28  | Keyboard and drag on the timeline          | Later | frontend | M    | -          |
+| 28  | Keyboard and drag on the timeline          | Shipped | frontend | M    | -          |
 | 29  | Calendar feed                              | Later | both     | M    | -          |
 | 30  | Browser tests                              | Later | frontend | M    | -          |
 | 31  | Attachments on comments and pasted images  | Maybe | both     | M    | -          |
@@ -145,37 +145,6 @@ them have shipped, so nothing waits here for now.
 
 ## Later
 
-### 28. Keyboard and drag on the timeline
-
-Improvement of items 5 and 8, which left a list of things the timeline cannot
-do yet. Each is small; together they are what makes the timeline the place
-where plans are edited instead of the task panel.
-
-- Draw a link from the keyboard. Today only the task panel's form does it.
-  A key on a focused bar (say `L`) starts a link, the arrow keys move
-  through the other bars as targets, Enter makes it and Escape gives up,
-  each step read out through the `Announcer`. The targets are the same as a
-  drag's drop targets in `gantt-edit.ts`.
-- Move the start date with a key: `Shift` and the arrows move the due date,
-  so `Alt` and the arrows for the start, with the same 300 ms grouping as
-  the other moves. Check that `Alt` with an arrow does not go Back in the
-  browser, as item 5 had to on the board.
-- Scroll while dragging: near the left or right edge the timeline scrolls,
-  so that two bars that are not on screen together can be linked at day
-  zoom. Pull the speed from the distance to the edge into a plain function
-  with a spec.
-- A bar for a task without dates: dragging across an empty row gives the
-  task a start and a due date, snapped to working days as any drag is.
-- A type for a drawn link. It is finish-to-start and can be changed in the
-  panel afterwards. Dropping on the left half of the target bar could make
-  it start-to-start; I would rather show a small menu after the drop, which
-  is clearer and works from the keyboard too.
-- Tricky: none of this can be asserted in jsdom beyond the arithmetic, which
-  is why the logic goes into `gantt-edit.ts` first. Item 30 would cover the
-  rest.
-- Undecided: whether resizing a parent moves its subtasks. A schedule issue
-  already reports a subtask outside its parent. I lean towards leaving them
-  and letting the issue say it.
 
 ### 29. Calendar feed
 
@@ -1054,3 +1023,25 @@ the day it was made; a draft made again prices again. The output is a print
 part of the invoice page and a CSV of the lines, no PDF library. Fixed price
 projects are left out and named. Decided: one tax rate per invoice, typed in,
 and client viewers see no invoices.
+
+### 28. Keyboard and drag on the timeline
+
+All in `gantt.ts`, with the arithmetic in `gantt-edit.ts` and its spec. `L` on a
+focused bar starts a link: the arrow keys go through the other bars from the top
+(`linkTargets`, `stepTarget`, the bars a drop could land on), each read out through
+the `Announcer`, Enter asks for the type and Escape gives up. A link dropped with
+the pointer asks the same way: a small menu after the drop with the four types,
+the focus on its first button, and nothing is drawn until one is picked. `Alt` and
+the arrows move the start date, counted from the start the last press asked for
+and sent through the same one-request-per-task queue as `Shift`, and never go
+Back in the browser, on a milestone neither. Near the left or right edge a drag
+scrolls the timeline a frame at a time, at a speed from the distance to the edge
+(`edgeScrollSpeed`: 48 pixels, up to 18 a frame), and the scroll counts into the
+drag. A task without dates has an empty row that a drag across gives a start and
+a due date, each end snapped inwards onto a working day (`drawnDates`).
+Different from the design: the start keys share the Shift queue rather than the
+300 ms timer of a move, since like the due date they send a date and not a step;
+and the link type is never guessed from where on the bar it was dropped. Decided:
+resizing a parent leaves its subtasks where they are, and the schedule issue says
+when one falls outside. Still open, as the item said: real drags, scrolling and
+focus can only be checked in a browser (item 30).

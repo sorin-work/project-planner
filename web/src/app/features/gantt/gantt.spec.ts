@@ -191,9 +191,143 @@ describe('Gantt editing', () => {
 
     pointer(connector(1), 'pointerup', 530, 122);
     await fixture.whenStable();
-    expect(linked).toHaveBeenCalledWith({ predecessorId: 2, successorId: 3 });
     expect(el.querySelector('.link-draft')).toBeNull();
+    // A small menu asks how the one waits for the other before anything is drawn.
+    expect(linked).not.toHaveBeenCalled();
+    const choices = [...el.querySelectorAll<HTMLButtonElement>('.link-type-menu button')];
+    expect(choices.map((b) => b.textContent!.trim())).toEqual([
+      'Task 3 starts after it ends', 'Task 3 starts when it starts', 'Task 3 ends when it ends', 'Task 3 ends before it starts', 'Cancel',
+    ]);
+    choices[1].click();
+    await fixture.whenStable();
+    expect(linked).toHaveBeenCalledWith({ predecessorId: 2, successorId: 3, type: 'SS' });
+    expect(el.querySelector('.link-type-menu')).toBeNull();
     expect(moved).not.toHaveBeenCalled();
+  });
+
+  it('draws nothing when the menu after the drop is cancelled or Escape is pressed', async () => {
+    await render();
+    await drag(connector(1), 452, 530, 122);
+    el.querySelector<HTMLButtonElement>('.link-type-menu button:last-child')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('.link-type-menu')).toBeNull();
+    await drag(connector(1), 452, 530, 122);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await fixture.whenStable();
+    expect(el.querySelector('.link-type-menu')).toBeNull();
+    expect(linked).not.toHaveBeenCalled();
+  });
+
+  it('draws a link from the keyboard: L, the arrow keys to a target, Enter, and the type', async () => {
+    await render();
+    key(bar(0), 'l');
+    await fixture.whenStable();
+    expect(el.querySelector('.gantt-hint')?.textContent).toContain('Linking from Task 1');
+    // Down goes through the other bars from the top, round from the last to the first.
+    key(bar(0), 'ArrowDown');
+    key(bar(0), 'ArrowDown');
+    await fixture.whenStable();
+    expect(bar(2).classList).toContain('link-target');
+    expect(el.querySelector('.gantt-hint')?.textContent).toContain('Task 3 will wait for Task 1');
+    key(bar(0), 'ArrowUp');
+    await fixture.whenStable();
+    expect(bar(1).classList).toContain('link-target');
+    // The arrow keys picked a target: nothing moved.
+    expect(moved).not.toHaveBeenCalled();
+
+    key(bar(0), 'Enter');
+    await fixture.whenStable();
+    expect(opened).not.toHaveBeenCalled();
+    el.querySelector<HTMLButtonElement>('.link-type-menu button')!.click();
+    await fixture.whenStable();
+    expect(linked).toHaveBeenCalledWith({ predecessorId: 1, successorId: 2, type: 'FS' });
+  });
+
+  it('gives up a link from the keyboard on Escape', async () => {
+    await render();
+    key(bar(0), 'L');
+    key(bar(0), 'ArrowDown');
+    key(bar(0), 'Escape');
+    await fixture.whenStable();
+    expect(el.querySelector('.link-draft')).toBeNull();
+    expect(el.querySelector('.link-type-menu')).toBeNull();
+    // Back to normal: an arrow moves the bar again.
+    key(bar(0), 'ArrowRight');
+    expect(moved).toHaveBeenCalledWith({ taskId: 1, days: 1 });
+    expect(linked).not.toHaveBeenCalled();
+  });
+
+  it('gives up a link from the keyboard when the focus leaves its bar, and the keys work on the next bar as always', async () => {
+    await render();
+    key(bar(0), 'l');
+    key(bar(0), 'ArrowDown');
+    await fixture.whenStable();
+    expect(el.querySelector('.link-draft')).not.toBeNull();
+
+    // Tab to the next bar.
+    bar(0).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: bar(1) }));
+    await fixture.whenStable();
+    expect(el.querySelector('.link-draft')).toBeNull();
+    key(bar(1), 'ArrowRight');
+    expect(moved).toHaveBeenCalledWith({ taskId: 2, days: 1 });
+    key(bar(1), 'Enter');
+    expect(opened).toHaveBeenCalledWith(2);
+    expect(el.querySelector('.link-type-menu')).toBeNull();
+    expect(linked).not.toHaveBeenCalled();
+  });
+
+  it('gives up a link from the keyboard on a press outside the chart, and Escape elsewhere does nothing after that', async () => {
+    await render();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    key(bar(0), 'l');
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await fixture.whenStable();
+    expect(el.querySelector('.gantt-hint')).toBeNull();
+    outside.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // Nothing was live: the focus stays where it is.
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it('ends a drag when the pointer capture is lost, without sending anything', async () => {
+    await render();
+    pointer(body(0), 'pointerdown', 250);
+    pointer(body(0), 'pointermove', 250 + 3 * 28);
+    await fixture.whenStable();
+    body(0).dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 1 }));
+    await fixture.whenStable();
+    expect(el.querySelector('.gantt-hint')).toBeNull();
+    pointer(body(0), 'pointerup', 250 + 3 * 28);
+    expect(moved).not.toHaveBeenCalled();
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it('never lets Alt and an arrow go Back, also where the timeline cannot be edited', async () => {
+    await render(false);
+    const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true });
+    bar(0).dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(moved).not.toHaveBeenCalled();
+  });
+
+  it('asks for a start date step with Alt and an arrow, and never lets the browser go Back', async () => {
+    await render();
+    const started = vi.fn();
+    fixture.componentInstance.started.subscribe(started);
+    const press = (target: EventTarget) => {
+      const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event;
+    };
+    expect(press(bar(0)).defaultPrevented).toBe(true);
+    expect(started).toHaveBeenCalledWith({ taskId: 1, days: -1 });
+    // A milestone has one date: nothing to move, and still no Back.
+    expect(press(bar(2)).defaultPrevented).toBe(true);
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(moved).not.toHaveBeenCalled();
+    expect(extended).not.toHaveBeenCalled();
   });
 
   it('draws nothing when the link is dropped on empty space or on its own bar', async () => {
@@ -284,5 +418,33 @@ describe('Gantt editing', () => {
     expect(opened).toHaveBeenCalledWith(2);
     key(bar(0), 'Enter');
     expect(opened).toHaveBeenLastCalledWith(1);
+  });
+});
+
+describe('Gantt, a task without dates', () => {
+  it('gets a start and a due date from a drag across its empty row, snapped onto working days', async () => {
+    const resized = vi.fn();
+    const fixture = TestBed.createComponent(Gantt);
+    // Task 9 has no dates, so it has no bar: its row is the second, y 76 to 108.
+    fixture.componentRef.setInput('tasks', [task(1, '2026-03-02', '2026-03-05'), { ...task(9, '', ''), startDate: undefined, dueDate: undefined }]);
+    fixture.componentRef.setInput('editable', true);
+    fixture.componentInstance.resized.subscribe(resized);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const row = el.querySelector('.empty-row[data-empty-task="9"]')!;
+    expect(row).not.toBeNull();
+    const at = (type: string, clientX: number) =>
+      row.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX, clientY: 90 }));
+
+    // From Saturday 28 February (x 140) to Wednesday 4 March (x 252): Monday to Wednesday.
+    at('pointerdown', 150);
+    at('pointermove', 260);
+    await fixture.whenStable();
+    expect(el.querySelector('.draw-draft')).not.toBeNull();
+    expect(el.querySelector('.gantt-hint')?.textContent).toContain('Start');
+    at('pointerup', 260);
+    await fixture.whenStable();
+    expect(resized).toHaveBeenCalledWith({ taskId: 9, startDate: '2026-03-02', dueDate: '2026-03-04' });
+    expect(el.querySelector('.draw-draft')).toBeNull();
   });
 });

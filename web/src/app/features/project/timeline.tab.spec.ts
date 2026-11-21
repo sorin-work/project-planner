@@ -140,6 +140,24 @@ describe('TimelineTab edits', () => {
     refetch([]);
   });
 
+  it('counts every Alt and arrow press on the start date the same way', async () => {
+    // Build starts on Monday 9 March. Two presses back, before anything has come back.
+    gantt.started.emit({ taskId: 2, days: -1 });
+    gantt.started.emit({ taskId: 2, days: -1 });
+
+    // Back past the weekend is Friday; the press after that waits and asks for Thursday.
+    const first = http.expectOne('/api/tasks/2');
+    expect(first.request.body).toEqual({ startDate: '2026-03-06' });
+    first.flush({ task: { ...build, startDate: '2026-03-06' }, rescheduled: [] });
+    refetch([]);
+    const second = http.expectOne('/api/tasks/2');
+    expect(second.request.body).toEqual({ startDate: '2026-03-05' });
+    second.flush({ task: { ...build, startDate: '2026-03-05' }, rescheduled: [] });
+    refetch([]);
+    await fixture.whenStable();
+    expect(store.byId().get(2)?.startDate).toBe('2026-03-05');
+  });
+
   it('does not count on from a due date the API refused', async () => {
     gantt.extended.emit({ taskId: 2, days: 1 });
     http.expectOne('/api/tasks/2').flush(
@@ -153,6 +171,24 @@ describe('TimelineTab edits', () => {
     const again = http.expectOne('/api/tasks/2');
     expect(again.request.body).toEqual({ dueDate: '2026-03-12' });
     again.flush({ task: { ...build, dueDate: '2026-03-12' }, rescheduled: [] });
+    refetch([]);
+  });
+
+  it('counts the start keys from the stored start again after a refusal, and drops what was counted on it', async () => {
+    gantt.started.emit({ taskId: 2, days: -1 });
+    gantt.started.emit({ taskId: 2, days: -1 });
+    http.expectOne('/api/tasks/2').flush(
+      { status: 409, code: 'project_done', message: 'This project is finished' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    // The second press was counted from Friday, which was never saved: it does not go out.
+    http.expectNone('/api/tasks/2');
+
+    gantt.started.emit({ taskId: 2, days: -1 });
+    const again = http.expectOne('/api/tasks/2');
+    expect(again.request.body).toEqual({ startDate: '2026-03-06' });
+    again.flush({ task: { ...build, startDate: '2026-03-06' }, rescheduled: [] });
     refetch([]);
   });
 
@@ -222,10 +258,11 @@ describe('TimelineTab edits', () => {
 
   it('draws a link through the dependency endpoint of the task panel', async () => {
     store.tasks.set([design, { ...build, predecessors: [] }]);
-    gantt.linked.emit({ predecessorId: 1, successorId: 2 });
+    gantt.linked.emit({ predecessorId: 1, successorId: 2, type: 'SS' });
     const post = http.expectOne('/api/tasks/2/dependencies');
     expect(post.request.method).toBe('POST');
-    expect(post.request.body).toEqual({ predecessorId: 1, lagDays: 0, type: 'FS' });
+    // Of the type picked in the menu after the drop.
+    expect(post.request.body).toEqual({ predecessorId: 1, lagDays: 0, type: 'SS' });
     post.flush({ task: build, rescheduled: [] });
     refetch([]);
     await fixture.whenStable();
@@ -234,7 +271,7 @@ describe('TimelineTab edits', () => {
   });
 
   it('shows the loop the API found when a drawn link would close one', async () => {
-    gantt.linked.emit({ predecessorId: 2, successorId: 1 });
+    gantt.linked.emit({ predecessorId: 2, successorId: 1, type: 'FS' });
     http.expectOne('/api/tasks/1/dependencies').flush(
       { status: 409, code: 'dependency_cycle', message: 'That would create a loop: Design → Build → Design' },
       { status: 409, statusText: 'Conflict' },

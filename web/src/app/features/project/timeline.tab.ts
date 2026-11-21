@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Observable } from 'rxjs';
 import { Announcer } from '../../core/announcer';
 import { messageOf } from '../../core/errors';
-import { TaskChange } from '../../core/models';
+import { DependencyType, TaskChange } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { TaskPatch } from '../../core/task.api';
 import { formatDate, formatRange } from '../../shared/dates';
@@ -118,9 +118,11 @@ import { MoveTo, criticalNote, issueLines, moveCost, planEndNote } from './sched
     @if (org.isTeam()) {
       <p class="muted small">
         At day and week zoom: drag a bar to move it, and tasks that depend on it move too. Drag an end to change the start or
-        due date, and drag the dot after a bar onto the task that should wait for it. Click an arrow to remove it. With the
-        keyboard: the arrow keys move the focused bar by a working day, Shift with the arrow keys moves its due date, Delete
-        removes the focused arrow and Escape gives up a drag.
+        due date, and drag the dot after a bar onto the task that should wait for it, then pick how it waits. Drag across the
+        empty row of a task without dates to give it some. Near an edge the timeline scrolls along. Click an arrow to remove it.
+        With the keyboard: the arrow keys move the focused bar by a working day, Shift with the arrow keys moves its due date and
+        Alt its start date. L starts a link from the focused bar, the arrow keys pick the task that waits for it and Enter draws
+        it. Delete removes the focused arrow and Escape gives up a drag or a link.
       </p>
     }
     @if (message()) {
@@ -133,7 +135,7 @@ import { MoveTo, criticalNote, issueLines, moveCost, planEndNote } from './sched
     <div class="card gantt-card">
       <app-gantt [tasks]="store.tasks()" [phases]="store.phases()" [critical]="store.criticalIds()"
         [broken]="store.brokenLinks()" [baseline]="baselineBars()" [baselineLabels]="baselineTexts()" [showCritical]="showCritical" [zoom]="zoom()" [editable]="org.isTeam()" [holidays]="store.holidays()"
-        (moved)="move($event.taskId, $event.days)" (resized)="resize($event)" (extended)="extend($event.taskId, $event.days)"
+        (moved)="move($event.taskId, $event.days)" (resized)="resize($event)" (extended)="extend($event.taskId, $event.days)" (started)="start($event.taskId, $event.days)"
         (linked)="link($event)" (unlinked)="unlink($event)" (opened)="openTask($event)" />
     </div>
   `,
@@ -166,7 +168,7 @@ export class TimelineTab {
   protected readonly moveCost = moveCost;
 
   /** Resizes on their way, by task: what to send next, and the due date the keys last asked for. */
-  private readonly resizes = new Map<number, { next: TaskPatch | null; dueDate?: string }>();
+  private readonly resizes = new Map<number, { next: TaskPatch | null; dueDate?: string; startDate?: string }>();
 
   /** Moves asked for and not sent yet, by task: the working days so far and the timer that sends them. */
   private readonly moves = new Map<number, { days: number; timer: ReturnType<typeof setTimeout> }>();
@@ -228,6 +230,26 @@ export class TimelineTab {
     }
   }
 
+  /**
+   * Alt with an arrow key: the start date goes one working day on or back per press,
+   * counted from the start the last press asked for, as the due date does with Shift.
+   */
+  start(taskId: number, days: number): void {
+    const task = this.store.byId().get(taskId);
+    if (!task) {
+      return;
+    }
+    const asked = this.resizes.get(taskId)?.startDate;
+    const dates = resizeDates({ startDate: asked ?? task.startDate, dueDate: task.dueDate }, 'start', days, this.store.holidays());
+    if (dates && 'startDate' in dates) {
+      this.resize({ taskId, ...dates });
+      const waiting = this.resizes.get(taskId);
+      if (waiting) {
+        waiting.startDate = dates.startDate;
+      }
+    }
+  }
+
   private sendResize(taskId: number, dates: TaskPatch): void {
     const waiting = this.resizes.get(taskId) ?? { next: null };
     waiting.next = null;
@@ -243,12 +265,19 @@ export class TimelineTab {
           this.resizes.delete(taskId);
         }
       },
+      () => {
+        // Refused: what the keys asked for since was counted from a date that was never saved.
+        // It is dropped, and the next press counts from the dates the task really has.
+        waiting.next = null;
+        waiting.dueDate = undefined;
+        waiting.startDate = undefined;
+      },
     );
   }
 
-  /** A link was drawn on the timeline. It goes the way of the form in the task panel, loop check included. */
-  link(link: { predecessorId: number; successorId: number }): void {
-    this.apply(this.store.addDependency(link.successorId, link.predecessorId, 0), (change) => {
+  /** A link was drawn on the timeline, of the type picked after the drop. It goes the way of the form in the task panel, loop check included. */
+  link(link: { predecessorId: number; successorId: number; type?: DependencyType }): void {
+    this.apply(this.store.addDependency(link.successorId, link.predecessorId, 0, link.type ?? 'FS'), (change) => {
       const waits = `${change.task.title} now waits for ${this.title(link.predecessorId)}`;
       return pushedBack(change, waits) ?? `${waits}.`;
     });
@@ -272,7 +301,7 @@ export class TimelineTab {
    * Sends one edit. The timeline draws what the store holds and the store only takes
    * what the API answered, so a refused edit leaves the bar where it was.
    */
-  private apply<T>(request: Observable<T>, describe: (result: T) => string | null, after?: () => void): void {
+  private apply<T>(request: Observable<T>, describe: (result: T) => string | null, after?: () => void, refused?: () => void): void {
     this.error.set(null);
     this.message.set(null);
     request.subscribe({
@@ -285,6 +314,7 @@ export class TimelineTab {
       error: (err: unknown) => {
         // The error paragraph is an alert, which is read out as it appears.
         this.error.set(messageOf(err));
+        refused?.();
         after?.();
       },
     });

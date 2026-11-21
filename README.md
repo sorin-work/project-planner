@@ -85,12 +85,20 @@ the point is knowing whether a project will land on time and on budget.
   and dashed, and the toolbar counts the issues and lists them.
 - **Editing on the timeline**: drag a bar to move it, drag either end to change its
   start or due date, drag the dot after a bar onto another bar to make that one wait
-  for it, and click an arrow to remove the link. Everything counts in working days: a
+  for it, and click an arrow to remove the link. After a link is dropped, a small menu
+  asks how the one task waits for the other (starts after it ends, starts when it
+  starts, ends when it ends, ends before it starts). A task without dates has an empty
+  row: dragging across it gives the task a start and a due date, both snapped onto
+  working days. Near the left or right edge a drag scrolls the timeline along, faster
+  the closer it gets, so that a bar can be moved or linked to a day that is not on
+  screen. Everything counts in working days: a
   bar dropped on a weekend goes on to the next working day in the direction of the
   drag, and a moved task keeps its length. While it is dragged, a bar is drawn where
   it will land. With the keyboard, the arrow keys move the focused bar by a working
-  day, Shift with the arrow keys moves its due date (every press counts), Delete
-  removes the focused arrow and Escape gives up a drag. Tab goes from a bar to the
+  day, Shift with the arrow keys moves its due date and Alt its start date (every press
+  counts), L starts a link from the focused bar (the arrow keys then pick the task that
+  waits for it, Enter draws it and the same menu asks for its type), Delete removes the
+  focused arrow and Escape gives up a drag or a link. Tab goes from a bar to the
   arrows that leave it. The timeline is edited at day and week zoom; at month zoom it
   is read-only.
 - **Time tracking**: start/stop timers from a task or the top bar, manual entries,
@@ -881,8 +889,12 @@ Everything works from the keyboard, and what changes out of sight is read out:
   card did not move (it is at the edge, or only the team moves cards). Alt with an arrow
   on a card never goes Back or Forward in the browser.
 - **Timeline**: the arrow keys move the focused bar by a working day, Shift with the
-  arrow keys moves its due date, Delete removes a focused arrow and Escape gives up a
-  drag. Presses that follow each other within 300 ms, a held key included, are added up
+  arrow keys moves its due date and Alt its start date, Delete removes a focused arrow
+  and Escape gives up a drag. Alt with an arrow on a bar never goes Back or Forward in
+  the browser, a milestone included. L on a bar starts a link: the arrow keys go
+  through the other bars from the top, each one read out as "X will wait for Y", Enter
+  opens the menu of the four types with the focus on the first, and Escape gives up,
+  which is read out too. After the type is picked the focus goes back to the bar. Presses that follow each other within 300 ms, a held key included, are added up
   and saved as one move, which is read out once with the task's new dates. Every bar says in its label how
   it compares with the baseline being compared against, and every arrow says how its
   task waits.
