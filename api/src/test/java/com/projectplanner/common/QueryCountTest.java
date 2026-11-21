@@ -126,6 +126,22 @@ class QueryCountTest {
     }
 
     @Test
+    void theLeadsOfTheListAreOneStatementForAllOfThem() {
+        Account owner = Api.signup("Lee Lead");
+        Account member = Api.signup("Lee Member");
+        Api.addMember(owner, member, "MEMBER");
+        long one = Api.createProject(owner, "LEAD-1");
+        long two = Api.createProject(owner, "LEAD-2");
+        String path = "/api/orgs/" + owner.orgId() + "/projects";
+        long without = statements(owner, r -> r.get(path));
+        for (long id : new long[] {one, two}) {
+            owner.as().body(Map.of("name", "Led " + id, "code", "LEAD-" + (id == one ? 1 : 2), "status", "ACTIVE",
+                    "leadId", id == one ? owner.userId() : member.userId())).put("/api/projects/" + id).then().statusCode(200);
+        }
+        assertThat(statements(owner, r -> r.get(path))).isEqualTo(without + 1);
+    }
+
+    @Test
     void aSmallOrganisationSendsAsManyAsALargeOne() {
         Account small = Api.signup("Sam Small");
         Api.createProject(small, "ONE");
