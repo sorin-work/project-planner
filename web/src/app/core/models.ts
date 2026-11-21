@@ -645,6 +645,10 @@ export interface SearchHit {
   taskId?: number;
   title: string;
   snippet?: string;
+  /** Tasks only. */
+  dueDate?: string;
+  status?: TaskStatus;
+  priority?: Priority;
 }
 
 export interface SearchResponse {
@@ -652,6 +656,10 @@ export interface SearchResponse {
   projects: SearchHit[];
   tasks: SearchHit[];
   comments: SearchHit[];
+  /** The kinds that had more hits than the limit. */
+  more: SearchHitType[];
+  /** The organisation's date, when only tasks were asked for. */
+  today?: string;
 }
 
 export type NotificationType =
