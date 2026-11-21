@@ -49,6 +49,21 @@ public class ProjectHealthService {
     }
 
     /**
+     * The health of one project as the schedule alerts need it: the status and the forecast
+     * end. No links and no schedule check, and the rates only when the money burn is the one
+     * the status goes by (a money budget and no hours budget). The money fields are left out.
+     */
+    public ProjectHealth forAlerts(Project project) {
+        LocalDate today = Organisation.<Organisation>findById(project.organisationId).today(clock);
+        boolean money = project.budgetHours == null && project.budgetAmount != null;
+        Membership reader = new Membership();
+        reader.organisationId = project.organisationId;
+        reader.role = com.projectplanner.org.Role.MEMBER;
+        return health(project, reader, calendars.of(project.organisationId), today, Task.forProject(project.id),
+                budget(project, money ? RateBook.load(project.organisationId) : null), null);
+    }
+
+    /**
      * Progress, overdue days and the end variance are counted in the organisation's working days.
      * Without {@code links} the schedule issues are not counted.
      */

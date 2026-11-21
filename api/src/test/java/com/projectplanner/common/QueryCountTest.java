@@ -126,6 +126,18 @@ class QueryCountTest {
     }
 
     @Test
+    void writesOnTheBigProjectLookAtItsScheduleWithoutItsLinks() {
+        // A time entry and a task edit on the project with a thousand tasks and twenty thousand
+        // entries. After the write the schedule alerts read the project again under its lock,
+        // its tasks, the holidays and its time, grouped: a fixed number, not one per task.
+        String date = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(2).toString();
+        assertThat(statements(org.owner(), r -> r.body(Map.of("projectId", org.bigProjectId(), "date", date, "minutes", 15))
+                .post(orgPath("/time-entries")))).isLessThanOrEqualTo(20);
+        assertThat(statements(org.owner(), r -> r.body(Map.of("priority", "HIGH"))
+                .patch("/api/tasks/" + org.bigProjectTaskId()))).isLessThanOrEqualTo(20);
+    }
+
+    @Test
     void aSmallOrganisationSendsAsManyAsALargeOne() {
         Account small = Api.signup("Sam Small");
         Api.createProject(small, "ONE");
