@@ -11,6 +11,7 @@ import com.projectplanner.report.TimeReport.Group;
 import com.projectplanner.report.TimeReport.GroupBy;
 import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.task.Task;
+import com.projectplanner.time.ApprovedWeeks;
 import com.projectplanner.time.TimeEntry;
 import com.projectplanner.workload.WorkloadCalculator;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -35,7 +36,11 @@ import java.util.stream.Collectors;
 public class TimeReportService {
 
     /** Which time a report is about. Null means no restriction. */
-    public record Filter(Long userId, Long projectId, Long clientId, Boolean billable) {
+    public record Filter(Long userId, Long projectId, Long clientId, Boolean billable, boolean approvedOnly) {
+
+        public Filter(Long userId, Long projectId, Long clientId, Boolean billable) {
+            this(userId, projectId, clientId, billable, false);
+        }
     }
 
     private static final String WHERE = " where e.organisationId = :org and e.entryDate between :from and :to"
@@ -80,6 +85,23 @@ public class TimeReportService {
         if (filter.billable() != null) {
             jpql.append(" and e.billable = :billable");
             params.put("billable", filter.billable());
+        }
+        if (filter.approvedOnly()) {
+            // The approved weeks as spans of days per person: weeks in a row are one span.
+            List<ApprovedWeeks.Span> spans = ApprovedWeeks.of(organisationId, range.from(), range.to()).spans();
+            if (spans.isEmpty()) {
+                jpql.append(" and 1 = 0");
+            } else {
+                jpql.append(" and (");
+                for (int i = 0; i < spans.size(); i++) {
+                    jpql.append(i == 0 ? "" : " or ").append("(e.userId = :au").append(i).append(" and e.entryDate between :af")
+                            .append(i).append(" and :at").append(i).append(')');
+                    params.put("au" + i, spans.get(i).userId());
+                    params.put("af" + i, spans.get(i).from());
+                    params.put("at" + i, spans.get(i).to());
+                }
+                jpql.append(')');
+            }
         }
         jpql.append(" group by e.projectId, e.userId, e.billable, e.minutes").append(byTask ? ", e.taskId" : "");
         TypedQuery<Object[]> query = TimeEntry.getEntityManager().createQuery(jpql.toString(), Object[].class)

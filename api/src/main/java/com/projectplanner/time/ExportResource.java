@@ -65,7 +65,9 @@ public class ExportResource {
                                @Parameter(required = true) @QueryParam("to") LocalDate to,
                                @QueryParam("userId") Long userId,
                                @QueryParam("projectId") Long projectId,
-                               @QueryParam("billable") Boolean billable) {
+                               @QueryParam("billable") Boolean billable,
+                               @Parameter(description = "Only time of weeks that are approved: what can be invoiced.")
+                               @QueryParam("approvedOnly") boolean approvedOnly) {
         Membership me = access.team(orgId);
         if (from == null || to == null || to.isBefore(from)) {
             throw ApiException.badRequest("invalid_range", "Pass a from and to date, with to on or after from");
@@ -122,6 +124,9 @@ public class ExportResource {
             });
             LocalDate week = WorkCalendar.weekStart(e.entryDate);
             TimesheetStatus status = statuses.computeIfAbsent(e.userId + ":" + week, k -> Timesheet.statusOf(orgId, e.userId, week));
+            if (approvedOnly && status != TimesheetStatus.APPROVED) {
+                continue;
+            }
             List<Object> row = new ArrayList<>(List.of(e.entryDate, week, u.name, u.email, clientName, p.code, p.name,
                     taskTitle, e.description == null ? "" : e.description, Money.hours(e.minutes),
                     e.billable ? "yes" : "no", status.name().toLowerCase()));

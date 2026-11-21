@@ -44,6 +44,7 @@ public class ReportResource {
 
     private static final String RANGE = "Either a preset, which is worked out from the organisation's date, or from and to."
             + " Both days are included, and a range covers at most two years.";
+    static final String APPROVED = "Only time of weeks that are approved: what can be invoiced.";
     private static final String PRESET = "this_week, last_week, this_month or last_month. Wins over from and to.";
     private static final String GROUP_BY = "project (the default), client, member or task.";
 
@@ -77,9 +78,10 @@ public class ReportResource {
                                    @QueryParam("userId") Long userId,
                                    @QueryParam("projectId") Long projectId,
                                    @QueryParam("clientId") Long clientId,
-                                   @QueryParam("billable") Boolean billable) {
+                                   @QueryParam("billable") Boolean billable,
+                                   @Parameter(description = APPROVED) @QueryParam("approvedOnly") boolean approvedOnly) {
         Membership me = access.team(orgId);
-        return timeReport(me, preset, from, to, groupBy, userId, projectId, clientId, billable);
+        return timeReport(me, preset, from, to, groupBy, userId, projectId, clientId, billable, approvedOnly);
     }
 
     @GET
@@ -102,9 +104,10 @@ public class ReportResource {
                             @QueryParam("userId") Long userId,
                             @QueryParam("projectId") Long projectId,
                             @QueryParam("clientId") Long clientId,
-                            @QueryParam("billable") Boolean billable) {
+                            @QueryParam("billable") Boolean billable,
+                            @Parameter(description = APPROVED) @QueryParam("approvedOnly") boolean approvedOnly) {
         Membership me = access.team(orgId);
-        TimeReportResponse report = timeReport(me, preset, from, to, groupBy, userId, projectId, clientId, billable);
+        TimeReportResponse report = timeReport(me, preset, from, to, groupBy, userId, projectId, clientId, billable, approvedOnly);
         boolean money = me.role.canManage();
         List<String> header = new ArrayList<>(List.of("from", "to", "group_by", "key", "label", "minutes", "billable_minutes"));
         if (money) {
@@ -172,7 +175,7 @@ public class ReportResource {
     }
 
     private TimeReportResponse timeReport(Membership me, String preset, LocalDate from, LocalDate to, String groupBy,
-                                          Long userId, Long projectId, Long clientId, Boolean billable) {
+                                          Long userId, Long projectId, Long clientId, Boolean billable, boolean approvedOnly) {
         long orgId = me.organisationId;
         ReportRange range = ReportRange.resolve(preset, from, to, Organisation.<Organisation>findById(orgId).today(clock));
         GroupBy group = parseGroupBy(groupBy);
@@ -194,7 +197,7 @@ public class ReportResource {
         if (clientId != null) {
             access.clientIn(orgId, clientId);
         }
-        Filter filter = new Filter(manager ? userId : Long.valueOf(me.userId), projectId, clientId, billable);
+        Filter filter = new Filter(manager ? userId : Long.valueOf(me.userId), projectId, clientId, billable, approvedOnly);
         TimeReport.Result result = reports.time(orgId, range, group, filter, manager);
         return new TimeReportResponse(range.from(), range.to(), group,
                 result.rows().stream().map(row -> TimeRow.of(row, manager)).toList(), TimeRow.of(result.total(), manager));
