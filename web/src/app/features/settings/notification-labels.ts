@@ -10,6 +10,7 @@ export const NOTIFICATION_LABELS: Record<NotificationType, string> = {
   TIMESHEET_REJECTED: 'Your timesheet is sent back',
   TIMESHEET_REMINDER: 'A reminder to submit your timesheet',
   BUDGET_ALERT: 'A project passes a budget threshold',
+  SCHEDULE_ALERT: 'A project goes off track or now ends late',
   DAILY_SUMMARY: 'A summary on working mornings: tasks due and timesheets to review',
 };
 
@@ -23,6 +24,7 @@ export const NOTIFICATION_ABOUT: Record<NotificationType, string> = {
   TIMESHEET_REJECTED: 'timesheets sent back',
   TIMESHEET_REMINDER: 'timesheet reminders',
   BUDGET_ALERT: 'budget alerts',
+  SCHEDULE_ALERT: 'schedule alerts',
   DAILY_SUMMARY: 'the morning summary',
 };
 

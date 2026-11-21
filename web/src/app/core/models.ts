@@ -663,6 +663,7 @@ export type NotificationType =
   | 'TIMESHEET_REJECTED'
   | 'TIMESHEET_REMINDER'
   | 'BUDGET_ALERT'
+  | 'SCHEDULE_ALERT'
   /** Mail only: on (EMAIL) or OFF, never a notification in the app. */
   | 'DAILY_SUMMARY';
 

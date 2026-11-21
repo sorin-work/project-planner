@@ -14,6 +14,7 @@ const ICONS: Record<string, string> = {
   TIMESHEET_REJECTED: '↩',
   TIMESHEET_REMINDER: '!',
   BUDGET_ALERT: '%',
+  SCHEDULE_ALERT: '⚑',
 };
 
 export interface NotificationTarget {
@@ -31,7 +32,7 @@ export function notificationTarget(n: Pick<Notification, 'type' | 'projectId' | 
     return { commands: ['/projects', n.projectId, 'list'], queryParams: { task: n.taskId } };
   }
   if (n.projectId) {
-    // A budget alert: the overview is where the hours and the money burned are shown.
+    // A budget or schedule alert: the overview shows the burn, the health and the end date.
     return { commands: ['/projects', n.projectId, 'overview'] };
   }
   if (n.type === 'TIMESHEET_SUBMITTED') {
