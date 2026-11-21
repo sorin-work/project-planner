@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @ApplicationScoped
 public class AuthService {
@@ -28,10 +29,12 @@ public class AuthService {
     private final ActivityLog activity;
     private final Invitations invitations;
     private final MailSettings mail;
+    private final LoginLimits limits;
     private final Clock clock;
 
     public AuthService(PasswordHasher hasher, TokenService tokens, ActivityLog activity, Invitations invitations,
-                       MailSettings mail, Clock clock) {
+                       MailSettings mail, LoginLimits limits, Clock clock) {
+        this.limits = limits;
         this.hasher = hasher;
         this.tokens = tokens;
         this.activity = activity;
@@ -102,11 +105,31 @@ public class AuthService {
         return respond(user);
     }
 
-    public AuthResponse login(LoginRequest request) {
-        User user = User.findByEmail(request.email())
-                .filter(u -> hasher.matches(request.password(), u.passwordHash))
-                .orElseThrow(() -> new ApiException(401, "invalid_credentials", "Email or password is incorrect"));
+    /**
+     * Signs in, within the limits of {@link LoginLimits}: only a wait of this account from this
+     * client {@code address} refuses a try. An unknown email is checked against a dummy hash, so
+     * that the time of the answer does not say whether there is an account.
+     */
+    public AuthResponse login(LoginRequest request, String address) {
+        Instant now = clock.instant();
+        Optional<User> found = User.findByEmail(request.email());
+        if (found.isEmpty()) {
+            hasher.matches(request.password(), hasher.dummyHash());
+            limits.addressFailed(address, now);
+            throw wrongPassword();
+        }
+        User user = found.get();
+        limits.claim(user, address, now);
+        if (!hasher.matches(request.password(), user.passwordHash)) {
+            limits.failed(user, address, now);
+            throw wrongPassword();
+        }
+        limits.succeeded(user, address, now);
         return respond(user);
+    }
+
+    private static ApiException wrongPassword() {
+        return new ApiException(401, "invalid_credentials", "Email or password is incorrect");
     }
 
     /** A new token for the user, with the user. What signing in answers with. */

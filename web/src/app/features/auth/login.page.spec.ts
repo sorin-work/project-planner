@@ -60,6 +60,22 @@ describe('LoginPage', () => {
     expect(el.querySelector('[role=alert]')?.textContent).toContain('Email or password is incorrect');
   });
 
+  it('says how long to wait after too many wrong passwords, and lets the person try again', async () => {
+    const { fixture, el } = await render();
+    type(el, '#email', 'demo@example.com');
+    type(el, '#password', 'nope');
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/auth/login')
+      .flush(
+        { status: 429, code: 'too_many_attempts', message: 'Too many wrong passwords. Try again in 2 minutes.' },
+        { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '120' } },
+      );
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')?.textContent).toContain('Try again in 2 minutes.');
+    expect(el.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
+  });
+
   it('offers the reset link only when the server sends mail', async () => {
     const without = await render(false);
     expect(without.el.querySelector('a[href="/forgot"]')).toBeNull();

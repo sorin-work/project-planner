@@ -13,6 +13,7 @@ import org.jboss.resteasy.reactive.server.ServerExceptionMapper;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 
@@ -23,7 +24,11 @@ public class ErrorMappers {
 
     @ServerExceptionMapper
     public Response api(ApiException e) {
-        return respond(new ApiError(e.status(), e.code(), e.getMessage()));
+        Response.ResponseBuilder response = builder(new ApiError(e.status(), e.code(), e.getMessage()));
+        if (e.retryAfter() != null) {
+            response.header("Retry-After", seconds(e.retryAfter()));
+        }
+        return response.build();
     }
 
     @ServerExceptionMapper
@@ -82,6 +87,16 @@ public class ErrorMappers {
     }
 
     private static Response respond(ApiError error) {
-        return Response.status(error.status()).type(MediaType.APPLICATION_JSON).entity(error).build();
+        return builder(error).build();
+    }
+
+    private static Response.ResponseBuilder builder(ApiError error) {
+        return Response.status(error.status()).type(MediaType.APPLICATION_JSON).entity(error);
+    }
+
+    /** Whole seconds, rounded up and at least one, so that a client that waits that long is let through. */
+    static long seconds(Duration wait) {
+        long millis = Math.max(wait.toMillis(), 1);
+        return (millis + 999) / 1000;
     }
 }
