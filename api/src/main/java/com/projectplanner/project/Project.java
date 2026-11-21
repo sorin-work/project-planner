@@ -67,6 +67,13 @@ public class Project extends PanacheEntityBase {
     @Column(name = "updated_at", nullable = false)
     public Instant updatedAt;
 
+    /**
+     * Who leads the project, or nobody: a user who is an owner, a manager or a member of its
+     * organisation. With a lead, the budget alerts go to the lead and the owners only.
+     */
+    @Column(name = "lead_id")
+    public Long leadId;
+
     /** The highest threshold of the hours budget that has been announced: 0, 80 or 100. */
     @Column(name = "hours_alert_pct", nullable = false)
     public int hoursAlertPct;
@@ -81,6 +88,14 @@ public class Project extends PanacheEntityBase {
      * happen one after the other and the second one sees what the first one left: the burn,
      * and the alert that may already have gone out for it.
      */
+    /**
+     * Stops {@code userId} leading any project of the organisation, for a membership that ends
+     * or turns into a client viewer. In the caller's transaction.
+     */
+    public static void clearLead(long organisationId, long userId) {
+        update("leadId = null where organisationId = ?1 and leadId = ?2", organisationId, userId);
+    }
+
     public static Project locked(long id) {
         Project project = findById(id);
         if (project != null) {

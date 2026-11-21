@@ -18,6 +18,7 @@ import com.projectplanner.org.OrgDtos.RoleRateEntry;
 import com.projectplanner.org.OrgDtos.RoleRatesRequest;
 import com.projectplanner.org.OrgDtos.UpdateMemberRequest;
 import com.projectplanner.org.OrgDtos.UpdateOrganisationRequest;
+import com.projectplanner.project.Project;
 import io.quarkus.security.Authenticated;
 import jakarta.enterprise.event.Event;
 import jakarta.transaction.Transactional;
@@ -162,6 +163,10 @@ public class OrgResource {
         if (request.weeklyCapacityHours() != null) {
             member.weeklyCapacityHours = request.weeklyCapacityHours();
         }
+        if (member.role == Role.CLIENT && roleBefore != Role.CLIENT) {
+            // A client viewer cannot lead a project.
+            Project.clearLead(orgId, member.userId);
+        }
         if (member.role == Role.CLIENT) {
             if (request.clientId() != null) {
                 member.clientId = clientIn(orgId, request.clientId()).id;
@@ -194,6 +199,9 @@ public class OrgResource {
         }
         User user = User.findById(member.userId);
         member.delete();
+        // Whoever is no longer in the organisation leads none of its projects: their alerts go
+        // to the managers again, as for a project without a lead.
+        Project.clearLead(orgId, member.userId);
         activity.record(orgId, null, null, me.userId, "member.removed", "Removed " + user.name + " from the team");
         // The time they logged stays, and is priced at the organisation's default rate from now on.
         ratesChanged.fire(new RatesChanged(orgId));
