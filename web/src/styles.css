@@ -1682,6 +1682,39 @@ select.compact {
   white-space: nowrap;
 }
 
+.approve-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.approve-row .row-button {
+  flex: 1;
+  width: auto;
+  border-bottom: none;
+}
+
+.approve-actions {
+  gap: 0.6rem;
+  margin-top: 0;
+}
+
+.approve-actions label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.alert .left-out {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.alert p {
+  margin: 0;
+}
+
 .presets {
   display: flex;
   gap: 1rem;

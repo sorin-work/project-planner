@@ -5,6 +5,8 @@ import com.projectplanner.common.Fails;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.org.Organisation;
+import com.projectplanner.time.TimeDtos.ApproveRequest;
+import com.projectplanner.time.TimeDtos.ApproveResponse;
 import com.projectplanner.time.TimeDtos.MissingResponse;
 import com.projectplanner.time.TimeDtos.RemindRequest;
 import com.projectplanner.time.TimeDtos.RemindResponse;
@@ -13,6 +15,7 @@ import com.projectplanner.time.TimeDtos.SubmitRequest;
 import com.projectplanner.time.TimeDtos.TimesheetSummary;
 import com.projectplanner.time.TimeDtos.WeekResponse;
 import io.quarkus.security.Authenticated;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -135,6 +138,22 @@ public class TimesheetResource {
         return timesheets.remind(me, request.weekStart(), request.userIds());
     }
 
+    /**
+     * Approves several weeks at once, as they were on screen. Each week is approved or left out
+     * with a reason; a week that cannot be approved never fails the others.
+     */
+    @POST
+    @Path("/approve")
+    @Transactional
+    @Operation(summary = "Approve several timesheets at once",
+            description = "For owners and managers. Send each week with the submittedAt it was listed with. A week that is no"
+                    + " longer waiting for review, was withdrawn and submitted again since, or is your own as a manager, is"
+                    + " left out, and the answer says why.")
+    public ApproveResponse approveAll(@PathParam("orgId") long orgId, @Valid @NotNull ApproveRequest request) {
+        Membership me = access.manager(orgId);
+        return timesheets.approveAll(me, request.sheets());
+    }
+
     @GET
     @Path("/{sheetId}")
     @Operation(summary = "Get a timesheet",
@@ -156,7 +175,7 @@ public class TimesheetResource {
     @Fails(status = 409, code = "not_submitted", when = "the week is not waiting for review")
     public WeekResponse approve(@PathParam("orgId") long orgId, @PathParam("sheetId") long sheetId) {
         Membership me = access.manager(orgId);
-        Timesheet sheet = timesheets.approve(me, find(orgId, sheetId));
+        Timesheet sheet = timesheets.approve(me, findForReview(orgId, sheetId));
         return timesheets.week(orgId, sheet.userId, sheet.weekStart);
     }
 
@@ -169,12 +188,24 @@ public class TimesheetResource {
     public WeekResponse reject(@PathParam("orgId") long orgId, @PathParam("sheetId") long sheetId,
                                @Valid ReviewRequest request) {
         Membership me = access.manager(orgId);
-        Timesheet sheet = timesheets.reject(me, find(orgId, sheetId), request == null ? null : request.note());
+        Timesheet sheet = timesheets.reject(me, findForReview(orgId, sheetId), request == null ? null : request.note());
         return timesheets.week(orgId, sheet.userId, sheet.weekStart);
     }
 
     private static Timesheet find(long orgId, long sheetId) {
-        Timesheet sheet = Timesheet.findById(sheetId);
+        return check(orgId, Timesheet.findById(sheetId));
+    }
+
+    /**
+     * Locked until the review is committed, so that a withdrawal at the same moment waits for it.
+     * The organisation is part of the locked query, so a week of another one is never locked.
+     */
+    private static Timesheet findForReview(long orgId, long sheetId) {
+        return check(orgId, Timesheet.<Timesheet>find("id = ?1 and organisationId = ?2", sheetId, orgId)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).firstResult());
+    }
+
+    private static Timesheet check(long orgId, Timesheet sheet) {
         if (sheet == null || !Objects.equals(sheet.organisationId, orgId)) {
             throw ApiException.notFound("Timesheet");
         }

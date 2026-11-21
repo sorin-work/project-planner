@@ -166,7 +166,7 @@ export const FIXTURES: FakeRoute[] = [
   { path: /^\/orgs\/3\/timesheets$/, body: [{ id: 1, userId: 2, userName: 'Bo Kim', weekStart: day(-7), status: 'SUBMITTED', submittedAt: now,
     totalMinutes: 2400, billableMinutes: 2000, billableAmount: 2666.67 }] },
   { path: /^\/orgs\/3\/timesheets\/missing$/, body: { weekStart: day(-7), latestWeekStart: day(-7),
-    people: [{ userId: 2, userName: 'Bo Kim', status: 'DRAFT', totalMinutes: 600, weeklyCapacityHours: 32, remindedToday: false }] } },
+    people: [{ userId: 2, userName: 'Bo Kim', status: 'DRAFT', totalMinutes: 600, capacityHours: 32, away: false, remindedToday: false }] } },
   { path: /^\/orgs\/3\/workload$/, body: WORKLOAD },
   { path: /^\/orgs\/3\/reports\/time$/, body: { from: day(-7), to: day(-1), groupBy: 'PROJECT',
     rows: [{ key: '7', label: 'WEB Website', minutes: 600, billableMinutes: 540, billableAmount: 900 }],

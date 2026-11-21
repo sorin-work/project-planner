@@ -40,7 +40,7 @@ couple of weekends, **L** several weeks of spare time.
 | 17  | Dependency types and lead time             | Shipped | both     | L    | 1          |
 | 18  | Attachments on tasks                       | Shipped | both     | L    | -          |
 | 19  | My tasks page                              | Next  | both     | S    | -          |
-| 20  | Approve weeks in one go                    | Next  | both     | S    | -          |
+| 20  | Approve weeks in one go                    | Shipped | both     | S    | -          |
 | 21  | Schedule issues beyond the timeline        | Next  | both     | S    | -          |
 | 22  | Sign-in hardening                          | Shipped | both     | S    | -          |
 | 23  | Project lead                               | Next  | both     | S    | -          |
@@ -183,43 +183,6 @@ know what is on my plate I open every project and tick "Only mine".
   `GET /api/orgs/{orgId}/my-tasks`. The search already has the visibility
   rules in its queries, which is the hard part. I lean towards the search
   endpoint.
-
-### 20. Approve weeks in one go
-
-Improvement of items 3 and 15, two things left open on the approvals page.
-
-- "Approve all": a manager approves submitted weeks one at a time
-  (`POST /api/orgs/{orgId}/timesheets/{sheetId}/approve`). On a Monday with a
-  dozen people that is a dozen clicks, each with a reload. Add
-  `POST /api/orgs/{orgId}/timesheets/approve` that takes a list of sheet ids
-  and answers per sheet, approved or left out and why, the way `remind`
-  answers with `RemindResponse`. A bad sheet never fails the batch.
-- Tricky: the list is what was on screen, not "everything submitted". A week
-  submitted after the page loaded, or withdrawn and changed in the meantime
-  (`withdraw` takes it back to draft), must not be approved by that click.
-  Approve only sheets that are still `SUBMITTED`, and take each sheet's
-  `submittedAt` with its id so a sheet withdrawn and submitted again since is
-  left out as changed.
-- `checkReviewer` holds per sheet, a manager's own week included.
-  `TimesheetService.approve` loads the reviewer and the owner with
-  `User.findById` for each sheet; a batch loads them in one `id in` query, as
-  item 14 did elsewhere, with a `QueryCountTest` bound.
-- One notification per person as today. The activity log gets one line per
-  sheet, so that an approval can still be traced to a week.
-- Capacity on the "Not submitted" tab: `MissingTimesheets.Person` carries
-  `weeklyCapacityHours`, the plain weekly hours. Item 15 made capacity per
-  week everywhere else (`WeekLoad.holidays`, `daysOff`), so somebody away for
-  three days shows as far under capacity here and nowhere else. Take the
-  week's capacity from the same place the workload does.
-- Tricky: people with a whole week off. They are under "No time logged" and
-  "Remind all" skips them, which is right. With capacity per week a week
-  with zero capacity could leave the list altogether; I lean towards keeping
-  them listed with "away" next to them, since a manager may still want the
-  hours of a person who worked anyway.
-- Web: a checkbox per row on the submitted tab, "Approve selected" and
-  "Approve all", and the left-out sheets named with their reasons.
-- Undecided: "Send back all". I would not add it: a rejection needs a note
-  for each person.
 
 ### 21. Schedule issues beyond the timeline
 
@@ -1157,25 +1120,56 @@ minutes even after access is taken away; and a file removed in the minute betwee
 archive is missing from that backup. Still open: attachments on comments,
 pasted images, and storage other than the volume.
 
+### 20. Approve weeks in one go
+
+`POST /api/orgs/{orgId}/timesheets/approve` takes the weeks as they were on
+screen, each with its `submittedAt`, and answers per week, approved or left
+out with `NOT_FOUND`, `OWN_WEEK`, `NOT_SUBMITTED` or `CHANGED`; a bad week never
+fails the others. The weeks are read in one `id in` query with a lock, in id
+order, and the people and their notification choices in one query each, so
+five weeks read what one does (`QueryCountTest`). The log has a line per
+week. The approvals page has a box per row, "Select all", "Approve
+selected" and "Approve all", and names each week left out with its reason.
+The "Not submitted" tab shows the week's capacity, counted by
+`WorkloadCalculator.capacityMinutes` with the holidays and time off, and
+somebody off the whole week stays listed, marked away. Differences from the
+design: one notification per week, not one per person, since each opens its
+own week; `submittedAt` is compared to the millisecond, since the database keeps
+microseconds and a client may keep less; a manager's own week has its box turned off,
+since the API would leave it out anyway; and a single approval, a send back and
+a withdrawal now lock the week as well, so that a withdrawal at the same
+moment as an approval waits for it instead of overwriting it. The dashboard
+reads the time off for its count of missing weeks, one statement more (24).
+Left out as the roadmap leaned: "Send back all", since a rejection needs a
+note for each person.
+
 ### 22. Sign-in hardening
 
-`LoginLimits` and `V28` (`failed_logins` and `last_failed_login_at` on `users`).
-Five wrong passwords for an account pass, twenty from one client address (in
-memory, like `ClientThrottle`); after that each try waits from the last wrong one,
-one second and doubling up to five minutes, with `429 too_many_attempts` and
-`Retry-After`. A try during the wait is refused before the password is checked
-and does not count, a right password sets the account back to zero, a reset or a
-change of password does too, and a day without failures forgets them (an hour for
-an address). Each try is counted before the hash is checked, with an update that
-only matches the count it read, so a burst at the same moment cannot get past the
-wait, and a right password takes its count back. An unknown email is checked
-against a dummy hash of the same cost. nginx sends a Content-Security-Policy,
-`nosniff` and `Referrer-Policy: same-origin` with the app, not on `/api/`.
-Differences from the design: `style-src` is `'self'` without `'unsafe-inline'` or
-a nonce, because the components have no styles of their own; the lint keeps it
-that way, and the build no longer inlines critical CSS, whose loader was an
-inline script. Still open: a waiting account answers 429 where an unknown email
-answers 401, which tells that it exists, like sign-up does (the README says so);
-somebody trying from many addresses can keep an owner waiting up to five minutes
-at a time; HSTS is for whatever terminates TLS; and a list of sessions with "sign
-out this device" was left out, as the design suggested.
+`LoginLimits` and `V28` (a `login_failures` table per account and client address,
+and `failed_logins` with `last_failed_login_at` on `users`). Five wrong passwords
+for an account from one address pass; after that each try from that address for
+that account waits from the last wrong one, one second and doubling up to five
+minutes, with `429 too_many_attempts` and `Retry-After`. A try during the wait is
+refused before the password is checked and does not count. Only that pair waits:
+a right password from any other address always goes in, so somebody hammering an
+account from one place cannot keep its owner out. Twenty wrong passwords for an
+account from all addresses, or a hundred from one address in an hour (in memory,
+like `ClientThrottle`), never refuse anything: they leave a new pair one free try
+instead of five. A right password clears its pair and the account's count, a reset
+or a change of password clears all of them, and a day without failures forgets
+them. Each try is counted before the hash is checked, with an update that only
+matches the count it read, so a burst at the same moment cannot get past a wait.
+An unknown email is checked against a dummy hash of the same cost. nginx sends a
+Content-Security-Policy, `nosniff` and `Referrer-Policy: same-origin` with the app,
+not on `/api/`, and has the `real_ip` lines for a TLS terminator in front,
+commented out. Differences from the design: the wait is per account and address
+rather than per account, since one address could otherwise keep an owner waiting
+for as long as it liked; `style-src` is `'self'` without `'unsafe-inline'` or a
+nonce, because the components have no styles of their own; the lint keeps it that
+way, and the build no longer inlines critical CSS, whose loader was an inline
+script. Still open: a waiting pair answers 429 where an unknown email answers 401,
+and a known email costs a few more writes than an unknown one, which both tell
+that it exists, like sign-up does (the README says so); somebody with many
+addresses gets five tries from each until the account's count brings new ones down
+to one; HSTS is for whatever terminates TLS; and a list of sessions with "sign out
+this device" was left out, as the design suggested.

@@ -3,11 +3,13 @@ package com.projectplanner.time;
 import com.projectplanner.activity.ActivityLog;
 import com.projectplanner.auth.User;
 import com.projectplanner.calendar.Holiday;
+import com.projectplanner.calendar.OrgCalendars;
 import com.projectplanner.common.ApiException;
 import com.projectplanner.common.Money;
 import com.projectplanner.notification.Notification;
 import com.projectplanner.notification.NotificationType;
 import com.projectplanner.notification.Notifier;
+import com.projectplanner.notification.Notifier.WeekNotice;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.Organisation;
 import com.projectplanner.org.RateBook;
@@ -17,12 +19,17 @@ import com.projectplanner.schedule.WorkCalendar;
 import com.projectplanner.time.MissingTimesheets.Missing;
 import com.projectplanner.time.MissingTimesheets.Person;
 import com.projectplanner.time.MissingTimesheets.Skip;
+import com.projectplanner.time.TimeDtos.ApprovalSkip;
+import com.projectplanner.time.TimeDtos.ApproveResponse;
 import com.projectplanner.time.TimeDtos.DayTotal;
 import com.projectplanner.time.TimeDtos.MissingResponse;
 import com.projectplanner.time.TimeDtos.RemindResponse;
+import com.projectplanner.time.TimeDtos.SheetToApprove;
+import com.projectplanner.time.TimeDtos.SkippedApproval;
 import com.projectplanner.time.TimeDtos.SkippedReminder;
 import com.projectplanner.time.TimeDtos.TimesheetSummary;
 import com.projectplanner.time.TimeDtos.WeekResponse;
+import com.projectplanner.workload.WorkloadCalculator;
 import io.quarkus.panache.common.Parameters;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;
@@ -31,9 +38,11 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,12 +59,14 @@ public class TimesheetService {
     private final TimeService time;
     private final Notifier notifier;
     private final ActivityLog activity;
+    private final OrgCalendars calendars;
     private final Clock clock;
 
-    public TimesheetService(TimeService time, Notifier notifier, ActivityLog activity, Clock clock) {
+    public TimesheetService(TimeService time, Notifier notifier, ActivityLog activity, OrgCalendars calendars, Clock clock) {
         this.time = time;
         this.notifier = notifier;
         this.activity = activity;
+        this.calendars = calendars;
         this.clock = clock;
     }
 
@@ -142,7 +153,11 @@ public class TimesheetService {
     /** Takes a submitted week back to draft so it can be corrected before review. */
     public Timesheet withdraw(Membership me, LocalDate anyDay) {
         LocalDate weekStart = WorkCalendar.weekStart(anyDay);
-        Timesheet sheet = Timesheet.find(me.organisationId, me.userId, weekStart)
+        // Locked, like a week that is being reviewed: a withdrawal and an approval that arrive
+        // together wait for each other, and the second one sees what the first one did.
+        Timesheet sheet = Timesheet.<Timesheet>find("organisationId = ?1 and userId = ?2 and weekStart = ?3",
+                        me.organisationId, me.userId, weekStart)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).firstResultOptional()
                 .orElseThrow(() -> ApiException.notFound("Timesheet"));
         if (sheet.status != TimesheetStatus.SUBMITTED) {
             throw ApiException.conflict("not_submitted", "Only submitted timesheets can be withdrawn");
@@ -154,17 +169,84 @@ public class TimesheetService {
 
     public Timesheet approve(Membership me, Timesheet sheet) {
         checkReviewer(me, sheet);
+        User reviewer = User.findById(me.userId);
+        User owner = User.findById(sheet.userId);
+        notifier.notifyAboutWeek(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_APPROVED,
+                markApproved(me, sheet, reviewer.name, owner.name), sheet.weekStart);
+        return sheet;
+    }
+
+    /**
+     * Approves the weeks that are still as they were on screen, and says which were left out
+     * and why. A week that was withdrawn, sent back or approved since is not waiting any more,
+     * and one that was withdrawn and submitted again carries another {@code submittedAt}: it
+     * may have changed, so this click does not approve it. The weeks are locked in id order,
+     * so two batches that share weeks take them in the same order.
+     */
+    public ApproveResponse approveAll(Membership me, List<SheetToApprove> requested) {
+        Map<Long, Instant> asShown = new LinkedHashMap<>();
+        requested.forEach(r -> asShown.putIfAbsent(r.id(), r.submittedAt()));
+        Map<Long, Timesheet> sheets = new HashMap<>();
+        Timesheet.<Timesheet>find("organisationId = ?1 and id in ?2 order by id", me.organisationId, asShown.keySet())
+                .withLock(LockModeType.PESSIMISTIC_WRITE).list()
+                .forEach(sheet -> sheets.put(sheet.id, sheet));
+
+        List<Timesheet> approving = new ArrayList<>();
+        List<SkippedApproval> skipped = new ArrayList<>();
+        asShown.forEach((id, submittedAt) -> {
+            Optional<ApprovalSkip> skip = approvalSkip(me, sheets.get(id), submittedAt);
+            if (skip.isPresent()) {
+                skipped.add(new SkippedApproval(id, skip.get()));
+            } else {
+                approving.add(sheets.get(id));
+            }
+        });
+        if (approving.isEmpty()) {
+            return new ApproveResponse(List.of(), skipped);
+        }
+
+        Set<Long> people = approving.stream().map(sheet -> sheet.userId).collect(Collectors.toSet());
+        people.add(me.userId);
+        Map<Long, String> names = new HashMap<>();
+        User.<User>list("id in ?1", people).forEach(u -> names.put(u.id, u.name));
+        List<WeekNotice> notices = new ArrayList<>();
+        for (Timesheet sheet : approving) {
+            String message = markApproved(me, sheet, names.get(me.userId), names.get(sheet.userId));
+            notices.add(new WeekNotice(sheet.userId, sheet.weekStart, message));
+        }
+        notifier.notifyEachAboutWeek(notices, me.organisationId, me.userId, NotificationType.TIMESHEET_APPROVED);
+        return new ApproveResponse(approving.stream().map(sheet -> sheet.id).toList(), skipped);
+    }
+
+    /** Why {@code sheet} is not approved by a request that saw it submitted at {@code submittedAt}, or empty when it is. */
+    static Optional<ApprovalSkip> approvalSkip(Membership me, Timesheet sheet, Instant submittedAt) {
+        if (sheet == null) {
+            return Optional.of(ApprovalSkip.NOT_FOUND);
+        }
+        if (Objects.equals(sheet.userId, me.userId) && me.role != Role.OWNER) {
+            return Optional.of(ApprovalSkip.OWN_WEEK);
+        }
+        if (sheet.status != TimesheetStatus.SUBMITTED) {
+            return Optional.of(ApprovalSkip.NOT_SUBMITTED);
+        }
+        // Compared to the millisecond: the database keeps microseconds, and a browser that
+        // passes the time on may keep less. Nobody withdraws and submits again within one.
+        if (sheet.submittedAt == null
+                || !sheet.submittedAt.truncatedTo(ChronoUnit.MILLIS).equals(submittedAt.truncatedTo(ChronoUnit.MILLIS))) {
+            return Optional.of(ApprovalSkip.CHANGED);
+        }
+        return Optional.empty();
+    }
+
+    /** Marks a week approved and writes its line in the activity log. Returns the message for its owner. */
+    private String markApproved(Membership me, Timesheet sheet, String reviewerName, String ownerName) {
         sheet.status = TimesheetStatus.APPROVED;
         sheet.reviewedAt = Instant.now(clock);
         sheet.reviewedBy = me.userId;
         sheet.reviewNote = null;
-        User reviewer = User.findById(me.userId);
-        notifier.notifyAboutWeek(sheet.userId, sheet.organisationId, me.userId, NotificationType.TIMESHEET_APPROVED,
-                reviewer.name + " approved your timesheet for the week of " + sheet.weekStart, sheet.weekStart);
-        User owner = User.findById(sheet.userId);
         activity.record(sheet.organisationId, null, null, me.userId, "timesheet.approved",
-                "Approved " + owner.name + "'s timesheet for the week of " + sheet.weekStart);
-        return sheet;
+                "Approved " + ownerName + "'s timesheet for the week of " + sheet.weekStart);
+        return reviewerName + " approved your timesheet for the week of " + sheet.weekStart;
     }
 
     public Timesheet reject(Membership me, Timesheet sheet, String note) {
@@ -205,9 +287,21 @@ public class TimesheetService {
         Set<Long> userIds = team.stream().map(m -> m.userId).collect(Collectors.toSet());
         Map<Long, String> names = new HashMap<>();
         User.<User>list("id in ?1", userIds).forEach(u -> names.put(u.id, u.name));
+        // The week's capacity, counted the way the workload counts it.
+        LocalDate weekEnd = weekStart.plusDays(6);
+        WorkCalendar calendar = calendars.of(organisationId);
+        WorkloadCalculator workload = new WorkloadCalculator(calendar);
+        Map<Long, Set<LocalDate>> daysOff = calendars.daysOff(organisationId, weekStart, weekEnd);
+        int workingDays = calendar.workingDaysBetween(weekStart, weekEnd);
         List<Person> people = team.stream()
-                .map(m -> new Person(m.userId, names.get(m.userId), LocalDate.ofInstant(m.createdAt, org.zone()),
-                        m.weeklyCapacityHours))
+                .map(m -> {
+                    Set<LocalDate> away = daysOff.getOrDefault(m.userId, Set.of());
+                    long capacity = workload.capacityMinutes(
+                            new WorkloadCalculator.Person(m.userId, m.weeklyCapacityHours.doubleValue(), away), weekStart, weekEnd);
+                    long awayDays = away.stream().filter(calendar::isWorkingDay).count();
+                    return new Person(m.userId, names.get(m.userId), LocalDate.ofInstant(m.createdAt, org.zone()),
+                            Math.round(capacity / 6.0) / 10.0, workingDays > 0 && awayDays >= workingDays);
+                })
                 .toList();
 
         Map<Long, TimesheetStatus> statuses = new HashMap<>();

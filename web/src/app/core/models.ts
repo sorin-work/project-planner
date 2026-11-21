@@ -483,7 +483,10 @@ export interface MissingTimesheet {
   userName: string;
   status: TimesheetStatus;
   totalMinutes: number;
-  weeklyCapacityHours: number;
+  /** The week's capacity: the weekly hours less a fifth for each holiday and each day off. */
+  capacityHours: number;
+  /** Time off on every working day of the week. */
+  away: boolean;
   remindedToday: boolean;
 }
 
@@ -500,6 +503,19 @@ export interface RemindResult {
   weekStart: string;
   reminded: number[];
   skipped: { userId: number; reason: ReminderSkip }[];
+}
+
+/** A week as it was in the approval queue. */
+export interface SheetToApprove {
+  id: number;
+  submittedAt: string;
+}
+
+export type ApprovalSkip = 'NOT_FOUND' | 'OWN_WEEK' | 'NOT_SUBMITTED' | 'CHANGED';
+
+export interface ApproveResult {
+  approved: number[];
+  skipped: { timesheetId: number; reason: ApprovalSkip }[];
 }
 
 export type ReportGroupBy = 'PROJECT' | 'CLIENT' | 'MEMBER' | 'TASK';

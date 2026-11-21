@@ -5,7 +5,6 @@ import com.projectplanner.time.MissingTimesheets.Person;
 import com.projectplanner.time.MissingTimesheets.Skip;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +18,7 @@ class MissingTimesheetsTest {
     private static final LocalDate WEEK = LocalDate.of(2026, 3, 2);
 
     private static Person person(long id, String name, LocalDate joined) {
-        return new Person(id, name, joined, BigDecimal.valueOf(40));
+        return new Person(id, name, joined, 40, false);
     }
 
     private static Person person(long id, String name) {
@@ -45,7 +44,8 @@ class MissingTimesheetsTest {
         Missing ada = missing.getFirst();
         assertThat(ada.status()).isEqualTo(TimesheetStatus.REJECTED);
         assertThat(ada.totalMinutes()).isEqualTo(2400);
-        assertThat(ada.weeklyCapacityHours()).isEqualByComparingTo("40");
+        assertThat(ada.capacityHours()).isEqualTo(40);
+        assertThat(ada.away()).isFalse();
         assertThat(ada.remindedToday()).isTrue();
         // Never submitted: no status, no time and no reminder.
         Missing zoe = missing.getLast();
@@ -53,6 +53,18 @@ class MissingTimesheetsTest {
         assertThat(zoe.totalMinutes()).isEqualTo(90);
         assertThat(zoe.remindedToday()).isFalse();
         assertThat(missing.get(1).totalMinutes()).isZero();
+    }
+
+    @Test
+    void keepsPeopleWhoWereAwayTheWholeWeek() {
+        List<Missing> missing = MissingTimesheets.find(WEEK,
+                List.of(new Person(1, "Away", WEEK.minusMonths(6), 0, true), person(2, "Here")),
+                Map.of(), Map.of(1L, 60), Set.of());
+
+        assertThat(missing).extracting(Missing::userName).containsExactly("Away", "Here");
+        assertThat(missing.getFirst().away()).isTrue();
+        assertThat(missing.getFirst().capacityHours()).isZero();
+        assertThat(missing.getFirst().totalMinutes()).isEqualTo(60);
     }
 
     @Test
@@ -66,8 +78,8 @@ class MissingTimesheetsTest {
 
     @Test
     void saysWhySomebodyGetsNoReminder() {
-        Missing late = new Missing(7, "Ada", TimesheetStatus.DRAFT, 120, BigDecimal.valueOf(40), false);
-        Missing reminded = new Missing(8, "Ben", TimesheetStatus.REJECTED, 120, BigDecimal.valueOf(40), true);
+        Missing late = new Missing(7, "Ada", TimesheetStatus.DRAFT, 120, 40, false, false);
+        Missing reminded = new Missing(8, "Ben", TimesheetStatus.REJECTED, 120, 40, false, true);
 
         assertThat(MissingTimesheets.skipReason(late, 1)).isEmpty();
         assertThat(MissingTimesheets.skipReason(null, 1)).contains(Skip.NOT_MISSING);

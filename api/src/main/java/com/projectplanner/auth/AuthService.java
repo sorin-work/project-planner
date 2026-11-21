@@ -106,30 +106,25 @@ public class AuthService {
     }
 
     /**
-     * Signs in, within the limits of {@link LoginLimits} for the client {@code address} and
-     * for the account. An unknown email is checked against a dummy hash, so that the time of
-     * the answer does not say whether there is an account.
+     * Signs in, within the limits of {@link LoginLimits}: only a wait of this account from this
+     * client {@code address} refuses a try. An unknown email is checked against a dummy hash, so
+     * that the time of the answer does not say whether there is an account.
      */
     public AuthResponse login(LoginRequest request, String address) {
         Instant now = clock.instant();
-        LoginLimits.Claim claim = limits.claim(address, now);
         Optional<User> found = User.findByEmail(request.email());
         if (found.isEmpty()) {
             hasher.matches(request.password(), hasher.dummyHash());
+            limits.addressFailed(address, now);
             throw wrongPassword();
         }
         User user = found.get();
-        try {
-            limits.claim(user, now);
-        } catch (ApiException e) {
-            // Refused without looking at the password: not a wrong one for the address.
-            limits.release(claim);
-            throw e;
-        }
+        limits.claim(user, address, now);
         if (!hasher.matches(request.password(), user.passwordHash)) {
+            limits.failed(user, address, now);
             throw wrongPassword();
         }
-        limits.succeeded(user, claim);
+        limits.succeeded(user, address, now);
         return respond(user);
     }
 

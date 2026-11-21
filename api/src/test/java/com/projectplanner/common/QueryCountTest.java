@@ -76,7 +76,8 @@ class QueryCountTest {
 
     @Test
     void theDashboardDoesNotGrowWithTheProjects() {
-        assertThat(statements(org.owner(), r -> r.get(orgPath("/dashboard")))).isLessThanOrEqualTo(23);
+        // 24 since the missing timesheets count capacity per week: the time off of last week is one more.
+        assertThat(statements(org.owner(), r -> r.get(orgPath("/dashboard")))).isLessThanOrEqualTo(24);
     }
 
     @Test
@@ -98,6 +99,39 @@ class QueryCountTest {
             assertThat(statements(who, r -> r.queryParam("assigneeId", org.owner().userId()).queryParam("limit", 200)
                     .get(orgPath("/search")))).isLessThanOrEqualTo(5);
         }
+    }
+
+    @Test
+    void approvingManyWeeksReadsAsMuchAsApprovingOne() {
+        Account owner = Api.signup("Bulk Owner");
+        long projectId = Api.createProject(owner, "BULKQ");
+        java.time.LocalDate week = com.projectplanner.schedule.WorkCalendar.weekStart(
+                java.time.LocalDate.now(java.time.ZoneOffset.UTC)).minusWeeks(1);
+        String path = "/api/orgs/" + owner.orgId() + "/timesheets";
+        for (int i = 0; i < 6; i++) {
+            Account member = Api.signup("Bulk Member " + i);
+            Api.addMember(owner, member, "MEMBER");
+            member.as().body(Map.of("projectId", projectId, "date", week.toString(), "minutes", 60))
+                    .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201);
+            member.as().body(Map.of("weekStart", week.toString())).post(path + "/submit").then().statusCode(200);
+        }
+        java.util.List<Map<String, Object>> queue = owner.as().get(path).then().statusCode(200).extract().jsonPath()
+                .<Map<String, Object>>getList("$").stream()
+                .map(s -> Map.<String, Object>of("id", s.get("id"), "submittedAt", s.get("submittedAt"))).toList();
+
+        Statistics statistics = sessionFactory.getStatistics();
+        statistics.clear();
+        owner.as().body(Map.of("sheets", queue.subList(0, 1))).post(path + "/approve").then().statusCode(200);
+        long one = statistics.getPrepareStatementCount();
+        statistics.clear();
+        owner.as().body(Map.of("sheets", queue.subList(1, 6))).post(path + "/approve").then().statusCode(200);
+        long five = statistics.getPrepareStatementCount();
+
+        // The session check, the membership, the weeks with their lock, the people and their
+        // notification choices, and per week only what is written: its notification and its
+        // line in the activity log (the updates go out as one batch).
+        assertThat(one).isLessThanOrEqualTo(9);
+        assertThat(five - one).isEqualTo(4 * 2);
     }
 
     @Test

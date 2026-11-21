@@ -3,6 +3,7 @@ package com.projectplanner.auth;
 import com.projectplanner.common.ApiException;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.PersistenceException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -11,32 +12,43 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Brakes on guessing passwords, per account and per client address.
+ * Brakes on guessing passwords.
  * <p>
- * A few wrong passwords pass. After that each further try waits, counted from the last
- * wrong one: a second, then two, four and so on, up to {@link #MAX_WAIT}. A try during the
- * wait is refused with {@code 429 too_many_attempts} before the password is looked at, so
- * that the answer says nothing about it, and it does not count as a failure: the wait never
- * grows from the owner trying again. An account is never locked: after at most
- * {@link #MAX_WAIT} a try goes through, and a password reset sets the count back to zero.
+ * The one that refuses is per account and client address: a few wrong passwords for an
+ * account from one address pass, then each further try from that address for that account
+ * waits, counted from the last wrong one: a second, then two, four and so on, up to
+ * {@link #MAX_WAIT}. A try during the wait is refused with {@code 429 too_many_attempts}
+ * before the password is looked at, so that the answer says nothing about it, and it does
+ * not count: the wait never grows from trying again. Somebody trying passwords from one
+ * place only slows down that place. The owner signing in from another address is never
+ * held back by it, and a password reset clears it everywhere.
  * <p>
- * A try is counted as a failure before the password is checked, and taken back when it was
- * right. That way a burst of tries at the same moment cannot all get past the wait: for the
- * account the count is moved on by an update that only matches the count it read, and for
- * the address the count is changed under a lock.
+ * Two more counts never refuse anything, so that neither can keep anybody with the right
+ * password out: wrong passwords for the account from every address together, and wrong
+ * passwords from one address for every account. Past {@link #ACCOUNT_FREE} or
+ * {@link #ADDRESS_FREE} of them, a new pair of account and address gets a single free try
+ * instead of {@link #PAIR_FREE} before it waits. That slows down guessing from many
+ * addresses at one account, and from one address at many accounts, while an office behind
+ * one address, where somebody typed a wrong password, still signs in.
  * <p>
- * The counts per account are in the database (see {@link User#failedLogins}), so that they
- * hold across a restart and across copies of the API. The counts per address are in memory,
- * like {@link com.projectplanner.mail.ClientThrottle}: they stop one machine from trying
- * many accounts, and a restart resets them. An address gets more free failures than an
- * account, since a whole office may sign in from one. Both forget the failures after a quiet
- * spell, so that a typo next month does not wait for one from last year.
+ * A try is counted as a failure of its pair before the password is checked, and taken back
+ * when it was right. The count is moved on by an update that only matches the count it
+ * read, so that of a burst of tries at the same moment only as many get through as the
+ * limit lets through.
+ * <p>
+ * The pairs and the counts per account are in the database, so that they hold across a
+ * restart and across copies of the API. The counts per address are in memory, like
+ * {@link com.projectplanner.mail.ClientThrottle}, and a restart resets them. All of them
+ * forget the failures after a quiet spell, so that a typo next month does not wait for one
+ * from last year.
  */
 @ApplicationScoped
 public class LoginLimits {
 
-    static final int ACCOUNT_FREE = 5;
-    static final int ADDRESS_FREE = 20;
+    static final int PAIR_FREE = 5;
+    static final int PRESSED_FREE = 1;
+    static final int ACCOUNT_FREE = 20;
+    static final int ADDRESS_FREE = 100;
     static final Duration FIRST_WAIT = Duration.ofSeconds(1);
     static final Duration MAX_WAIT = Duration.ofMinutes(5);
     static final Duration ACCOUNT_QUIET = Duration.ofDays(1);
@@ -46,10 +58,6 @@ public class LoginLimits {
 
     /** The failures of one address and when the last one was. */
     record Tally(int failures, Instant last) {
-    }
-
-    /** A try of an address, counted as a failure until {@link #release} takes it back. */
-    public record Claim(String address, Tally before, Tally after) {
     }
 
     private final Map<String, Tally> addresses;
@@ -93,74 +101,98 @@ public class LoginLimits {
         return left.isNegative() ? Duration.ZERO : left;
     }
 
-    /** Counts a try of {@code address} as a failure, or refuses it while the address waits. */
-    public synchronized Claim claim(String address, Instant now) {
-        Tally before = addresses.get(address);
-        int failures = before == null ? 0 : before.failures();
-        Instant last = before == null ? null : before.last();
-        Duration wait = remaining(failures, last, now, ADDRESS_FREE, ADDRESS_QUIET);
-        if (!wait.isZero()) {
-            throw tooMany(wait);
-        }
-        Tally after = new Tally(counted(failures, last, now, ADDRESS_QUIET) + 1, now);
-        addresses.put(address, after);
-        return new Claim(address, before, after);
+    /** Whether the address has had more wrong passwords than it gets for free. */
+    synchronized boolean addressPressed(String address, Instant now) {
+        Tally tally = addresses.get(address);
+        return tally != null && counted(tally.failures(), tally.last(), now, ADDRESS_QUIET) >= ADDRESS_FREE;
     }
 
-    /** Takes back a try of an address that was not a wrong password. */
-    public synchronized void release(Claim claim) {
-        Tally current = addresses.get(claim.address());
-        if (current == claim.after()) {
-            if (claim.before() == null) {
-                addresses.remove(claim.address());
-            } else {
-                addresses.put(claim.address(), claim.before());
-            }
-        } else if (current != null) {
-            // Other tries were counted since: only this one comes off.
-            addresses.put(claim.address(), new Tally(Math.max(current.failures() - 1, 0), current.last()));
-        }
+    /** Counts a wrong password, or an unknown email, from {@code address}. */
+    public synchronized void addressFailed(String address, Instant now) {
+        Tally tally = addresses.get(address);
+        int failures = tally == null ? 0 : counted(tally.failures(), tally.last(), now, ADDRESS_QUIET);
+        addresses.put(address, new Tally(failures + 1, now));
     }
 
     /**
-     * Counts a try of the account as a failure, or refuses it while the account waits. The
-     * count is moved on in a transaction of its own, before the password is hashed, so that
-     * the row is not held while that takes its time.
+     * Counts a try of the account from {@code address} as a failure, or refuses it while that
+     * pair waits. In transactions of their own, before the password is hashed, so that no row
+     * is held while that takes its time.
      */
-    public void claim(User user, Instant now) {
-        int seen = user.failedLogins;
-        Instant last = user.lastFailedLoginAt;
-        for (int attempt = 1; ; attempt++) {
-            Duration wait = remaining(seen, last, now, ACCOUNT_FREE, ACCOUNT_QUIET);
+    public void claim(User user, String address, Instant now) {
+        boolean pressed = counted(user.failedLogins, user.lastFailedLoginAt, now, ACCOUNT_QUIET) >= ACCOUNT_FREE
+                || addressPressed(address, now);
+        int free = pressed ? PRESSED_FREE : PAIR_FREE;
+        // In whole milliseconds: the database keeps microseconds and may round up, which
+        // would put the failure after the moment it happened.
+        Instant at = now.truncatedTo(ChronoUnit.MILLIS);
+        for (int attempt = 1; attempt <= CLAIM_ATTEMPTS; attempt++) {
+            LoginFailure pair = QuarkusTransaction.requiringNew().call(() ->
+                    LoginFailure.<LoginFailure>find("userId = ?1 and address = ?2", user.id, address).firstResult());
+            int seen = pair == null ? 0 : pair.failures;
+            Instant last = pair == null ? null : pair.lastFailedAt;
+            Duration wait = remaining(seen, last, now, free, ACCOUNT_QUIET);
             if (!wait.isZero()) {
                 throw tooMany(wait);
             }
             int next = counted(seen, last, now, ACCOUNT_QUIET) + 1;
-            int expected = seen;
-            // In whole milliseconds: the database keeps microseconds and may round up, which
-            // would put the failure after the moment it happened.
-            Instant at = now.truncatedTo(ChronoUnit.MILLIS);
-            int updated = QuarkusTransaction.requiringNew().call(() -> User.update(
-                    "failedLogins = ?1, lastFailedLoginAt = ?2 where id = ?3 and failedLogins = ?4",
-                    next, at, user.id, expected));
-            if (updated == 1) {
-                return;
+            if (pair == null) {
+                if (insert(user.id, address, at)) {
+                    return;
+                }
+            } else {
+                long id = pair.id;
+                int updated = QuarkusTransaction.requiringNew().call(() -> LoginFailure.update(
+                        "failures = ?1, lastFailedAt = ?2 where id = ?3 and failures = ?4", next, at, id, seen));
+                if (updated == 1) {
+                    return;
+                }
             }
-            if (attempt == CLAIM_ATTEMPTS) {
-                throw tooMany(FIRST_WAIT);
+            // Another try of the pair was counted at the same moment: go on from what it left.
+        }
+        throw tooMany(FIRST_WAIT);
+    }
+
+    /** The first failure of a pair. False when another try made the row at the same moment. */
+    private static boolean insert(long userId, String address, Instant at) {
+        try {
+            QuarkusTransaction.requiringNew().run(() -> {
+                LoginFailure row = new LoginFailure();
+                row.userId = userId;
+                row.address = address;
+                row.failures = 1;
+                row.lastFailedAt = at;
+                row.persist();
+            });
+            return true;
+        } catch (PersistenceException e) {
+            return false;
+        } catch (RuntimeException e) {
+            if (e.getCause() instanceof PersistenceException) {
+                return false;
             }
-            // Another try of the account was counted at the same moment: go on from what it left.
-            User fresh = QuarkusTransaction.requiringNew().call(() -> User.<User>findById(user.id));
-            seen = fresh.failedLogins;
-            last = fresh.lastFailedLoginAt;
+            throw e;
         }
     }
 
-    /** The password was right: the account starts again from zero and the address gets its try back. */
-    public void succeeded(User user, Claim claim) {
-        QuarkusTransaction.requiringNew().run(() ->
-                User.update("failedLogins = 0, lastFailedLoginAt = null where id = ?1", user.id));
-        release(claim);
+    /** The password was wrong: it counts for the account and for the address too. */
+    public void failed(User user, String address, Instant now) {
+        Instant at = now.truncatedTo(ChronoUnit.MILLIS);
+        boolean fresh = counted(user.failedLogins, user.lastFailedLoginAt, now, ACCOUNT_QUIET) == 0;
+        QuarkusTransaction.requiringNew().run(() -> User.update(
+                "failedLogins = " + (fresh ? "1" : "failedLogins + 1") + ", lastFailedLoginAt = ?1 where id = ?2", at, user.id));
+        addressFailed(address, now);
+    }
+
+    /**
+     * The password was right: the pair is forgotten, along with pairs of the account that have
+     * been quiet long enough, and the account starts again from zero.
+     */
+    public void succeeded(User user, String address, Instant now) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            LoginFailure.delete("userId = ?1 and (address = ?2 or lastFailedAt < ?3)", user.id, address, now.minus(ACCOUNT_QUIET));
+            User.update("failedLogins = 0, lastFailedLoginAt = null where id = ?1", user.id);
+        });
     }
 
     /** Forgets every address. For tests. */

@@ -1,7 +1,16 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { MissingTimesheets, RemindResult, TimeEntry, TimesheetStatus, TimesheetSummary, Week } from './models';
+import {
+  ApproveResult,
+  MissingTimesheets,
+  RemindResult,
+  SheetToApprove,
+  TimeEntry,
+  TimesheetStatus,
+  TimesheetSummary,
+  Week,
+} from './models';
 
 export interface TimeEntryInput {
   projectId: number;
@@ -101,6 +110,11 @@ export class TimeApi {
 
   approve(orgId: number, id: number): Observable<Week> {
     return this.http.post<Week>(`/api/orgs/${orgId}/timesheets/${id}/approve`, {});
+  }
+
+  /** Approves the weeks that are still as they were in the queue; the answer says which were left out. */
+  approveAll(orgId: number, sheets: SheetToApprove[]): Observable<ApproveResult> {
+    return this.http.post<ApproveResult>(`/api/orgs/${orgId}/timesheets/approve`, { sheets });
   }
 
   reject(orgId: number, id: number, note: string): Observable<Week> {

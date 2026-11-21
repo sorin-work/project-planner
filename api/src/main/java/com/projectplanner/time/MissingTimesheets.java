@@ -2,7 +2,6 @@ package com.projectplanner.time;
 
 import com.projectplanner.schedule.WorkCalendar;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -26,12 +25,22 @@ public final class MissingTimesheets {
     private MissingTimesheets() {
     }
 
-    /** A team member, with the day they joined in the organisation's time zone. */
-    public record Person(long userId, String name, LocalDate joined, BigDecimal weeklyCapacityHours) {
+    /**
+     * A team member, with the day they joined in the organisation's time zone and what they
+     * could work in the week: their weekly hours less the holidays and their days off, as the
+     * workload counts it. {@code away} is true when their time off covers every working day.
+     */
+    public record Person(long userId, String name, LocalDate joined, double capacityHours, boolean away) {
     }
 
+    /**
+     * @param capacityHours the week's capacity, lower than the weekly hours by a fifth for each
+     *                      holiday and each day off
+     * @param away          time off on every working day of the week. They stay on the list, since
+     *                      somebody may have worked anyway.
+     */
     public record Missing(long userId, String userName, TimesheetStatus status, int totalMinutes,
-                          BigDecimal weeklyCapacityHours, boolean remindedToday) {
+                          double capacityHours, boolean away, boolean remindedToday) {
     }
 
     /** Why somebody on a reminder request got no reminder. */
@@ -64,7 +73,7 @@ public final class MissingTimesheets {
                 continue;
             }
             result.add(new Missing(person.userId(), person.name(), status, minutes.getOrDefault(person.userId(), 0),
-                    person.weeklyCapacityHours(), remindedToday.contains(person.userId())));
+                    person.capacityHours(), person.away(), remindedToday.contains(person.userId())));
         }
         result.sort(Comparator.comparing(Missing::userName, String.CASE_INSENSITIVE_ORDER).thenComparing(Missing::userId));
         return result;
