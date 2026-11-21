@@ -151,7 +151,16 @@ the point is knowing whether a project will land on time and on budget.
 - **Notification mails**: with mail set up, mentions, tasks assigned to you, timesheets
   sent back and reminders are also mailed, several at a time in one mail. Each type can
   be mailed, shown in the app only or switched off in the settings, and every mail has
-  a link that stops the mails of its types without signing in.
+  a link that stops the mails of its types without signing in. Every mailed link names
+  its organisation, and the app switches to it before the page opens.
+- **Morning summary**: on working days at eight in the organisation's time zone, one
+  mail per person and organisation with how many of their tasks are due today and
+  overdue and, for owners and managers, how many timesheets wait for review, with a
+  link to My tasks or Approvals. Counts only, no titles, and no mail when there is
+  nothing to say. On by default for owners and managers, off for the others.
+- **Automatic reminders**: an organisation setting, off by default. On the first
+  working day of the week, everybody who logged time last week and did not submit it
+  gets the reminder "Remind all" would send, under the same limits.
 - **Budget alerts**: when a project's hours burn or money burn reaches 80% of its
   budget, and again when it reaches 100%, every owner and manager gets a notification
   that opens the project's overview. Hours and money are announced separately, and the
@@ -424,6 +433,35 @@ reminders; the app only for the rest. "Not at all" also leaves the notification 
 the app. The choice holds for every organisation a person is in. Notifications from
 before the upgrade, made while mail was off, or seeded with the demo data are never
 mailed.
+
+Every link in a notification mail or a summary carries `org=` with its organisation.
+Without it a link opens in whichever organisation the browser has selected, so a mail
+from a second organisation could open a project that "does not exist". A guard on the
+signed-in routes (`core/org-link.guard.ts`) switches to that organisation before the
+page loads, when the person is a member of it, and leaves the link alone otherwise.
+
+The morning summary (`DailySummaries`, once a minute like the notification job) goes out
+from eight in the morning in the organisation's time zone, worked out from the zone each
+day so daylight saving moves it in UTC and nowhere else, on the organisation's working
+days only: no weekends, no holidays. A summary that did not go out at eight, because the
+API was down, still goes out later that morning, and not at all from noon on. One per
+person, organisation and day: the job inserts a row in `daily_summaries` (`V30`) in a
+transaction of its own before it sends, and the unique key on organisation, person and
+day lets only one instance through. The row is also written when there is nothing to
+say, so nobody is looked at twice in a morning. A summary that fails to send is logged
+and not tried again that day. It is a mail-only kind, `DAILY_SUMMARY`, on the settings
+card next to the notification types with on and off only, and its stop link turns it
+off. Without a choice it is on where the person is an owner or a manager. There is one
+mail per organisation, not one for all of them, so that the counts and the link are
+about one place. The link to My tasks needs that page (roadmap item 19).
+
+Automatic reminders (`AutoReminders`) are switched on per organisation
+(`autoReminders` on `PATCH /api/orgs/{orgId}`, off by default). On the first working
+day of the week, from eight to noon in the organisation's time zone, the people who
+logged time in last week and did not submit it get a `TIMESHEET_REMINDER` with nobody
+as its sender, through the same limits as "Remind all": once per person, week and day,
+five a day. The organisation's `reminders_sent_on` is moved on to the day by the one run
+that sends them, so two instances never both do.
 
 A mail that cannot be sent is logged at WARN with the kind of mail and the type of the
 error, without the address or the link. The whole error, which can name the address,
