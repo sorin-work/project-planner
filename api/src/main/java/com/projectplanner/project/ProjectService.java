@@ -36,8 +36,11 @@ public class ProjectService {
     private final EntityManager em;
     private final Clock clock;
     private final Event<BudgetChanged> budgetChanged;
+    private final Event<PlanChanged> planChanged;
 
-    public ProjectService(ActivityLog activity, EntityManager em, Clock clock, Event<BudgetChanged> budgetChanged) {
+    public ProjectService(ActivityLog activity, EntityManager em, Clock clock, Event<BudgetChanged> budgetChanged,
+                          Event<PlanChanged> planChanged) {
+        this.planChanged = planChanged;
         this.activity = activity;
         this.em = em;
         this.clock = clock;
@@ -77,6 +80,8 @@ public class ProjectService {
         if (!same(budgetHours, project.budgetHours) || !same(budgetAmount, project.budgetAmount) || !same(hourlyRate, project.hourlyRate)) {
             budgetChanged.fire(new BudgetChanged(project.id));
         }
+        // The end date and the status are part of the schedule alerts.
+        planChanged.fire(new PlanChanged(project.id));
         if (before != project.status) {
             activity.record(project.organisationId, project.id, null, me.userId, "project.status",
                     "Changed status of " + project.name + " to " + project.status.name().toLowerCase(Locale.ROOT).replace('_', ' '));

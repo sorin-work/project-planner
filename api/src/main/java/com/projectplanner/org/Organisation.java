@@ -44,6 +44,10 @@ public class Organisation extends PanacheEntityBase {
     @Column(name = "reminders_sent_on")
     public LocalDate remindersSentOn;
 
+    /** The day the daily look at the schedules of the active projects last ran. */
+    @Column(name = "schedule_checked_on")
+    public LocalDate scheduleCheckedOn;
+
     public ZoneId zone() {
         return ZoneId.of(timezone);
     }

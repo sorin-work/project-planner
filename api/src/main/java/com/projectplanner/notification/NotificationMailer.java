@@ -240,7 +240,8 @@ public class NotificationMailer {
             return false;
         }
         Membership membership = found.get();
-        if ((n.type == NotificationType.BUDGET_ALERT || n.type == NotificationType.TIMESHEET_SUBMITTED)
+        if ((n.type == NotificationType.BUDGET_ALERT || n.type == NotificationType.SCHEDULE_ALERT
+                || n.type == NotificationType.TIMESHEET_SUBMITTED)
                 && !membership.role.canManage()) {
             return false;
         }
@@ -265,6 +266,7 @@ public class NotificationMailer {
             case TIMESHEET_REJECTED -> "Your timesheet" + week + " was sent back.";
             case TIMESHEET_REMINDER -> "You were reminded to submit your timesheet" + week + ".";
             case BUDGET_ALERT -> "A project passed a budget threshold.";
+            case SCHEDULE_ALERT -> "A project's schedule needs a look.";
             case DAILY_SUMMARY -> "Your morning summary.";
         };
     }
@@ -279,6 +281,7 @@ public class NotificationMailer {
             case TIMESHEET_REJECTED -> "timesheets sent back";
             case TIMESHEET_REMINDER -> "timesheet reminders";
             case BUDGET_ALERT -> "budget alerts";
+            case SCHEDULE_ALERT -> "schedule alerts";
             case DAILY_SUMMARY -> "the morning summary";
         };
     }

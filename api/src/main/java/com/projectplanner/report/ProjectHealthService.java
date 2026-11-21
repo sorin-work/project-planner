@@ -91,8 +91,16 @@ public class ProjectHealthService {
     public Map<Long, HealthSummary> summaries(long organisationId, List<Project> projects, Membership viewer,
                                               boolean scheduleIssues) {
         Map<Long, HealthSummary> summaries = new HashMap<>();
+        healths(organisationId, projects, viewer, scheduleIssues).forEach((id, h) -> summaries.put(id, summary(h)));
+        return summaries;
+    }
+
+    /** The whole health of each project, in the same fixed number of queries as {@link #summaries}. */
+    public Map<Long, ProjectHealth> healths(long organisationId, List<Project> projects, Membership viewer,
+                                            boolean scheduleIssues) {
+        Map<Long, ProjectHealth> healths = new HashMap<>();
         if (projects.isEmpty()) {
-            return summaries;
+            return healths;
         }
         LocalDate today = Organisation.<Organisation>findById(organisationId).today(clock);
         List<Long> ids = projects.stream().map(p -> p.id).toList();
@@ -103,11 +111,10 @@ public class ProjectHealthService {
         WorkCalendar calendar = calendars.of(organisationId);
         Map<Long, List<Link>> links = scheduleIssues ? ScheduleIssues.linksOf(ids) : null;
         for (Project project : projects) {
-            ProjectHealth h = health(project, viewer, calendar, today, tasks.getOrDefault(project.id, List.of()), budgets.get(project.id),
-                    links == null ? null : links.getOrDefault(project.id, List.of()));
-            summaries.put(project.id, summary(h));
+            healths.put(project.id, health(project, viewer, calendar, today, tasks.getOrDefault(project.id, List.of()),
+                    budgets.get(project.id), links == null ? null : links.getOrDefault(project.id, List.of())));
         }
-        return summaries;
+        return healths;
     }
 
     private static HealthSummary summary(ProjectHealth h) {
