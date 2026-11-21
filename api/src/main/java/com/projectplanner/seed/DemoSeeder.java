@@ -303,6 +303,8 @@ public class DemoSeeder {
         Plan plan = new Plan(project("acme", "Acme booking app", "ACME-APP", ProjectStatus.ACTIVE, "#4f6bed",
                 "iOS and Android app for booking guided hikes and gear rental, with offline trail maps.",
                 -110, 900, 76500));
+        // Priya runs it: its budget alerts go to her and the owner.
+        plan.p.leadId = users.get("priya").id;
         plan.phase("Discovery");
         int kickoff = plan.task("Kick-off and goals", 0, 2, 10, "maya");
         int research = plan.task("Competitor and user research", 0, 6, 30, "tom", kickoff);
@@ -350,6 +352,8 @@ public class DemoSeeder {
                 "Shared component library and tokens for all client work. Internal and non-billable.",
                 -80, 240, 0));
         plan.p.budgetAmount = null;
+        // Led by a member: Lena hears about its hours and never about money.
+        plan.p.leadId = users.get("lena").id;
         plan.phase("Foundations");
         int tokens = plan.task("Colour, type and spacing tokens", 0, 5, 20, "tom");
         int icons = plan.task("Icon set", 0, 6, 18, "tom", tokens);

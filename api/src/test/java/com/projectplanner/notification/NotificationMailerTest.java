@@ -267,6 +267,29 @@ class NotificationMailerTest {
     }
 
     @Test
+    void aMemberWhoLeadsAProjectGetsItsHoursAlertByMailButNeverTheMoneyOne() {
+        Account owner = Api.signup("Ona Owner");
+        Account lead = Api.signup("Lev Lead");
+        Api.addMember(owner, lead, "MANAGER");
+        lead.as().body(Map.of("preferences", List.of(Map.of("type", "BUDGET_ALERT", "delivery", "EMAIL"))))
+                .put("/api/me/notification-preferences").then().statusCode(200);
+        Number id = owner.as().body(Map.of("name", "Led project", "code", "LED", "status", "ACTIVE", "budgetHours", 10,
+                        "budgetAmount", 1000, "hourlyRate", 100, "leadId", lead.userId()))
+                .post("/api/orgs/" + owner.orgId() + "/projects").then().statusCode(201).extract().path("id");
+        java.time.LocalDate monday = java.time.LocalDate.now().with(java.time.DayOfWeek.MONDAY).minusWeeks(1);
+        owner.as().body(Map.of("projectId", id, "date", monday.toString(), "minutes", 480, "billable", true))
+                .post("/api/orgs/" + owner.orgId() + "/time-entries").then().statusCode(201);
+        // As a manager the lead was told about the hours and the money. Now a member, still the lead.
+        owner.as().body(Map.of("role", "MEMBER")).patch("/api/orgs/" + owner.orgId() + "/members/" + memberId(owner, lead))
+                .then().statusCode(200);
+        owner.as().get("/api/projects/" + id).then().statusCode(200).body("leadId", equalTo((int) lead.userId()));
+
+        mailer.run();
+        Mail mail = only(lead.email());
+        assertThat(mail.getText().split("A project passed a budget threshold.", -1)).as("one budget alert in the mail").hasSize(2);
+    }
+
+    @Test
     void nothingIsMailedToSomebodyWhoLeftTheOrganisation() {
         Team team = team();
         assign(team);

@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { AuthService } from '../../core/auth.service';
 import { ProjectListItem } from '../../core/models';
 import { OrgContext } from '../../core/org-context.service';
 import { ProjectsPage } from './projects.page';
@@ -33,6 +34,7 @@ describe('ProjectsPage, copying a plan', () => {
     const el = fixture.nativeElement as HTMLElement;
     http.expectOne((r) => r.url === '/api/orgs/1/projects' && !r.params.has('status')).flush([website, intranet]);
     http.expectOne((r) => r.url === '/api/orgs/1/clients').flush([]);
+    http.expectOne((r) => r.url === '/api/orgs/1/members').flush([]);
     await fixture.whenStable();
 
     // The list is narrowed to active projects.
@@ -82,11 +84,45 @@ describe('ProjectsPage, schedule issues', () => {
     const fine = { ...intranet, health: { ...intranet.health, scheduleIssues: 0 } };
     http.expectOne((r) => r.url === '/api/orgs/1/projects').flush([broken, fine]);
     http.expectOne((r) => r.url === '/api/orgs/1/clients').flush([]);
+    http.expectOne((r) => r.url === '/api/orgs/1/members').flush([]);
     await fixture.whenStable();
 
     const markers = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLAnchorElement>('.issue-marker');
     expect(markers).toHaveLength(1);
     expect(markers[0].textContent.trim()).toBe('3 schedule issues');
     expect(markers[0].getAttribute('href')).toBe('/projects/4/timeline');
+  });
+});
+
+describe('ProjectsPage, leads', () => {
+  it('shows who leads each project and narrows the list to those I lead', async () => {
+    TestBed.configureTestingModule({
+      imports: [ProjectsPage],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: OrgContext, useValue: { orgId: () => 1, id: () => 1, canManage: () => false } },
+      ],
+    });
+    TestBed.inject(AuthService).me.set({ user: { id: 5, email: 'lena@example.com', name: 'Lena', handle: 'lena' }, organisations: [] });
+    const http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(ProjectsPage);
+    await fixture.whenStable();
+    const mine = { ...website, project: { ...website.project, leadId: 5, leadName: 'Lena' } };
+    const theirs = { ...intranet, project: { ...intranet.project, leadId: 6, leadName: 'Priya' } };
+    http.expectOne((r) => r.url === '/api/orgs/1/projects').flush([mine, theirs]);
+    http.expectOne((r) => r.url === '/api/orgs/1/clients').flush([]);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect([...el.querySelectorAll('tbody tr')].map((r) => r.querySelectorAll('td')[2].textContent!.trim())).toEqual(['Lena', 'Priya']);
+
+    const filter = [...el.querySelectorAll<HTMLLabelElement>('.filters label')].find((l) => l.textContent!.includes('Led by me'))!;
+    filter.querySelector('input')!.click();
+    await fixture.whenStable();
+    expect(el.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(el.querySelector('tbody tr')!.textContent).toContain('Website');
+    // Nobody who cannot set leads is asked for the people.
+    http.verify();
   });
 });
