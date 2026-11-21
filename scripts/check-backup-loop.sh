@@ -307,7 +307,8 @@ if [ -n "$decrypt" ]; then
   sed '1s/^sealed://' "$in"
   exit 0
 fi
-if [ -e "$STATE/age-fails" ]; then
+# The keys are tried at the start without -o: those tries work, only writing a dump fails.
+if [ -e "$STATE/age-fails" ] && [ -n "$out" ]; then
   echo "sealed:half" >"$out"
   exit 1
 fi
