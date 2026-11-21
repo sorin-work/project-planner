@@ -63,9 +63,8 @@ class BackupWatchTest {
 
     @Test
     void ownersAreToldOnceWhenTheBackupsStop() throws IOException {
+        // Everybody who signs up owns an organisation of their own, so every account here is an owner.
         Account owner = Api.signup("Otto Owner");
-        Account manager = Api.signup("Mia Manager");
-        Api.addMember(owner, manager, "MANAGER");
 
         status("ok", 3600);
         watch.check();
@@ -75,8 +74,15 @@ class BackupWatchTest {
         watch.check();
         watch.check();
         assertThat(alerts(owner)).isEqualTo(1);
-        assertThat(alerts(manager)).isZero();
         owner.as().get("/api/notifications").then().statusCode(200).body("[0].type", equalTo("BACKUP_ALERT"));
+
+        // Told four days ago; since then a good dump was made two days and an hour ago, and
+        // the backups are late again: that is news, once more.
+        QuarkusTransaction.requiringNew().run(() -> Notification.update("createdAt = ?1 where userId = ?2 and type = ?3",
+                Instant.now().minusSeconds(4 * DAY), owner.userId(), NotificationType.BACKUP_ALERT));
+        status("dump_failed", 2 * DAY + 3600);
+        watch.check();
+        assertThat(alerts(owner)).isEqualTo(2);
     }
 
     @Test
