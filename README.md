@@ -255,6 +255,13 @@ dependencies, so they are tested in isolation:
 | `MentionParser`       | Finds @handles in comments (and ignores email addresses)             |
 | `CsvWriter`           | RFC 4180 CSV that neutralises spreadsheet formulas                   |
 
+Rows are locked in one order everywhere, so that two writes at the same moment wait for
+each other and never for each other in a circle: a membership or the organisation first,
+then the project (`Project.locked`, which reads it again under the lock), then its tasks
+and time entries. Every task write (create, change, move, delete, a link that pushes
+tasks) takes the project's row before it writes a task, as every time write does, and the
+budget and schedule alerts look at the project in that same transaction.
+
 Authentication is stateless: `POST /api/auth/login` returns an HS256 JWT signed with
 `JWT_SECRET`, which the web app keeps in `localStorage` and sends as
 `Authorization: Bearer …`. Roles are per organisation, so they are looked up on each
