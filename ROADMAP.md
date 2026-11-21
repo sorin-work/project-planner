@@ -1168,14 +1168,14 @@ screen, each with its `submittedAt`, and answers per week, approved or left
 out with `NOT_FOUND`, `OWN_WEEK`, `NOT_SUBMITTED` or `CHANGED`; a bad week never
 fails the others. The weeks are read in one `id in` query with a lock, in id
 order, and the people and their notification choices in one query each, so
-five weeks read what one does (`QueryCountTest`). Each person gets the
-notification a single approval sends, one per week, and the log has a line
-per week. The approvals page has a box per row, "Select all", "Approve
+five weeks read what one does (`QueryCountTest`). The log has a line per
+week. The approvals page has a box per row, "Select all", "Approve
 selected" and "Approve all", and names each week left out with its reason.
 The "Not submitted" tab shows the week's capacity, counted by
 `WorkloadCalculator.capacityMinutes` with the holidays and time off, and
 somebody off the whole week stays listed, marked away. Differences from the
-design: `submittedAt` is compared to the millisecond, since the database keeps
+design: one notification per week, not one per person, since each opens its
+own week; `submittedAt` is compared to the millisecond, since the database keeps
 microseconds and a client may keep less; a manager's own week has its box turned off,
 since the API would leave it out anyway; and a single approval, a send back and
 a withdrawal now lock the week as well, so that a withdrawal at the same
