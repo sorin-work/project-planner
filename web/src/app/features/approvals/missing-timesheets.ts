@@ -39,9 +39,12 @@ export function remindAllIds(people: MissingTimesheet[], myUserId: number | null
     .map((p) => p.userId);
 }
 
-/** "12h 30m of 32h". */
-export function loggedOfCapacity(person: Pick<MissingTimesheet, 'totalMinutes' | 'weeklyCapacityHours'>): string {
-  return `${formatMinutes(person.totalMinutes)} of ${formatHours(person.weeklyCapacityHours)}`;
+/** "12h 30m of 32h", against the week's capacity, or "1h logged, away" for somebody off the whole week. */
+export function loggedOfCapacity(person: Pick<MissingTimesheet, 'totalMinutes' | 'capacityHours' | 'away'>): string {
+  if (person.away) {
+    return `${formatMinutes(person.totalMinutes)} logged, away`;
+  }
+  return `${formatMinutes(person.totalMinutes)} of ${formatHours(person.capacityHours)}`;
 }
 
 const SKIPPED: Record<ReminderSkip, (who: string, many: boolean) => string> = {
