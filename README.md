@@ -181,7 +181,8 @@ the point is knowing whether a project will land on time and on budget.
   that opens the project's overview. When the project has a lead, only the lead and the
   owners do, so the other managers stop hearing about projects that are not theirs.
   Hours and money are announced separately, and the hours message has no amounts in
-  it: a member who leads a project gets the hours message and never the money one. Each threshold is announced once. A burn that
+  it: a member who leads a project gets the hours message, in the app and by mail, and
+  never the money one. Each threshold is announced once. A burn that
   falls back under one (time deleted, the budget raised) can announce it again later.
   The check runs when time is logged, changed, moved, deleted or a timer stops, and when
   a budget or a rate changes. A project without a budget is never looked at.
@@ -192,7 +193,9 @@ the point is knowing whether a project will land on time and on budget.
   every logged hour. A late end is announced once, until the plan ends in time again.
   The check runs after every change to tasks, links, time, the budget or the project's
   dates, and once at the start of each organisation's day over its active projects, for
-  the task that went overdue overnight with nobody touching anything.
+  the task that went overdue overnight with nobody touching anything. A project with a
+  lead tells the lead and the owners instead, a member who leads it included, since
+  there are no amounts in it; by mail too, when that is how they want it.
 - **Reports**: logged time per project, client, person or task for this or last week
   or month, or any range up to two years, with the billable time and, for owners and
   managers, the billable amount. A click on a project shows its tasks. Utilisation

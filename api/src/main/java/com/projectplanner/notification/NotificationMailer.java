@@ -8,6 +8,7 @@ import com.projectplanner.mail.Mails.Line;
 import com.projectplanner.org.Membership;
 import com.projectplanner.org.OrgAccess;
 import com.projectplanner.project.Project;
+import com.projectplanner.report.BudgetAlerts;
 import com.projectplanner.task.Task;
 import io.quarkus.mailer.MailTemplate.MailTemplateInstance;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -240,14 +241,21 @@ public class NotificationMailer {
             return false;
         }
         Membership membership = found.get();
-        if ((n.type == NotificationType.BUDGET_ALERT || n.type == NotificationType.SCHEDULE_ALERT
-                || n.type == NotificationType.TIMESHEET_SUBMITTED)
-                && !membership.role.canManage()) {
+        Project project = n.projectId == null ? null : Project.findById(n.projectId);
+        if (n.projectId != null && (project == null || !OrgAccess.canSee(membership, project))) {
             return false;
         }
-        if (n.projectId != null) {
-            Project project = Project.findById(n.projectId);
-            if (project == null || !OrgAccess.canSee(membership, project)) {
+        if (!membership.role.canManage()) {
+            if (n.type == NotificationType.TIMESHEET_SUBMITTED) {
+                return false;
+            }
+            // A member who leads the project hears about its hours and its schedule, by mail too,
+            // and never about its money.
+            boolean leads = project != null && membership.userId.equals(project.leadId);
+            if (n.type == NotificationType.SCHEDULE_ALERT && !leads) {
+                return false;
+            }
+            if (n.type == NotificationType.BUDGET_ALERT && (!leads || BudgetAlerts.aboutMoney(n.message))) {
                 return false;
             }
         }

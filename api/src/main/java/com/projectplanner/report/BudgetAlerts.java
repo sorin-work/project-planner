@@ -146,8 +146,15 @@ public class BudgetAlerts {
                 + plain(budget.loggedHours()) + " of " + plain(budget.budgetHours()) + " hours";
     }
 
+    /** Whether a budget alert's message is the one about money, which only those who see amounts may get. */
+    public static boolean aboutMoney(String message) {
+        return message != null && message.contains(MONEY_MARKER);
+    }
+
+    private static final String MONEY_MARKER = "% of its money budget: ";
+
     static String moneyMessage(Project project, Budget budget, String currency) {
-        return project.name + " has used " + BudgetThresholds.shown(budget.amountBurnPct()) + "% of its money budget: "
+        return project.name + " has used " + BudgetThresholds.shown(budget.amountBurnPct()) + MONEY_MARKER
                 + Money.round(budget.spentAmount()).toPlainString() + " of " + Money.round(budget.budgetAmount()).toPlainString()
                 + " " + currency;
     }
